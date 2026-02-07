@@ -31,6 +31,9 @@ Every 30 min   │ Jira sync (crontab, 6-22h M-F) — brain/scripts/jira_sync.py
 06:30 AM       │ Morning Briefing (OpenClaw) — calendar, email, weather, news → Telegram
 
 21:00          │ Evening Wind-Down (OpenClaw) — tomorrow preview, open items → Telegram
+
+Sunday 04:15   │ SSD backup (crontab) — ~/robothor/scripts/backup-ssd.sh
+               │   rsync all dirs + pg_dump + crontab + model list
 ```
 
 ## System Crontab (crontab -l)
@@ -56,6 +59,9 @@ Every 30 min   │ Jira sync (crontab, 6-22h M-F) — brain/scripts/jira_sync.py
 
 # Snapshot cleanup
 0 4 * * * find /home/philip/clawd/memory/snapshots -name '*.jpg' -mtime +30 -delete && find /home/philip/clawd/memory/snapshots -type d -empty -delete
+
+# Weekly SSD backup - Sunday at 4:15 AM
+15 4 * * 0 /home/philip/robothor/scripts/backup-ssd.sh
 ```
 
 ## OpenClaw Cron Jobs (runtime/cron/jobs.json)
