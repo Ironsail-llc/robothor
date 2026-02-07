@@ -1,0 +1,10 @@
+# Symlinked directories (tracked in their own repos)
+brain/
+comms/
+runtime/
+health/
+templates/
+tunnel/
+
+# Backup logs
+scripts/backup.log
