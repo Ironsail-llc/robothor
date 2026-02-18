@@ -112,7 +112,47 @@ services:
       chatwoot-rails:
         condition: service_healthy
 
+  # --- Vaultwarden (password vault) ---
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://philip:${PG_PASSWORD}@host.docker.internal:5432/vaultwarden
+      DOMAIN: https://vault.robothor.ai
+      SIGNUPS_ALLOWED: "false"
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      ROCKET_PORT: "80"
+      LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:8222:80"
+    volumes:
+      - vaultwarden-data:/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # --- Uptime Kuma (monitoring) ---
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    ports:
+      - "127.0.0.1:3010:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
 volumes:
   twenty-server-data:
   twenty-docker-data:
   chatwoot-storage:
+  vaultwarden-data:
+  uptime-kuma-data:

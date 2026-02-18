@@ -45,6 +45,7 @@ EXCLUDES=(
     --exclude='.mypy_cache/'
     --exclude='*.pyc'
     --exclude='.pytest_cache/'
+    --exclude='.next/'
 )
 
 # ── Project directories ─────────────────────────────────────────
@@ -85,10 +86,15 @@ cp "$HOME/.bashrc" "$BACKUP_ROOT/latest/credentials/bashrc" 2>> "$LOG"
 if [ -f "$HOME/robothor/crm/.env" ]; then
     cp "$HOME/robothor/crm/.env" "$BACKUP_ROOT/latest/credentials/crm-env" 2>> "$LOG"
 fi
+# SOPS+age secrets (encrypted file + private key)
+if [ -d /etc/robothor ]; then
+    sudo cp /etc/robothor/age.key "$BACKUP_ROOT/latest/credentials/age.key" 2>> "$LOG" || true
+    sudo cp /etc/robothor/secrets.enc.json "$BACKUP_ROOT/latest/credentials/secrets.enc.json" 2>> "$LOG" || true
+fi
 
 # ── PostgreSQL dumps (all 3 databases, 30-day retention) ────────
 
-for db in robothor_memory twenty_crm chatwoot; do
+for db in robothor_memory twenty_crm chatwoot vaultwarden; do
     DUMP_FILE="$BACKUP_ROOT/db/${db}-${DATE}.sql.gz"
     if [ ! -f "$DUMP_FILE" ]; then
         pg_dump "$db" 2>> "$LOG" | gzip > "$DUMP_FILE"
@@ -103,7 +109,7 @@ find "$BACKUP_ROOT/db" -name "*.sql.gz" -mtime +30 -delete 2>> "$LOG"
 
 # ── Docker volumes (CRM) ────────────────────────────────────────
 
-for vol in crm_twenty-server-data crm_twenty-docker-data crm_chatwoot-storage; do
+for vol in crm_twenty-server-data crm_twenty-docker-data crm_chatwoot-storage crm_vaultwarden-data; do
     VOLPATH=$(sudo docker volume inspect "$vol" --format '{{.Mountpoint}}' 2>/dev/null) || true
     if [ -n "$VOLPATH" ] && [ -d "$VOLPATH" ]; then
         sudo rsync -a --delete "$VOLPATH/" "$BACKUP_ROOT/docker-volumes/$vol/" 2>> "$LOG"
@@ -121,7 +127,7 @@ fi
 
 # ── Docker images (saved as tarballs) ───────────────────────────
 
-for img in twentycrm/twenty:v0.43.0 chatwoot/chatwoot:v3.16.0-ce; do
+for img in twentycrm/twenty:v0.43.0 chatwoot/chatwoot:v3.16.0-ce vaultwarden/server:latest; do
     SAFE_NAME=$(echo "$img" | tr '/:' '_')
     TAR_FILE="$BACKUP_ROOT/docker-images/${SAFE_NAME}.tar"
     # Only re-export if image ID changed (check via digest)
@@ -152,7 +158,7 @@ ollama list > "$BACKUP_ROOT/latest/ollama-models.txt" 2>> "$LOG"
     du -sh "$BACKUP_ROOT/latest"/* "$BACKUP_ROOT/db" "$BACKUP_ROOT/docker-volumes" "$BACKUP_ROOT/ollama" "$BACKUP_ROOT/docker-images" 2>/dev/null | sort -rh
     echo ""
     echo "## Database Dumps (today)"
-    for db in robothor_memory twenty_crm chatwoot; do
+    for db in robothor_memory twenty_crm chatwoot vaultwarden; do
         DUMP_FILE="$BACKUP_ROOT/db/${db}-${DATE}.sql.gz"
         if [ -f "$DUMP_FILE" ]; then
             SIZE=$(du -sh "$DUMP_FILE" | cut -f1)
@@ -162,7 +168,7 @@ ollama list > "$BACKUP_ROOT/latest/ollama-models.txt" 2>> "$LOG"
     done
     echo ""
     echo "## Docker Volumes"
-    for vol in crm_twenty-server-data crm_twenty-docker-data crm_chatwoot-storage; do
+    for vol in crm_twenty-server-data crm_twenty-docker-data crm_chatwoot-storage crm_vaultwarden-data; do
         if [ -d "$BACKUP_ROOT/docker-volumes/$vol" ]; then
             echo "  $vol: $(du -sh "$BACKUP_ROOT/docker-volumes/$vol" | cut -f1)"
         fi

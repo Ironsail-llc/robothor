@@ -3,6 +3,7 @@ Robothor Bridge Service — Connects OpenClaw, Twenty CRM, Chatwoot, and Memory 
 FastAPI app on port 9100.
 """
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -290,6 +291,103 @@ async def api_create_note(request: Request):
     if note_id:
         return {"id": note_id, "title": title}
     return JSONResponse({"error": "failed to create note"}, status_code=500)
+
+
+# ─── Vault Endpoints ────────────────────────────────────────────────────
+
+_vault_client = None
+
+def _get_vault():
+    """Lazy-init vault client."""
+    global _vault_client
+    if _vault_client is None:
+        import sys
+        sys.path.insert(0, os.path.expanduser("~/clawd/scripts"))
+        from vault_client import VaultClient
+        _vault_client = VaultClient()
+        _vault_client.login()
+    return _vault_client
+
+
+@app.get("/api/vault/list")
+async def api_vault_list():
+    """List all vault items (names and usernames, no passwords)."""
+    try:
+        vc = _get_vault()
+        items = vc.list_items()
+        return {"items": items}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/vault/get")
+async def api_vault_get(name: str = Query(..., description="Item name (partial match)")):
+    """Get a vault item by name, fully decrypted."""
+    try:
+        vc = _get_vault()
+        item = vc.get_item(name)
+        if item:
+            return item
+        return JSONResponse({"error": f"No item matching '{name}'"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/vault/search")
+async def api_vault_search(q: str = Query(..., description="Search query")):
+    """Search vault items by name."""
+    try:
+        vc = _get_vault()
+        items = vc.search(q)
+        return {"items": items}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/vault/create")
+async def api_vault_create(request: Request):
+    """Create a new login item in the vault."""
+    body = await request.json()
+    name = body.get("name")
+    username = body.get("username")
+    password = body.get("password")
+    if not name or not username or not password:
+        return JSONResponse({"error": "name, username, and password required"}, status_code=400)
+    try:
+        vc = _get_vault()
+        item = vc.create_login(
+            name=name, username=username, password=password,
+            uri=body.get("uri"), notes=body.get("notes"),
+        )
+        return item
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/vault/create_card")
+async def api_vault_create_card(request: Request):
+    """Create a new card item in the vault."""
+    body = await request.json()
+    name = body.get("name")
+    cardholder = body.get("cardholderName")
+    number = body.get("number")
+    exp_month = body.get("expMonth")
+    exp_year = body.get("expYear")
+    if not name or not number or not exp_month or not exp_year:
+        return JSONResponse(
+            {"error": "name, number, expMonth, and expYear required"}, status_code=400
+        )
+    try:
+        vc = _get_vault()
+        item = vc.create_card(
+            name=name, cardholderName=cardholder or "",
+            number=number, expMonth=exp_month, expYear=exp_year,
+            code=body.get("code"), brand=body.get("brand"),
+            notes=body.get("notes"),
+        )
+        return item
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":

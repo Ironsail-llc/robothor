@@ -17,8 +17,11 @@ Logs: `journalctl -u <unit> -f`
 | robothor-dashboard.service | 3003 | brain/dashboard | Ops dashboard (ops.robothor.ai) |
 | robothor-privacy.service | 3002 | brain/privacy-policy | Privacy policy (privacy.robothor.ai) |
 | robothor-transcript.service | — | brain/memory_system | Voice transcript watcher |
-| robothor-crm.service | 3030, 3100 | crm/ | Docker Compose: Twenty CRM + Chatwoot (4 containers) |
+| robothor-crm.service | 3030, 3100, 3010, 8222 | crm/ | Docker Compose: Twenty CRM + Chatwoot + Uptime Kuma + Vaultwarden (6 containers) |
 | robothor-bridge.service | 9100 | crm/bridge | Bridge: contact resolution, webhooks, CRM integration |
+| robothor-app.service | 3004 | app/ | Business layer: Next.js + CopilotKit (app.robothor.ai) |
+| smbd.service | 445 | — | Samba file sharing (local network + Tailscale only) |
+| nmbd.service | 137-138 | — | NetBIOS name service for Samba |
 | moltbot-gateway.service | 18789 | ~/moltbot | OpenClaw messaging gateway |
 | cloudflared.service | — | — | Cloudflare tunnel (robothor.ai) |
 | tailscaled.service | — | — | Tailscale VPN (ironsail tailnet) |
@@ -65,11 +68,20 @@ curl -s http://localhost:3100/auth/sign_in -o /dev/null -w "%{http_code}" && ech
 # Bridge service
 curl -s http://localhost:9100/health | jq .
 
+# Vaultwarden
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8222 && echo " OK"
+
+# Uptime Kuma
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3010 && echo " OK"
+
 # Redis
 redis-cli ping
 
 # Cloudflare tunnel
 curl -s https://robothor.ai > /dev/null && echo "OK"
+
+# Samba
+smbclient -L //localhost -U philip%$SAMBA_PASSWORD -N 2>/dev/null | grep robothor
 
 # Tailscale
 tailscale status | head -3
@@ -99,12 +111,22 @@ psql -d robothor_memory -c "SELECT count(*) FROM long_term_memory;" 2>/dev/null
 | bridge.robothor.ai | localhost:9100 | Cloudflare Access (email OTP) | Bridge service API |
 | orchestrator.robothor.ai | localhost:9099 | Cloudflare Access (email OTP) | RAG orchestrator API |
 | vision.robothor.ai | localhost:8600 | Cloudflare Access (email OTP) | Vision API |
+| monitor.robothor.ai | localhost:3010 | Cloudflare Access (email OTP) | Uptime Kuma monitoring |
+| vault.robothor.ai | localhost:8222 | Cloudflare Access (email OTP) | Vaultwarden password vault |
 
 All camera/vision ports (`8554`, `8889`, `8890`, `8600`) are bound to `127.0.0.1`. External access to the webcam is only possible through the Cloudflare tunnel with Zero Trust authentication.
+
+## Credentials
+
+All services that need credentials use SOPS+age decryption:
+- `ExecStartPre=/home/philip/robothor/scripts/decrypt-secrets.sh` decrypts secrets to `/run/robothor/secrets.env`
+- `EnvironmentFile=/run/robothor/secrets.env` loads them into the service environment
+- Services with SOPS injection: robothor-vision, robothor-orchestrator, robothor-bridge, moltbot-gateway
 
 ## System Crontab
 
 View: `crontab -l` | Full reference: `docs/CRON_MAP.md`
+Cron jobs that need credentials are wrapped with `scripts/cron-wrapper.sh` (sources `/run/robothor/secrets.env`).
 
 | Schedule | Job | Log |
 |----------|-----|-----|

@@ -61,6 +61,15 @@ Sunday 05:00   │ Weekly review (crontab) — brain/memory_system/weekly_review
                │   Deep synthesis → memory/weekly-review-YYYY-MM-DD.md
 ```
 
+## Credential Injection
+
+All cron jobs that need credentials are wrapped with `cron-wrapper.sh`:
+```
+W=/home/philip/robothor/scripts/cron-wrapper.sh
+*/5 * * * * cd /home/philip/clawd && $W <python command>
+```
+The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before executing. Jobs that don't need credentials (find cleanup, backup) run without the wrapper.
+
 ## System Crontab (crontab -l)
 
 ```crontab
