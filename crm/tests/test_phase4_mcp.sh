@@ -41,10 +41,10 @@ t "T4.4 Twenty API accessible" "export \$(grep -E '^TWENTY_API_KEY' /home/philip
 # T4.5: Chatwoot MCP server starts
 echo ""
 echo "=== Chatwoot MCP Server ==="
-t "T4.5 Chatwoot MCP starts" "CHATWOOT_BASE_URL='http://localhost:3100' CHATWOOT_API_TOKEN='X9PstchkkPW4ViY8rTPh8vkt' timeout 5 node /home/philip/robothor/crm/chatwoot-mcp/dist/index.js </dev/null 2>&1 | grep -q 'running on stdio'"
+t "T4.5 Chatwoot MCP starts" "CHATWOOT_BASE_URL='http://localhost:3100' CHATWOOT_API_TOKEN=\"\${CHATWOOT_API_TOKEN:?CHATWOOT_API_TOKEN env var required}\" timeout 5 node /home/philip/robothor/crm/chatwoot-mcp/dist/index.js </dev/null 2>&1 | grep -q 'running on stdio'"
 
 # T4.6: Chatwoot API responds
-t "T4.6 Chatwoot API accessible" "curl -sf -H 'api_access_token: X9PstchkkPW4ViY8rTPh8vkt' 'http://localhost:3100/api/v1/accounts/1/conversations?page=1' | grep -q 'data'"
+t "T4.6 Chatwoot API accessible" "curl -sf -H \"api_access_token: \${CHATWOOT_API_TOKEN:?CHATWOOT_API_TOKEN env var required}\" 'http://localhost:3100/api/v1/accounts/1/conversations?page=1' | grep -q 'data'"
 
 # T4.7: .claude.json has all 3 MCP servers configured
 echo ""

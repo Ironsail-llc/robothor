@@ -1,0 +1,12 @@
+# Gitleaks configuration for Robothor
+# See: https://github.com/gitleaks/gitleaks
+
+title = "Robothor gitleaks config"
+
+[allowlist]
+  # Allow paths that are not code (daily notes, SQL backups, etc.)
+  paths = [
+    '''memory/\d{4}-\d{2}-\d{2}\.md''',
+    '''backup_\d+\.sql''',
+    '''\.env\.example$''',
+  ]

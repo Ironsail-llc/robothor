@@ -13,6 +13,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import os
 import re
 import sys
 import time
@@ -24,11 +25,11 @@ from psycopg2.extras import RealDictCursor
 
 # ── Config ──────────────────────────────────────────────────
 
-CHATWOOT_URL = "http://localhost:3100"
-CHATWOOT_API_TOKEN = "X9PstchkkPW4ViY8rTPh8vkt"
-CHATWOOT_ACCOUNT_ID = 1
-CHATWOOT_INBOX_ID = 2  # Robothor Bridge API inbox
-PG_DSN = "dbname=robothor_memory user=philip host=/var/run/postgresql"
+CHATWOOT_URL = os.getenv("CHATWOOT_URL", "http://localhost:3100")
+CHATWOOT_API_TOKEN = os.environ["CHATWOOT_API_TOKEN"]
+CHATWOOT_ACCOUNT_ID = int(os.getenv("CHATWOOT_ACCOUNT_ID", "1"))
+CHATWOOT_INBOX_ID = int(os.getenv("CHATWOOT_INBOX_ID", "2"))  # Robothor Bridge API inbox
+PG_DSN = os.getenv("PG_DSN", "dbname=robothor_memory user=philip host=/var/run/postgresql")
 
 CONTACTS_JSON = Path("/home/philip/clawd/memory/contacts.json")
 CONTACT_ID_MAP = Path("/home/philip/robothor/crm/contact_id_map.json")
