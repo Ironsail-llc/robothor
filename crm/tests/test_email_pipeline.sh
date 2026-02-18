@@ -31,7 +31,7 @@ check "Bridge health" "curl -sf http://localhost:9100/health | grep -q status"
 
 echo ""
 echo "=== Gmail Auth ==="
-check "gog gmail search works" "GOG_KEYRING_PASSWORD=robothor123 gog gmail search 'is:unread' --account robothor@ironsail.ai --max 1 --json 2>/dev/null | python3 -c 'import json,sys; json.load(sys.stdin)'"
+check "gog gmail search works" "GOG_KEYRING_PASSWORD=\"\${GOG_KEYRING_PASSWORD:?GOG_KEYRING_PASSWORD env var required}\" gog gmail search 'is:unread' --account robothor@ironsail.ai --max 1 --json 2>/dev/null | python3 -c 'import json,sys; json.load(sys.stdin)'"
 
 echo ""
 echo "=== Worker Status ==="

@@ -31,7 +31,7 @@ ss -tlnp | grep -q "172.17.0.1:5432" && pass || fail "PG not listening on Docker
 echo -n "T0.6 PG TCP auth from Docker... "
 RESULT=$(sudo docker run --rm --add-host=host.docker.internal:host-gateway \
   postgres:16-alpine sh -c \
-  "PGPASSWORD='hntG9K2Sct93Z1ei_vARwKPszdSlNJxKq2sjYrbGN8E' psql -h host.docker.internal -U philip -d twenty_crm -c 'SELECT 1' -t" 2>/dev/null | tr -d ' ')
+  "PGPASSWORD='${PG_PASSWORD:?PG_PASSWORD env var required}' psql -h host.docker.internal -U philip -d twenty_crm -c 'SELECT 1' -t" 2>/dev/null | tr -d ' ')
 [ "$RESULT" = "1" ] && pass || fail "TCP auth failed"
 
 # T0.7: max_connections >= 200

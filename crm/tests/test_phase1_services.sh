@@ -67,7 +67,7 @@ RATIO=$((CONNS * 100 / MAX))
 
 # T1.13: Chatwoot API inbox exists
 echo -n "T1.13 Chatwoot API inbox... "
-INBOX=$(curl -s "http://localhost:3100/api/v1/accounts/1/inboxes" -H "api_access_token: X9PstchkkPW4ViY8rTPh8vkt" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(i['channel_type']=='Channel::Api' for i in d.get('payload',[])))" 2>/dev/null)
+INBOX=$(curl -s "http://localhost:3100/api/v1/accounts/1/inboxes" -H "api_access_token: ${CHATWOOT_API_TOKEN:?CHATWOOT_API_TOKEN env var required}" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(i['channel_type']=='Channel::Api' for i in d.get('payload',[])))" 2>/dev/null)
 [ "$INBOX" = "True" ] && pass || fail
 
 echo ""
