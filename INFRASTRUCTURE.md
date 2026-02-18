@@ -40,15 +40,18 @@ Config: `tunnel/config.yml`
 | privacy.robothor.ai | localhost:3002 | Public | Privacy policy page |
 | ops.robothor.ai | localhost:3003 | Cloudflare Access (email OTP) | Ops dashboard |
 | voice.robothor.ai | localhost:8765 | Public | Twilio voice server |
+| sms.robothor.ai | localhost:8766 | Public | Twilio SMS webhook |
 | gateway.robothor.ai | localhost:18789 | Cloudflare Access (email OTP) | OpenClaw gateway |
 | crm.robothor.ai | localhost:3030 | Cloudflare Access (email OTP) | Twenty CRM web UI |
 | inbox.robothor.ai | localhost:3100 | Cloudflare Access (email OTP) | Chatwoot conversation inbox |
 | bridge.robothor.ai | localhost:9100 | Cloudflare Access (email OTP) | Bridge service API |
 | orchestrator.robothor.ai | localhost:9099 | Cloudflare Access (email OTP) | RAG orchestrator API |
 | vision.robothor.ai | localhost:8600 | Cloudflare Access (email OTP) | Vision API |
+| monitor.robothor.ai | localhost:3010 | Cloudflare Access (email OTP) | Uptime Kuma monitoring |
+| vault.robothor.ai | localhost:8222 | Cloudflare Access (email OTP) | Vaultwarden password vault |
 | * (catch-all) | http_status:404 | — | — |
 
-**Cloudflare Access (Zero Trust):** 8 apps protected with email OTP — only `philip@ironsail.ai` and `robothor@ironsail.ai` can access. 24h sessions. Protected apps: cam, gateway, ops, crm, inbox, bridge, orchestrator, vision.
+**Cloudflare Access (Zero Trust):** 10 apps protected with email OTP — only `philip@ironsail.ai` and `robothor@ironsail.ai` can access. 24h sessions. Protected apps: cam, gateway, ops, crm, inbox, bridge, orchestrator, vision, monitor, vault.
 
 API tokens documented in `brain/TOOLS.md` (tunnel-edit, DNS-edit, Access-edit).
 
@@ -67,6 +70,7 @@ API tokens documented in `brain/TOOLS.md` (tunnel-edit, DNS-edit, Access-edit).
 
 Config: `listen_addresses = 'localhost,172.17.0.1'`, `max_connections = 200`
 Docker access: `pg_hba.conf` allows TCP from `172.16.0.0/12` with `scram-sha-256`
+PG password stored in SOPS-encrypted secrets (not plaintext).
 
 ### robothor_memory (primary)
 
@@ -94,6 +98,11 @@ Web UI: `crm.robothor.ai` (Cloudflare Access protected)
 
 Used by Chatwoot Docker containers. Unified conversation inbox.
 Web UI: `inbox.robothor.ai` (Cloudflare Access protected)
+
+### vaultwarden
+
+Used by Vaultwarden Docker container. Self-hosted password vault.
+Web UI: `vault.robothor.ai` (Cloudflare Access protected)
 
 ## Redis
 
@@ -139,6 +148,57 @@ All camera ports bound to `127.0.0.1` — no direct network access. External acc
 
 Deep reference: `brain/VISION.md`
 
+## Secrets Management
+
+**SOPS + age** — encrypted credential storage, decrypted at runtime to tmpfs.
+
+| Component | Path | Permissions |
+|-----------|------|-------------|
+| Age keypair | `/etc/robothor/age.key` | root:philip 640 |
+| Encrypted secrets | `/etc/robothor/secrets.enc.json` | root:philip 640 |
+| Runtime decrypted | `/run/robothor/secrets.env` | philip:philip 600 (tmpfs) |
+| SOPS config | `/etc/robothor/.sops.yaml` | root 644 |
+
+**Age public key:** `age186mguvnypf7mun49dhn83cm59dva4vvdv3lp2sjch4jj4vdhhalq6uwgt3`
+
+**Credentials stored (35 keys):** GOG keyring, Telegram bot token + chat ID, PostgreSQL password, GitHub token, Jira token, Cloudflare account email + tunnel/DNS/Access tokens + account/tunnel IDs, ElevenLabs key, Twenty CRM keys (app secret, API key, workspace ID, login), Chatwoot token + secret key, N8N keys (API, REST JWT, MCP JWT), OpenAI/OpenRouter/Anthropic/Gemini API keys, gateway token, Vaultwarden admin token, Samba password.
+
+**How it works:**
+- `scripts/decrypt-secrets.sh` decrypts JSON → KEY=VALUE env file at `/run/robothor/secrets.env`
+- Systemd services: `ExecStartPre=decrypt-secrets.sh` + `EnvironmentFile=/run/robothor/secrets.env`
+- Cron jobs: wrapped with `scripts/cron-wrapper.sh` (sources secrets.env)
+- `/run/robothor/` is tmpfs — secrets never persist to disk unencrypted
+- Age private key is backed up to encrypted SSD daily
+
+**Managing secrets:**
+```bash
+# Decrypt and edit (opens $EDITOR):
+sudo SOPS_AGE_KEY_FILE=/etc/robothor/age.key sops /etc/robothor/secrets.enc.json
+
+# Decrypt to stdout:
+sudo SOPS_AGE_KEY_FILE=/etc/robothor/age.key sops -d /etc/robothor/secrets.enc.json
+
+# After editing, restart affected services
+sudo systemctl restart robothor-vision robothor-bridge
+```
+
+## Network Shares (Samba)
+
+**Samba 4.19.5** — file sharing for LAN and Tailscale devices.
+
+| Share | Path | Access |
+|-------|------|--------|
+| `robothor-backup` | `/mnt/robothor-backup` | Read-only, philip only |
+| `robothor-projects` | `/home/philip` | Read-write, philip only |
+
+**Access:** Local network (`192.168.1.0/24`) and Tailscale (`100.64.0.0/10`) only. Not exposed to internet. UFW rules restrict port 445.
+
+**Services:** `smbd.service`, `nmbd.service` (system-level, enabled on boot)
+
+**Connect:** `smb://100.91.221.100/robothor-backup` (Tailscale) or `smb://192.168.1.x/robothor-backup` (LAN)
+
+**Credentials:** Samba user `philip`, password in SOPS (`SAMBA_PASSWORD`).
+
 ## GCP
 
 | Field | Value |
@@ -177,9 +237,11 @@ Now managed by: `robothor-orchestrator.service` (auto-starts)
 | twenty-worker | twentycrm/twenty:v0.43.0 | — | Twenty background jobs |
 | chatwoot-rails | chatwoot/chatwoot:v3.16.0-ce | 3100 | Chatwoot web app + REST API |
 | chatwoot-sidekiq | chatwoot/chatwoot:v3.16.0-ce | — | Chatwoot background jobs (Sidekiq) |
+| vaultwarden | vaultwarden/server:latest | 8222 | Password vault (Vaultwarden) |
+| uptime-kuma | louislam/uptime-kuma:1 | 3010 | Service monitoring (Uptime Kuma) |
 
 Docker Compose: `crm/docker-compose.yml`
-Secrets: `crm/.env` (not committed)
+Secrets: `crm/.env` (Docker reads directly) + SOPS-encrypted `/etc/robothor/secrets.enc.json` (services)
 
 ### Bridge Service (port 9100)
 
