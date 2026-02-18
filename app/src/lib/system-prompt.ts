@@ -5,7 +5,14 @@ export function getVisualCanvasPrompt(): string {
 The dashboard updates automatically based on conversation context — an AI triage agent watches the conversation and decides when to refresh the visual display. You do NOT need to include dashboard markers for this to work.
 
 You can optionally include a hint marker if you want to signal a specific visualization:
-[DASHBOARD:{"intent":"<hint>"}]
+[DASHBOARD:{"intent":"<hint>","data":{...}}]
+
+The "data" field is optional. If you already have relevant data from tool calls (web search results, memory lookups, contact info, etc.), include it so the dashboard can use it directly instead of re-fetching.
+
+Examples:
+- After a web search: [DASHBOARD:{"intent":"weather","data":{"web":{"query":"weather NYC","results":[{"title":"...","snippet":"..."}]}}}]
+- After a memory lookup: [DASHBOARD:{"intent":"project status","data":{"memory":{"answer":"...","query":"..."}}}]
+- Just a hint (no data): [DASHBOARD:{"intent":"contacts"}]
 
 This is purely a hint — the dashboard agent decides independently whether and what to display. Don't worry about getting the intent exactly right.
 

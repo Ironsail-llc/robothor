@@ -40,6 +40,7 @@ vi.mock("@/hooks/use-visual-state", () => ({
     isUpdating: false,
     setIsUpdating: vi.fn(),
     pendingMessages: null,
+    pendingAgentData: null,
   }),
 }));
 
@@ -178,7 +179,55 @@ describe("ChatPanel", () => {
           expect(mockNotifyConversationUpdate).toHaveBeenCalledWith(
             expect.arrayContaining([
               expect.objectContaining({ role: "user", content: "Show contacts" }),
-            ])
+            ]),
+            undefined // empty dashboard data object is passed as undefined
+          );
+        },
+        { timeout: 3000 }
+      );
+    });
+
+    it("passes agent data from dashboard markers to notifyConversationUpdate", async () => {
+      let callCount = 0;
+      mockFetch.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ messages: [] }),
+          });
+        }
+        return Promise.resolve(
+          makeMockSSEResponse([
+            { event: "delta", data: { text: "The weather in NYC is sunny." } },
+            {
+              event: "dashboard",
+              data: {
+                intent: "weather",
+                data: { web: { query: "weather NYC", results: [{ title: "NYC Weather", snippet: "Sunny, 72F" }] } },
+              },
+            },
+            { event: "done", data: { text: "The weather in NYC is sunny." } },
+          ])
+        );
+      });
+
+      const { getByTestId } = render(<ChatPanel />);
+      await vi.waitFor(() => expect(callCount).toBe(1), { timeout: 1000 });
+
+      const input = getByTestId("chat-input");
+      fireEvent.change(input, { target: { value: "What's the weather?" } });
+      fireEvent.click(getByTestId("send-button"));
+
+      await vi.waitFor(
+        () => {
+          expect(mockNotifyConversationUpdate).toHaveBeenCalledWith(
+            expect.arrayContaining([
+              expect.objectContaining({ role: "user", content: "What's the weather?" }),
+            ]),
+            expect.objectContaining({
+              web: expect.objectContaining({ query: "weather NYC" }),
+            })
           );
         },
         { timeout: 3000 }

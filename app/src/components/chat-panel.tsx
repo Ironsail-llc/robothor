@@ -108,7 +108,7 @@ export function ChatPanel() {
       const decoder = new TextDecoder();
       let sseBuffer = "";
       let fullResponse = "";
-      // Dashboard markers collected but not used — triage agent decides independently
+      const collectedAgentData: Record<string, unknown> = {};
 
       while (true) {
         const { done, value } = await reader.read();
@@ -136,7 +136,10 @@ export function ChatPanel() {
                 fullResponse += parsed.text || "";
                 setStreamingText(fullResponse);
               } else if (eventType === "dashboard") {
-                // Dashboard markers are informational — triage agent decides independently
+                // Capture agent data from dashboard markers for passthrough
+                if (parsed.data && typeof parsed.data === "object") {
+                  Object.assign(collectedAgentData, parsed.data as Record<string, unknown>);
+                }
               } else if (eventType === "render") {
                 // Render markers still trigger immediately
                 setRender({
@@ -174,7 +177,10 @@ export function ChatPanel() {
           .map((m) => ({ role: m.role, content: m.content }));
 
         // Auto-trigger conversation dashboard update (background, with triage)
-        notifyConversationUpdate(recentMessages);
+        notifyConversationUpdate(
+          recentMessages,
+          Object.keys(collectedAgentData).length > 0 ? collectedAgentData : undefined
+        );
 
         return updated;
       });

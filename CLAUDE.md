@@ -141,7 +141,7 @@ Deep reference: `INFRASTRUCTURE.md`
 | Bridge service | robothor-bridge.service | system (`sudo`) | 9100 | Contact resolution, webhooks, CRM integration |
 | Vaultwarden | (Docker in robothor-crm) | Docker | 8222 | Password vault (vault.robothor.ai) |
 | Uptime Kuma | (Docker in robothor-crm) | Docker | 3010 | Service monitoring dashboard |
-| Business layer | robothor-app.service | system (`sudo`) | 3004 | Next.js + CopilotKit (app.robothor.ai) |
+| Business layer | robothor-app.service | system (`sudo`) | 3004 | Next.js 16 + Dockview live dashboard (app.robothor.ai) |
 | Samba | smbd.service, nmbd.service | system | 445 | Network file shares (local + Tailscale only) |
 | Tailscale | tailscaled.service | system (`sudo`) | — | VPN mesh (ironsail tailnet) |
 | Moltbot gateway | moltbot-gateway.service | system (`sudo`) | 18789 | OpenClaw messaging |
