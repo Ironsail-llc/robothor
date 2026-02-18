@@ -19,7 +19,7 @@ Logs: `journalctl -u <unit> -f`
 | robothor-transcript.service | — | brain/memory_system | Voice transcript watcher |
 | robothor-crm.service | 3030, 3100, 3010, 8222 | crm/ | Docker Compose: Twenty CRM + Chatwoot + Uptime Kuma + Vaultwarden (6 containers) |
 | robothor-bridge.service | 9100 | crm/bridge | Bridge: contact resolution, webhooks, CRM integration |
-| robothor-app.service | 3004 | app/ | Business layer: Next.js 16 + Dockview live dashboard (app.robothor.ai) |
+| robothor-app.service | 3004 | app/ | Helm: Next.js 16 + Dockview live dashboard (app.robothor.ai) |
 | smbd.service | 445 | — | Samba file sharing (local network + Tailscale only) |
 | nmbd.service | 137-138 | — | NetBIOS name service for Samba |
 | moltbot-gateway.service | 18789 | ~/moltbot | OpenClaw messaging gateway |
@@ -68,7 +68,7 @@ curl -s http://localhost:3100/auth/sign_in -o /dev/null -w "%{http_code}" && ech
 # Bridge service
 curl -s http://localhost:9100/health | jq .
 
-# Business layer app
+# Helm (business layer app)
 curl -s -o /dev/null -w "%{http_code}" http://localhost:3004/api/health && echo " OK"
 
 # Vaultwarden
@@ -116,7 +116,7 @@ psql -d robothor_memory -c "SELECT count(*) FROM long_term_memory;" 2>/dev/null
 | vision.robothor.ai | localhost:8600 | Cloudflare Access (email OTP) | Vision API |
 | monitor.robothor.ai | localhost:3010 | Cloudflare Access (email OTP) | Uptime Kuma monitoring |
 | vault.robothor.ai | localhost:8222 | Cloudflare Access (email OTP) | Vaultwarden password vault |
-| app.robothor.ai | localhost:3004 | Cloudflare Access (email OTP) | Business layer live dashboard |
+| app.robothor.ai | localhost:3004 | Cloudflare Access (email OTP) | Helm — live dashboard |
 
 All camera/vision ports (`8554`, `8889`, `8890`, `8600`) are bound to `127.0.0.1`. External access to the webcam is only possible through the Cloudflare tunnel with Zero Trust authentication.
 

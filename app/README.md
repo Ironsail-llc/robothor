@@ -1,6 +1,6 @@
-# Business Layer App — app.robothor.ai
+# The Helm — app.robothor.ai
 
-Live dashboard and chat interface for Robothor. Two-panel Dockview layout: canvas (65%) + chat (35%).
+Robothor's command center. Live dashboard and chat interface in a two-panel Dockview layout: canvas (65%) + chat (35%).
 
 ## Stack
 

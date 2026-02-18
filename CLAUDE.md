@@ -100,7 +100,7 @@ Deep reference: `brain/VISION.md`
 | vision.robothor.ai | Vision API | 8600 | Cloudflare Access (email OTP) |
 | monitor.robothor.ai | Uptime Kuma | 3010 | Cloudflare Access (email OTP) |
 | vault.robothor.ai | Vaultwarden | 8222 | Cloudflare Access (email OTP) |
-| app.robothor.ai | Business layer | 3004 | Cloudflare Access (email OTP) |
+| app.robothor.ai | Helm (live dashboard) | 3004 | Cloudflare Access (email OTP) |
 | Tailscale IP | 100.91.221.100 (ironsail tailnet) | — | — |
 
 All camera ports bound to `127.0.0.1`. Webcam only accessible externally via `cam.robothor.ai` (Cloudflare Access: `philip@ironsail.ai`, `robothor@ironsail.ai`).
@@ -141,7 +141,7 @@ Deep reference: `INFRASTRUCTURE.md`
 | Bridge service | robothor-bridge.service | system (`sudo`) | 9100 | Contact resolution, webhooks, CRM integration |
 | Vaultwarden | (Docker in robothor-crm) | Docker | 8222 | Password vault (vault.robothor.ai) |
 | Uptime Kuma | (Docker in robothor-crm) | Docker | 3010 | Service monitoring dashboard |
-| Business layer | robothor-app.service | system (`sudo`) | 3004 | Next.js 16 + Dockview live dashboard (app.robothor.ai) |
+| Helm | robothor-app.service | system (`sudo`) | 3004 | Next.js 16 + Dockview live dashboard (app.robothor.ai) |
 | Samba | smbd.service, nmbd.service | system | 445 | Network file shares (local + Tailscale only) |
 | Tailscale | tailscaled.service | system (`sudo`) | — | VPN mesh (ironsail tailnet) |
 | Moltbot gateway | moltbot-gateway.service | system (`sudo`) | 18789 | OpenClaw messaging |

@@ -1,5 +1,5 @@
 /**
- * E2E smoke tests for the Robothor business layer dashboard.
+ * E2E smoke tests for the Robothor Helm dashboard.
  * Tests: layout rendering, dashboard iframe sizing, chat scroll, welcome dashboard.
  */
 import { test, expect } from "@playwright/test";
