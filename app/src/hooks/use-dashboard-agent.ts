@@ -18,6 +18,7 @@ const DEBOUNCE_MS = 300;
 export function useDashboardAgent() {
   const {
     pendingMessages,
+    pendingAgentData,
     isUpdating,
     setIsUpdating,
     setDashboardCode,
@@ -29,17 +30,22 @@ export function useDashboardAgent() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleUpdate = useCallback(
-    async (messages: Array<{ role: string; content: string }>) => {
+    async (messages: Array<{ role: string; content: string }>, agentData?: Record<string, unknown> | null) => {
       // Cancel any in-flight request
       abortRef.current?.abort();
       const abort = new AbortController();
       abortRef.current = abort;
 
       try {
+        const body: Record<string, unknown> = { messages };
+        if (agentData && Object.keys(agentData).length > 0) {
+          body.agentData = agentData;
+        }
+
         const res = await fetch("/api/dashboard/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify(body),
           signal: abort.signal,
         });
 
@@ -90,8 +96,10 @@ export function useDashboardAgent() {
       clearTimeout(debounceRef.current);
     }
 
+    // Capture agentData at debounce time so it's consistent with the messages
+    const agentDataSnapshot = pendingAgentData;
     debounceRef.current = setTimeout(() => {
-      handleUpdate(pendingMessages);
+      handleUpdate(pendingMessages, agentDataSnapshot);
     }, DEBOUNCE_MS);
 
     return () => {
@@ -99,7 +107,7 @@ export function useDashboardAgent() {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [pendingMessages, handleUpdate]);
+  }, [pendingMessages, pendingAgentData, handleUpdate]);
 
   // Cleanup on unmount
   useEffect(() => {

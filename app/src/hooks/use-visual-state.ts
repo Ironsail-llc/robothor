@@ -56,7 +56,8 @@ interface VisualStateContextType {
 
   // Conversation-driven dashboard update (new v2 flow)
   pendingMessages: Array<{ role: string; content: string }> | null;
-  notifyConversationUpdate: (messages: Array<{ role: string; content: string }>) => void;
+  pendingAgentData: Record<string, unknown> | null;
+  notifyConversationUpdate: (messages: Array<{ role: string; content: string }>, agentData?: Record<string, unknown>) => void;
 }
 
 const VisualStateContext = createContext<VisualStateContextType | null>(null);
@@ -80,6 +81,9 @@ export function VisualStateProvider({
   const [isUpdating, setIsUpdating] = useState(false);
   const [pendingMessages, setPendingMessages] = useState<
     Array<{ role: string; content: string }> | null
+  >(null);
+  const [pendingAgentData, setPendingAgentData] = useState<
+    Record<string, unknown> | null
   >(null);
 
   const pushView = useCallback((view: ViewEntry) => {
@@ -144,9 +148,10 @@ export function VisualStateProvider({
   }, []);
 
   const notifyConversationUpdate = useCallback(
-    (messages: Array<{ role: string; content: string }>) => {
+    (messages: Array<{ role: string; content: string }>, agentData?: Record<string, unknown>) => {
       setIsUpdating(true);
       setPendingMessages(messages);
+      setPendingAgentData(agentData && Object.keys(agentData).length > 0 ? agentData : null);
     },
     []
   );
@@ -177,6 +182,7 @@ export function VisualStateProvider({
         isUpdating,
         setIsUpdating,
         pendingMessages,
+        pendingAgentData,
         notifyConversationUpdate,
       },
     },

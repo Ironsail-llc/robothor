@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Business Layer App — app.robothor.ai
 
-## Getting Started
+Live dashboard and chat interface for Robothor. Two-panel Dockview layout: canvas (65%) + chat (35%).
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Next.js 16** + Dockview + shadcn/ui + Recharts + TanStack Table
+- **Port**: 3004, service: `robothor-app.service`
+- **Chat**: Custom SSE bridge to OpenClaw gateway (same agent as Telegram)
+- **Canvas**: HTML-first rendering via iframe srcdoc (Tailwind CSS), native components as fallback
+- **Dashboard generation**: Gemini 2.5 Flash via OpenRouter (~2-6s)
+
+## Architecture
+
+```
+Chat Input → Gateway (Kimi K2.5) → SSE stream
+                                    ├─ delta events → chat text
+                                    ├─ dashboard events → agent data passthrough
+                                    └─ render events → native components
+
+Dashboard Pipeline:
+  Chat messages + agent data → Triage (Gemini Flash, ~1s)
+                             → Fetch unsatisfied data needs (SearXNG, Bridge, Orchestrator)
+                             → Merge with agent-provided data
+                             → Generate HTML dashboard (Gemini Flash)
+                             → Validate → Render in iframe
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Agent Data Passthrough
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+When the gateway agent (Kimi K2.5) has data from tool calls (web search, memory lookup, etc.), it includes it in dashboard markers:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+[DASHBOARD:{"intent":"weather","data":{"web":{"results":[...]}}}]
+```
 
-## Learn More
+The dashboard pipeline skips re-fetching data the agent already provided. This avoids redundant SearXNG/API calls and uses the richer agent tool results directly.
 
-To learn more about Next.js, take a look at the following resources:
+## Key Directories
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+├── app/api/
+│   ├── chat/send/         # POST → SSE (gateway bridge + marker interception)
+│   ├── chat/history/      # GET → message history from gateway
+│   ├── dashboard/generate/ # Triage → fetch → generate HTML
+│   └── dashboard/welcome/ # Welcome dashboard on page load
+├── components/
+│   ├── canvas/            # LiveCanvas, SrcdocRenderer
+│   └── chat-panel.tsx     # Chat UI with SSE streaming
+├── hooks/
+│   ├── use-visual-state.ts  # Canvas state management
+│   └── use-dashboard-agent.ts # Background dashboard update agent
+└── lib/
+    ├── gateway/           # WebSocket client, types, marker interceptor
+    └── dashboard/         # System prompt, triage, code validator, data fetching
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Development
 
-## Deploy on Vercel
+```bash
+pnpm install
+pnpm dev          # http://localhost:3004
+pnpm build        # production build
+npx vitest run    # unit tests (187 tests)
+npx playwright test  # E2E tests
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Tests
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **187 unit tests** across 19 files (vitest + happy-dom + @testing-library/react)
+- **2 E2E test files** (Playwright, chromium, 1440x900)

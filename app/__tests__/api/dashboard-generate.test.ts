@@ -160,6 +160,142 @@ describe("POST /api/dashboard/generate", () => {
     expect(body.html).toContain("Health Dashboard");
   });
 
+  it("uses agentData and skips satisfied data needs", async () => {
+    const encoder = new TextEncoder();
+    const openRouterStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"content":"<div>Weather Dashboard</div>"}}]}\n\n'
+          )
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+
+    const fetchCalls: string[] = [];
+    let callCount = 0;
+    mockFetch.mockImplementation((url: string) => {
+      fetchCalls.push(url);
+      callCount++;
+      if (typeof url === "string" && url.includes("openrouter.ai")) {
+        if (callCount === 1) {
+          // Triage call — requests web search
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                choices: [
+                  {
+                    message: {
+                      content:
+                        '{"shouldUpdate": true, "dataNeeds": ["web:weather NYC"], "summary": "Weather dashboard"}',
+                    },
+                  },
+                ],
+              }),
+          });
+        }
+        // Generate call
+        return Promise.resolve({ ok: true, body: openRouterStream });
+      }
+      // Should NOT be called for web search since agentData satisfies it
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    const req = new Request("http://localhost:3004/api/dashboard/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: "What's the weather in NYC?" },
+          { role: "assistant", content: "It's sunny and 72F in NYC." },
+        ],
+        agentData: {
+          web: { query: "weather NYC", results: [{ title: "NYC Weather", snippet: "Sunny, 72F" }] },
+        },
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.html).toContain("Weather Dashboard");
+
+    // Verify no SearXNG call was made (only OpenRouter calls)
+    const nonOpenRouterCalls = fetchCalls.filter(
+      (url) => !url.includes("openrouter.ai")
+    );
+    expect(nonOpenRouterCalls).toHaveLength(0);
+  });
+
+  it("fetches unsatisfied needs when agentData is partial", async () => {
+    const encoder = new TextEncoder();
+    const openRouterStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"content":"<div>Combined Dashboard</div>"}}]}\n\n'
+          )
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+
+    let callCount = 0;
+    mockFetch.mockImplementation((url: string) => {
+      callCount++;
+      if (typeof url === "string" && url.includes("openrouter.ai")) {
+        if (callCount === 1) {
+          // Triage requests web + health
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                choices: [
+                  {
+                    message: {
+                      content:
+                        '{"shouldUpdate": true, "dataNeeds": ["web:weather", "health"], "summary": "Overview"}',
+                    },
+                  },
+                ],
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, body: openRouterStream });
+      }
+      // Health endpoint calls (web is satisfied by agentData)
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ status: "ok" }),
+      });
+    });
+
+    const req = new Request("http://localhost:3004/api/dashboard/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: "Weather and service health?" },
+          { role: "assistant", content: "Here's the info." },
+        ],
+        agentData: {
+          web: { query: "weather", results: [{ title: "Weather", snippet: "Sunny" }] },
+        },
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+  });
+
   it("returns 502 when OpenRouter fails", async () => {
     mockFetch.mockResolvedValue({
       ok: false,

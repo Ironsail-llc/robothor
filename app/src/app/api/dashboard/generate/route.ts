@@ -14,7 +14,10 @@ export async function POST(req: Request) {
 
   // New: triage-driven conversation path (v2)
   if (body.messages && Array.isArray(body.messages)) {
-    return handleTriagedDashboard(body.messages as ConversationMessage[]);
+    const agentData = body.agentData && typeof body.agentData === "object"
+      ? (body.agentData as Record<string, unknown>)
+      : undefined;
+    return handleTriagedDashboard(body.messages as ConversationMessage[], agentData);
   }
 
   // Legacy: intent-based path (still supported for backward compat)
@@ -42,7 +45,18 @@ export async function POST(req: Request) {
  * 1. Quick trivial check (client-side guard) + LLM triage (~1s)
  * 2. If shouldUpdate: fetch data → generate dashboard → return buffered JSON
  */
-async function handleTriagedDashboard(messages: ConversationMessage[]) {
+/**
+ * Check if a data need is already satisfied by agent-provided data.
+ * Matches the need prefix against agentData keys.
+ * e.g., agentData.web satisfies "web:weather NYC", agentData.health satisfies "health"
+ */
+function isNeedSatisfied(need: string, agentData?: Record<string, unknown>): boolean {
+  if (!agentData) return false;
+  const prefix = need.split(":")[0];
+  return prefix in agentData;
+}
+
+async function handleTriagedDashboard(messages: ConversationMessage[], agentData?: Record<string, unknown>) {
   // Fast client-side guard: skip if both sides are trivial
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
@@ -61,8 +75,12 @@ async function handleTriagedDashboard(messages: ConversationMessage[]) {
     return new Response(null, { status: 204 });
   }
 
-  // Phase 2: Fetch data based on triage dataNeeds
-  const enrichedData = await fetchDataForNeeds(triage.dataNeeds);
+  // Phase 2: Fetch only what the agent didn't already provide
+  const unsatisfiedNeeds = triage.dataNeeds.filter(
+    (need) => !isNeedSatisfied(need, agentData)
+  );
+  const fetchedData = await fetchDataForNeeds(unsatisfiedNeeds);
+  const enrichedData = { ...fetchedData, ...agentData };
 
   // Phase 3: Generate dashboard HTML (buffered, not streamed)
   const systemPrompt = getDashboardSystemPrompt();

@@ -25,9 +25,10 @@ describe("Visual Canvas Prompt", () => {
     expect(prompt.length).toBeGreaterThan(100);
   });
 
-  it("includes DASHBOARD marker format", () => {
+  it("includes DASHBOARD marker format with data field", () => {
     const prompt = getVisualCanvasPrompt();
     expect(prompt).toContain("[DASHBOARD:");
+    expect(prompt).toContain('"data"');
   });
 
   it("includes RENDER marker format", () => {
