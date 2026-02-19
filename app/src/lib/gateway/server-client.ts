@@ -78,7 +78,9 @@ class GatewayClient {
         return;
       }
       this.connecting = true;
-      const ws = new WebSocket(GATEWAY_URL);
+      const ws = new WebSocket(GATEWAY_URL, {
+        headers: { Origin: "http://localhost:18789" },
+      });
       this.ws = ws;
 
       const connectTimeout = setTimeout(() => {
@@ -226,10 +228,10 @@ class GatewayClient {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: "gateway-client",
+        id: "openclaw-control-ui",
         version: "0.2.0",
         platform: "linux",
-        mode: "backend",
+        mode: "ui",
       },
       auth: { token: GATEWAY_TOKEN() },
       role: "operator",
