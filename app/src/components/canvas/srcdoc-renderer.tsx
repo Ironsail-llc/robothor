@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useEffect, useRef, useState } from "react";
+import DOMPurify from "dompurify";
 
 interface SrcdocRendererProps {
   html: string;
@@ -11,16 +12,21 @@ export function SrcdocRenderer({ html }: SrcdocRendererProps) {
   const [height, setHeight] = useState(400);
 
   const srcdoc = useMemo(() => {
-    // Basic sanitization — strip script tags with external sources
-    const sanitized = html
-      .replace(/<script[^>]*src=[^>]*>/gi, "")
-      .replace(/<link[^>]*href=["'](?!https:\/\/cdn\.tailwindcss\.com)[^"']*["'][^>]*>/gi, "");
+    const sanitized = DOMPurify.sanitize(html, {
+      ADD_TAGS: ["canvas", "svg", "polyline", "path", "circle", "rect", "line", "text", "g", "defs", "linearGradient", "stop"],
+      ADD_ATTR: ["data-chart", "data-testid", "data-tab", "data-sort-dir", "viewBox", "points", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill", "d", "cx", "cy", "r", "x1", "y1", "x2", "y2", "offset", "stop-color", "stop-opacity", "height", "width"],
+      ALLOW_DATA_ATTR: true,
+      ALLOW_UNKNOWN_PROTOCOLS: false,
+      FORBID_TAGS: ["iframe", "object", "embed", "form", "textarea", "select", "meta"],
+      FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur"],
+    });
 
     return `<!DOCTYPE html>
 <html class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.tailwindcss.com; img-src data: blob:; font-src https://cdn.tailwindcss.com; connect-src 'none';">
   <script src="https://cdn.tailwindcss.com"><\/script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"><\/script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"><\/script>
@@ -66,7 +72,11 @@ export function SrcdocRenderer({ html }: SrcdocRendererProps) {
     .animate-in:nth-child(10) { animation-delay: 0.45s; }
     .animate-in:nth-child(11) { animation-delay: 0.5s; }
     .animate-in:nth-child(12) { animation-delay: 0.55s; }
-    .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+    .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); overflow: hidden; }
+    [class*="bg-zinc-900"] { overflow: hidden; }
+    [class*="col-span"] { overflow: hidden; }
+    [data-chart] { width: 100%; max-height: 100%; }
+    canvas { max-width: 100%; }
     .gradient-text { background: linear-gradient(135deg, #818cf8, #a78bfa, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     body::before { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.08), transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(168,85,247,0.06), transparent 50%); pointer-events: none; z-index: 0; }
     body > * { position: relative; z-index: 1; }
@@ -113,6 +123,82 @@ export function SrcdocRenderer({ html }: SrcdocRendererProps) {
       + '<polyline points="'+points+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><\/svg>';
   }
 <\/script>
+<script>
+  // Chart hydration — renders declarative chart specs from data-chart attributes
+  (function() {
+    var COLORS = {
+      indigo: '#6366f1', purple: '#8b5cf6', emerald: '#22c55e',
+      rose: '#ef4444', yellow: '#eab308', blue: '#3b82f6',
+      cyan: '#06b6d4', orange: '#f97316', pink: '#ec4899', zinc: '#a1a1aa'
+    };
+
+    function resolveColor(name) { return COLORS[name] || name; }
+
+    function hexToRgb(hex) {
+      var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+      return r+','+g+','+b;
+    }
+
+    function hydrateCharts() {
+      document.querySelectorAll('[data-chart]').forEach(function(el) {
+        try {
+          var spec = JSON.parse(el.getAttribute('data-chart'));
+          var canvas = document.createElement('canvas');
+          // Use explicit height, or fit to parent container, or 200px fallback
+          var parentH = el.parentElement ? el.parentElement.clientHeight : 0;
+          var availH = parentH > 60 ? parentH - 40 : 0; // subtract heading/padding estimate
+          canvas.height = spec.height || (availH > 80 ? Math.min(availH, 300) : 200);
+          el.appendChild(canvas);
+          var ctx = canvas.getContext('2d');
+
+          var datasets = (spec.datasets || []).map(function(ds) {
+            var color = resolveColor(ds.color || 'indigo');
+            return {
+              label: ds.label || '',
+              data: ds.data,
+              backgroundColor: spec.gradient
+                ? createGradient(ctx, ['rgba(' + hexToRgb(color) + ',0.8)', 'rgba(' + hexToRgb(color) + ',0.1)'])
+                : ds.colors ? ds.colors.map(resolveColor) : color,
+              borderColor: color,
+              borderWidth: ds.borderWidth !== undefined ? ds.borderWidth : (spec.type === 'line' ? 2 : 0),
+              fill: spec.type === 'line' ? true : undefined,
+              pointBackgroundColor: spec.type === 'line' ? color : undefined
+            };
+          });
+
+          new Chart(ctx, {
+            type: spec.type,
+            data: { labels: spec.labels, datasets: datasets },
+            options: {
+              responsive: true,
+              indexAxis: spec.indexAxis || 'x',
+              cutout: spec.cutout,
+              rotation: spec.rotation,
+              circumference: spec.circumference,
+              plugins: {
+                legend: { display: spec.legend !== false && datasets.length > 1 },
+                datalabels: { display: !!spec.datalabels, color: '#a1a1aa', anchor: 'end', align: 'top', font: { size: 11 } },
+                tooltip: spec.type === 'doughnut' && spec.cutout ? { enabled: false } : undefined
+              },
+              scales: ['doughnut','pie','radar','polarArea'].includes(spec.type) ? undefined : {
+                y: { grid: { color: '#27272a' } },
+                x: { grid: { display: false } }
+              }
+            }
+          });
+        } catch(e) {
+          el.innerHTML = '<p class="text-xs text-rose-400/60">Chart render error</p>';
+        }
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', hydrateCharts);
+    } else {
+      hydrateCharts();
+    }
+  })();
+<\/script>
 ${sanitized}
 <script>
   function reportHeight() {
@@ -132,8 +218,10 @@ ${sanitized}
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
+      // srcdoc iframes have origin "null" (string), so accept that
+      if (e.origin !== "null" && e.origin !== window.location.origin) return;
       if (e.data?.type === "srcdoc-height" && typeof e.data.height === "number") {
-        setHeight(Math.max(200, e.data.height + 32));
+        setHeight(Math.max(200, Math.min(e.data.height + 32, 5000)));
       }
     }
     window.addEventListener("message", onMessage);
@@ -149,6 +237,7 @@ ${sanitized}
       sandbox="allow-scripts"
       title="Dashboard"
       data-testid="srcdoc-renderer"
+      referrerPolicy="no-referrer"
     />
   );
 }

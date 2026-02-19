@@ -9,7 +9,27 @@ const OPENROUTER_API_KEY = () => process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = "google/gemini-2.5-flash";
 
+const RATE_LIMIT_WINDOW = 60_000;
+const RATE_LIMIT_MAX = 10;
+const requestLog: number[] = [];
+
+function isRateLimited(): boolean {
+  const now = Date.now();
+  while (requestLog.length > 0 && requestLog[0] < now - RATE_LIMIT_WINDOW) {
+    requestLog.shift();
+  }
+  if (requestLog.length >= RATE_LIMIT_MAX) return true;
+  requestLog.push(now);
+  return false;
+}
+
 export async function POST(req: Request) {
+  if (isRateLimited()) {
+    return new Response(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+      headers: { "Content-Type": "application/json", "Retry-After": "60" },
+    });
+  }
   const body = await req.json();
 
   // New: triage-driven conversation path (v2)
@@ -116,9 +136,9 @@ async function generateBuffered(systemPrompt: string, userPrompt: string) {
     });
 
     if (!response.ok || !response.body) {
-      const err = await response.text().catch(() => "Unknown error");
+      console.error("[dashboard] OpenRouter error:", await response.text().catch(() => "Unknown"));
       return new Response(
-        JSON.stringify({ error: `OpenRouter error: ${err}` }),
+        JSON.stringify({ error: "Dashboard service temporarily unavailable" }),
         { status: 502, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -159,10 +179,9 @@ async function generateBuffered(systemPrompt: string, userPrompt: string) {
     const codeType = detectCodeType(validation.code);
 
     if (!validation.valid) {
+      console.error("[dashboard] Validation failed:", validation.errors);
       return new Response(
-        JSON.stringify({
-          error: `Generated code failed validation: ${validation.errors.join(", ")}`,
-        }),
+        JSON.stringify({ error: "Generated dashboard failed quality check" }),
         { status: 422, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -175,8 +194,9 @@ async function generateBuffered(systemPrompt: string, userPrompt: string) {
       }
     );
   } catch (err) {
+    console.error("[dashboard] Generation error:", err);
     return new Response(
-      JSON.stringify({ error: `Dashboard generation error: ${String(err)}` }),
+      JSON.stringify({ error: "Dashboard generation failed" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }

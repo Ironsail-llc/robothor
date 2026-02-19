@@ -187,21 +187,47 @@ export async function fetchWebSearch(query: string): Promise<Record<string, unkn
 }
 
 /**
+ * Fetch data from Impetus One via Bridge proxy.
+ */
+async function fetchImpetusData(resource: string): Promise<Record<string, unknown>> {
+  try {
+    const res = await fetchJson(`${BRIDGE_URL}/api/impetus/${resource}`);
+    return { [resource]: res };
+  } catch {
+    return { [resource]: [] };
+  }
+}
+
+/**
  * Parse a dataNeeds array from the triage step and fetch all data in parallel.
  * Supports:
  *   "health", "contacts", "conversations", "companies", "calendar", "overview"
  *   "memory:<query>" — RAG search
  *   "web:<query>" — SearXNG web search
+ *   "prescriptions", "patients", "queue", "orders", "pharmacy", "appointments:io" — Impetus One
  */
+const ALLOWED_PREFIXES = new Set([
+  "health", "contacts", "conversations", "companies", "calendar",
+  "memory", "web", "overview", "prescriptions", "patients", "queue",
+  "orders", "pharmacy", "appointments", "medications", "encounters",
+]);
+
 export async function fetchDataForNeeds(
   dataNeeds: string[]
 ): Promise<Record<string, unknown>> {
   if (!dataNeeds.length) return {};
 
-  const fetchers: Array<Promise<[string, Record<string, unknown>]>> = dataNeeds.map(
+  const validNeeds = dataNeeds.filter((need) => {
+    const prefix = need.split(":")[0];
+    return ALLOWED_PREFIXES.has(prefix);
+  });
+
+  if (!validNeeds.length) return {};
+
+  const fetchers: Array<Promise<[string, Record<string, unknown>]>> = validNeeds.map(
     (need) => {
       const [prefix, ...rest] = need.split(":");
-      const query = rest.join(":").trim();
+      const query = rest.join(":").trim().slice(0, 200);
 
       switch (prefix) {
         case "health":
@@ -223,6 +249,42 @@ export async function fetchDataForNeeds(
         case "web":
           return fetchWebSearch(query || "").then(
             (d) => ["web", d] as [string, Record<string, unknown>]
+          );
+        // Impetus One data sources
+        case "prescriptions":
+          return fetchImpetusData("prescriptions").then(
+            (d) => ["prescriptions", d] as [string, Record<string, unknown>]
+          );
+        case "patients":
+          return fetchImpetusData("patients").then(
+            (d) => ["patients", d] as [string, Record<string, unknown>]
+          );
+        case "queue":
+          return fetchImpetusData("queue").then(
+            (d) => ["queue", d] as [string, Record<string, unknown>]
+          );
+        case "orders":
+          return fetchImpetusData("orders").then(
+            (d) => ["orders", d] as [string, Record<string, unknown>]
+          );
+        case "pharmacy":
+          return fetchImpetusData("pharmacies").then(
+            (d) => ["pharmacy", d] as [string, Record<string, unknown>]
+          );
+        case "appointments":
+          if (query === "io") {
+            return fetchImpetusData("appointments").then(
+              (d) => ["appointments", d] as [string, Record<string, unknown>]
+            );
+          }
+          return Promise.resolve(["appointments", {}] as [string, Record<string, unknown>]);
+        case "medications":
+          return fetchImpetusData("medications").then(
+            (d) => ["medications", d] as [string, Record<string, unknown>]
+          );
+        case "encounters":
+          return fetchImpetusData("encounters").then(
+            (d) => ["encounters", d] as [string, Record<string, unknown>]
           );
         default:
           return Promise.resolve([prefix, {}] as [string, Record<string, unknown>]);
@@ -249,5 +311,8 @@ async function fetchJson(url: string, options?: RequestInit) {
     headers: { "Content-Type": "application/json", ...options?.headers },
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
   return res.json();
 }

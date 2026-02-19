@@ -1,0 +1,109 @@
+#!/bin/bash
+# sag-local — Local TTS via Kokoro-FastAPI (drop-in replacement for ElevenLabs sag)
+# Usage: sag-local "text to speak" [-v voice] [-o output.mp3]
+#        sag-local voices              — list available voices
+
+set -euo pipefail
+
+KOKORO_URL="http://localhost:8880/v1"
+DEFAULT_VOICE="am_michael(1)+bm_daniel(1)+bm_george(1)"
+DEFAULT_OUTPUT="/tmp/tts-output.mp3"
+
+# Parse arguments
+VOICE="$DEFAULT_VOICE"
+OUTPUT=""
+TEXT=""
+LIST_VOICES=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -v|--voice)
+      VOICE="$2"
+      shift 2
+      ;;
+    -o|--output)
+      OUTPUT="$2"
+      shift 2
+      ;;
+    voices)
+      LIST_VOICES=true
+      shift
+      ;;
+    --help|-h)
+      echo "Usage: sag-local [OPTIONS] \"text to speak\""
+      echo ""
+      echo "Options:"
+      echo "  -v, --voice VOICE   Voice name (default: am_fenrir)"
+      echo "  -o, --output FILE   Output file (default: play immediately)"
+      echo "  voices              List available voices"
+      echo ""
+      echo "Examples:"
+      echo "  sag-local \"Hello there\""
+      echo "  sag-local -v bm_george \"Tell me a story\""
+      echo "  sag-local -v \"am_fenrir(2)+bm_george(1)\" -o /tmp/blended.mp3 \"Voice blend test\""
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      TEXT="$1"
+      shift
+      ;;
+  esac
+done
+
+# List voices
+if $LIST_VOICES; then
+  curl -s "${KOKORO_URL}/audio/voices" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+voices = data if isinstance(data, list) else data.get('voices', data.get('data', []))
+if isinstance(voices, dict):
+    voices = list(voices.keys())
+for v in sorted(voices) if isinstance(voices, list) else [voices]:
+    if isinstance(v, dict):
+        print(f\"  {v.get('id', v.get('name', v))}\")
+    else:
+        print(f\"  {v}\")
+" 2>/dev/null || echo "Failed to fetch voices. Is Kokoro running?"
+  exit 0
+fi
+
+# Require text
+if [[ -z "$TEXT" ]]; then
+  echo "Error: No text provided" >&2
+  echo "Usage: sag-local \"text to speak\"" >&2
+  exit 1
+fi
+
+# Generate audio
+PLAY_AFTER=false
+if [[ -z "$OUTPUT" ]]; then
+  OUTPUT="$DEFAULT_OUTPUT"
+  PLAY_AFTER=true
+fi
+
+curl -s "${KOKORO_URL}/audio/speech" \
+  -H "Content-Type: application/json" \
+  -d "$(python3 -c "import json; print(json.dumps({'model': 'kokoro', 'input': $(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$TEXT"), 'voice': '$VOICE'}))")" \
+  --output "$OUTPUT"
+
+if [[ $? -ne 0 || ! -s "$OUTPUT" ]]; then
+  echo "Error: TTS generation failed" >&2
+  exit 1
+fi
+
+echo "Saved: $OUTPUT (voice: $VOICE)"
+
+# Play if no output file specified
+if $PLAY_AFTER; then
+  if command -v mpv &>/dev/null; then
+    mpv --no-terminal "$OUTPUT" 2>/dev/null
+  elif command -v aplay &>/dev/null; then
+    ffplay -nodisp -autoexit "$OUTPUT" 2>/dev/null
+  else
+    echo "(no player found — file saved at $OUTPUT)"
+  fi
+fi

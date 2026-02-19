@@ -4,20 +4,25 @@
  */
 
 const BLOCKED_PATTERNS = [
-  /\beval\s*\(/,
+  /\beval\s*\(/i,
   /\bFunction\s*\(/,
   /\bnew\s+Function\b/,
-  /\bdocument\.cookie\b/,
-  /\blocalStorage\b/,
-  /\bsessionStorage\b/,
-  /\bwindow\.location\b/,
-  /\bfetch\s*\(\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/,
-  /\bimport\s*\(\s*["']https?:\/\//,
+  /\bdocument\.cookie\b/i,
+  /\blocalStorage\b/i,
+  /\bsessionStorage\b/i,
+  /\bwindow\.location\b/i,
+  /\bfetch\s*\(\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/i,
+  /\bimport\s*\(\s*["']https?:\/\//i,
   /\b__proto__\b/,
   /\bconstructor\s*\[/,
-  /\bdocument\.write\b/,
-  // innerHTML is safe in our sandboxed iframe (allow-scripts only, no allow-same-origin)
+  /\bdocument\.write\b/i,
   /\bdangerouslySetInnerHTML\b/,
+  /\bsetTimeout\s*\(\s*["'`]/i,
+  /\bsetInterval\s*\(\s*["'`]/i,
+  /\bon\w+\s*=\s*["']/i,
+  /\bwindow\s*\[\s*["']/,
+  /\(\s*0\s*,\s*eval\s*\)/,
+  /\bXMLHttpRequest\b/i,
 ];
 
 export interface ValidationResult {
@@ -40,6 +45,10 @@ export function validateDashboardCode(code: string): ValidationResult {
     }
   }
 
+  // Validate chart specs
+  const chartErrors = validateChartSpecs(code);
+  errors.push(...chartErrors);
+
   // Normalize code
   let normalized = code;
 
@@ -52,6 +61,28 @@ export function validateDashboardCode(code: string): ValidationResult {
     errors,
     code: normalized.trim(),
   };
+}
+
+const VALID_CHART_TYPES = new Set(["bar", "line", "doughnut", "pie", "radar", "polarArea"]);
+
+export function validateChartSpecs(code: string): string[] {
+  const errors: string[] = [];
+  const specRegex = /data-chart='([^']*)'/g;
+  let match;
+  while ((match = specRegex.exec(code)) !== null) {
+    try {
+      const spec = JSON.parse(match[1]);
+      if (!spec.type || !VALID_CHART_TYPES.has(spec.type)) {
+        errors.push(`Invalid chart type: ${spec.type}`);
+      }
+      if (spec.datasets && !Array.isArray(spec.datasets)) {
+        errors.push("Chart datasets must be an array");
+      }
+    } catch {
+      errors.push("Invalid JSON in data-chart attribute");
+    }
+  }
+  return errors;
 }
 
 /** Detect whether generated code is TSX or HTML */
