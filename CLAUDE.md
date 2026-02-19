@@ -10,7 +10,7 @@ For Robothor's identity and personality, read `brain/SOUL.md`.
 |-------|-------|
 | Email | robothor@ironsail.ai |
 | Phone | +1 (413) 408-6025 (Twilio) |
-| Voice | Daniel (ElevenLabs) |
+| Voice | am_michael+bm_daniel+bm_george blend (Kokoro, local TTS on :8880) |
 | Domain | robothor.ai |
 | GCP Project | robothor-485903 |
 | Telegram Bot | Robothor (main session delivery) |
@@ -101,6 +101,7 @@ Deep reference: `brain/VISION.md`
 | monitor.robothor.ai | Uptime Kuma | 3010 | Cloudflare Access (email OTP) |
 | vault.robothor.ai | Vaultwarden | 8222 | Cloudflare Access (email OTP) |
 | app.robothor.ai | Helm (live dashboard) | 3004 | Cloudflare Access (email OTP) |
+| tts.robothor.ai | Kokoro TTS | 8880 | Cloudflare Access (email OTP) |
 | Tailscale IP | 100.91.221.100 (ironsail tailnet) | — | — |
 
 All camera ports bound to `127.0.0.1`. Webcam only accessible externally via `cam.robothor.ai` (Cloudflare Access: `philip@ironsail.ai`, `robothor@ironsail.ai`).
@@ -142,6 +143,7 @@ Deep reference: `INFRASTRUCTURE.md`
 | Vaultwarden | (Docker in robothor-crm) | Docker | 8222 | Password vault (vault.robothor.ai) |
 | Uptime Kuma | (Docker in robothor-crm) | Docker | 3010 | Service monitoring dashboard |
 | Helm | robothor-app.service | system (`sudo`) | 3004 | Next.js 16 + Dockview live dashboard (app.robothor.ai) |
+| Kokoro TTS | (Docker in robothor-crm) | Docker | 8880 | Local OpenAI-compatible TTS (tts.robothor.ai) |
 | Samba | smbd.service, nmbd.service | system | 445 | Network file shares (local + Tailscale only) |
 | Tailscale | tailscaled.service | system (`sudo`) | — | VPN mesh (ironsail tailnet) |
 | Moltbot gateway | moltbot-gateway.service | system (`sudo`) | 18789 | OpenClaw messaging |

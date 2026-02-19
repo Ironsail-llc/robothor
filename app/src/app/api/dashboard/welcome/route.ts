@@ -40,9 +40,9 @@ Generate the dashboard HTML now. No markdown fences, no explanation, no code fen
     });
 
     if (!response.ok || !response.body) {
-      const err = await response.text().catch(() => "Unknown error");
+      console.error("[welcome] OpenRouter error:", await response.text().catch(() => "Unknown"));
       return new Response(
-        JSON.stringify({ error: `OpenRouter error: ${err}` }),
+        JSON.stringify({ error: "Dashboard service temporarily unavailable" }),
         { status: 502, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -82,10 +82,9 @@ Generate the dashboard HTML now. No markdown fences, no explanation, no code fen
     const codeType = detectCodeType(validation.code);
 
     if (!validation.valid) {
+      console.error("[welcome] Validation failed:", validation.errors);
       return new Response(
-        JSON.stringify({
-          error: `Generated code failed validation: ${validation.errors.join(", ")}`,
-        }),
+        JSON.stringify({ error: "Generated dashboard failed quality check" }),
         { status: 422, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -98,8 +97,9 @@ Generate the dashboard HTML now. No markdown fences, no explanation, no code fen
       }
     );
   } catch (err) {
+    console.error("[welcome] Generation error:", err);
     return new Response(
-      JSON.stringify({ error: `Welcome dashboard error: ${String(err)}` }),
+      JSON.stringify({ error: "Dashboard generation failed" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }

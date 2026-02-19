@@ -6,7 +6,7 @@
  */
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "google/gemini-2.5-flash-lite";
 
 export interface TriageResult {
   shouldUpdate: boolean;
@@ -27,6 +27,14 @@ Available data sources:
 - "memory:<query>" — search memory/knowledge base for <query>
 - "web:<query>" — web search for <query> (weather, news, research, etc.)
 - "overview" — combined health + inbox summary
+- "prescriptions" — prescription pipeline (counts by status, pending review)
+- "appointments:io" — appointments from Impetus One
+- "patients" — patient list/search results
+- "queue" — provider review queue (priority items)
+- "orders" — e-commerce order status
+- "pharmacy" — pharmacy list and transmission status
+- "medications" — medication catalog
+- "encounters" — patient encounters/chart notes
 
 Respond with ONLY valid JSON, no markdown fences:
 {"shouldUpdate": true/false, "dataNeeds": ["source1", "source2"], "summary": "brief description of what dashboard should show"}
@@ -39,7 +47,13 @@ Examples:
 - User asks about schedule → {"shouldUpdate": true, "dataNeeds": ["calendar"], "summary": "Today's schedule and upcoming meetings"}
 - User discusses project details → {"shouldUpdate": true, "dataNeeds": ["memory:project details"], "summary": "Project information dashboard"}
 - User says "ok" or "got it" → {"shouldUpdate": false, "dataNeeds": [], "summary": ""}
-- Assistant gives weather info → {"shouldUpdate": true, "dataNeeds": ["web:weather"], "summary": "Weather conditions dashboard"}`;
+- Assistant gives weather info → {"shouldUpdate": true, "dataNeeds": ["web:weather"], "summary": "Weather conditions dashboard"}
+- User asks about prescriptions → {"shouldUpdate": true, "dataNeeds": ["prescriptions"], "summary": "Prescription pipeline status"}
+- User asks about the queue → {"shouldUpdate": true, "dataNeeds": ["queue"], "summary": "Provider review queue with priorities"}
+- User asks about patients → {"shouldUpdate": true, "dataNeeds": ["patients"], "summary": "Patient list"}
+- User asks about appointments or schedule at the clinic → {"shouldUpdate": true, "dataNeeds": ["appointments:io"], "summary": "Clinic appointment schedule"}
+- User asks about orders or e-commerce → {"shouldUpdate": true, "dataNeeds": ["orders"], "summary": "E-commerce order status"}
+- User asks about pharmacy or medications → {"shouldUpdate": true, "dataNeeds": ["pharmacy", "medications"], "summary": "Pharmacy and medication overview"}`;
 
 /**
  * Build the user prompt for triage from recent conversation messages.
@@ -99,8 +113,10 @@ export async function triageDashboard(
 
     return {
       shouldUpdate: Boolean(parsed.shouldUpdate),
-      dataNeeds: Array.isArray(parsed.dataNeeds) ? parsed.dataNeeds : [],
-      summary: String(parsed.summary || ""),
+      dataNeeds: Array.isArray(parsed.dataNeeds)
+        ? parsed.dataNeeds.filter((n: unknown) => typeof n === "string" && n.length < 100)
+        : [],
+      summary: String(parsed.summary || "").replace(/[^\w\s\-.,():/]/g, "").slice(0, 200),
     };
   } catch {
     // On any error, don't update (safe default)

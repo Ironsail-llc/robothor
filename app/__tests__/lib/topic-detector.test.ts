@@ -41,4 +41,26 @@ describe("isTrivialResponse", () => {
   it("treats long text as non-trivial even if it starts with a trivial word", () => {
     expect(isTrivialResponse("ok so here is what I was thinking about the project")).toBe(false);
   });
+
+  it("identifies whitespace-only string as trivial", () => {
+    expect(isTrivialResponse("   ")).toBe(true);
+    expect(isTrivialResponse("\n\t")).toBe(true);
+  });
+
+  it("identifies short acks with punctuation as trivial", () => {
+    expect(isTrivialResponse("sure!")).toBe(true);
+    expect(isTrivialResponse("yep.")).toBe(true);
+    expect(isTrivialResponse("hm")).toBe(true);
+  });
+
+  it("identifies non-trivial mixed messages", () => {
+    expect(isTrivialResponse("ok show me")).toBe(false);
+    expect(isTrivialResponse("show me the prescriptions")).toBe(false);
+    expect(isTrivialResponse("what's the weather")).toBe(false);
+  });
+
+  it("treats any text over 50 chars as non-trivial", () => {
+    const longText = "a".repeat(51);
+    expect(isTrivialResponse(longText)).toBe(false);
+  });
 });

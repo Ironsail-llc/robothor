@@ -16,5 +16,9 @@ CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 CHATWOOT_ACCOUNT_ID = int(os.getenv("CHATWOOT_ACCOUNT_ID", "1"))
 CHATWOOT_INBOX_ID = 2  # Robothor Bridge API inbox
 
+# Impetus One
+IMPETUS_ONE_URL = os.getenv("IMPETUS_ONE_BASE_URL", "http://localhost:8000")
+IMPETUS_ONE_TOKEN = os.getenv("IMPETUS_ONE_API_TOKEN", "")
+
 # Database
 PG_DSN = "dbname=robothor_memory user=philip host=/var/run/postgresql"

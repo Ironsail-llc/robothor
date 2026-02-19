@@ -19,6 +19,7 @@ Logs: `journalctl -u <unit> -f`
 | robothor-transcript.service | — | brain/memory_system | Voice transcript watcher |
 | robothor-crm.service | 3030, 3100, 3010, 8222 | crm/ | Docker Compose: Twenty CRM + Chatwoot + Uptime Kuma + Vaultwarden (6 containers) |
 | robothor-bridge.service | 9100 | crm/bridge | Bridge: contact resolution, webhooks, CRM integration |
+| bridge-watchdog.timer | — | scripts/ | Self-healing watchdog: checks bridge every 5min, auto-restarts on 2 failures |
 | robothor-app.service | 3004 | app/ | Helm: Next.js 16 + Dockview live dashboard (app.robothor.ai) |
 | smbd.service | 445 | — | Samba file sharing (local network + Tailscale only) |
 | nmbd.service | 137-138 | — | NetBIOS name service for Samba |

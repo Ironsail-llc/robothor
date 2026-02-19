@@ -52,6 +52,13 @@ async def health():
     except Exception as e:
         services["memory"] = f"error:{e}"
 
+    if config.IMPETUS_ONE_TOKEN:
+        try:
+            r = await http_client.get(f"{config.IMPETUS_ONE_URL}/healthz", timeout=5.0)
+            services["impetus_one"] = "ok" if r.status_code == 200 else f"error:{r.status_code}"
+        except Exception as e:
+            services["impetus_one"] = f"error:{e}"
+
     all_ok = all(v == "ok" for v in services.values())
     return {"status": "ok" if all_ok else "degraded", "services": services}
 
@@ -388,6 +395,327 @@ async def api_vault_create_card(request: Request):
         return item
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ─── Impetus One Proxy Endpoints ───────────────────────────────────────
+
+async def _io_get(path: str, params: dict | None = None) -> dict:
+    """Proxy GET to Impetus One API."""
+    headers = {"Authorization": f"Bearer {config.IMPETUS_ONE_TOKEN}"}
+    r = await http_client.get(f"{config.IMPETUS_ONE_URL}{path}", headers=headers, params=params)
+    r.raise_for_status()
+    return r.json()
+
+
+async def _io_post(path: str, body: dict) -> dict:
+    """Proxy POST to Impetus One API."""
+    headers = {
+        "Authorization": f"Bearer {config.IMPETUS_ONE_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    r = await http_client.post(f"{config.IMPETUS_ONE_URL}{path}", headers=headers, json=body)
+    r.raise_for_status()
+    return r.json()
+
+
+@app.get("/api/impetus/health")
+async def api_impetus_health():
+    """Check Impetus One service health."""
+    try:
+        r = await http_client.get(f"{config.IMPETUS_ONE_URL}/healthz", timeout=5.0)
+        return {"status": "ok" if r.status_code == 200 else "error", "http_code": r.status_code}
+    except Exception as e:
+        return JSONResponse({"status": "error", "error": str(e)}, status_code=503)
+
+
+@app.get("/api/impetus/patients")
+async def api_impetus_patients(
+    search: Optional[str] = Query(None),
+    firstName: Optional[str] = Query(None),
+    lastName: Optional[str] = Query(None),
+):
+    """List/search patients in Impetus One."""
+    try:
+        params = {}
+        if firstName:
+            params["firstName"] = firstName
+        if lastName:
+            params["lastName"] = lastName
+        if search:
+            params["lastName"] = search
+        data = await _io_get("/api/patients", params or None)
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/patients/{patient_id}")
+async def api_impetus_patient(patient_id: str):
+    """Get a single patient by ID."""
+    try:
+        data = await _io_get(f"/api/patients/{patient_id}")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/prescriptions")
+async def api_impetus_prescriptions(
+    status: Optional[str] = Query(None),
+):
+    """List prescriptions, optionally filtered by status."""
+    try:
+        params = {}
+        if status:
+            params["status"] = status
+        data = await _io_get("/api/prescriptions", params or None)
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/prescriptions/{rx_id}")
+async def api_impetus_prescription(rx_id: str):
+    """Get a single prescription by ID."""
+    try:
+        data = await _io_get(f"/api/prescriptions/{rx_id}")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/appointments")
+async def api_impetus_appointments():
+    """List appointments."""
+    try:
+        data = await _io_get("/api/appointments")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/queue")
+async def api_impetus_queue():
+    """List provider review queue items."""
+    try:
+        data = await _io_get("/api/queue_items")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/medications")
+async def api_impetus_medications():
+    """List medications."""
+    try:
+        data = await _io_get("/api/medications")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/pharmacies")
+async def api_impetus_pharmacies():
+    """List pharmacies."""
+    try:
+        data = await _io_get("/api/pharmacies")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/orders")
+async def api_impetus_orders():
+    """List e-commerce orders."""
+    try:
+        data = await _io_get("/api/ecommerce/orders")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/impetus/encounters")
+async def api_impetus_encounters():
+    """List patient encounters/chart notes."""
+    try:
+        data = await _io_get("/api/encounters")
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.post("/api/impetus/graphql")
+async def api_impetus_graphql(request: Request):
+    """GraphQL passthrough to Impetus One."""
+    try:
+        body = await request.json()
+        data = await _io_post("/api/graphql", body)
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+# ─── Impetus One MCP Client (for write operations with scribe delegation) ──
+
+
+class ImpetusMCPClient:
+    """JSON-RPC client for Impetus One MCP HTTP endpoint.
+
+    Write operations (prescriptions, transmit) require scribe delegation context
+    that only the MCP layer handles. This client maintains a session with the
+    Impetus MCP server at /_mcp.
+    """
+
+    def __init__(self):
+        self.session_id: str | None = None
+        self._initialized = False
+        self._request_id = 0
+
+    def _next_id(self) -> int:
+        self._request_id += 1
+        return self._request_id
+
+    async def _send(self, message: dict) -> dict:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.IMPETUS_ONE_TOKEN}",
+        }
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+
+        r = await http_client.post(
+            f"{config.IMPETUS_ONE_URL}/_mcp",
+            headers=headers,
+            json=message,
+            timeout=30.0,
+        )
+
+        if session_id := r.headers.get("Mcp-Session-Id"):
+            self.session_id = session_id
+
+        # Handle non-JSON responses (e.g. 405, SSE streams)
+        content_type = r.headers.get("content-type", "")
+        if "application/json" in content_type or "text/json" in content_type:
+            return r.json()
+        # For SSE or other formats, try to parse as JSON anyway
+        text = r.text
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return {"error": f"Unexpected response ({r.status_code}): {text[:200]}"}
+
+    async def ensure_initialized(self):
+        if self._initialized:
+            return
+
+        result = await self._send({
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "robothor-bridge", "version": "1.0.0"},
+            },
+        })
+
+        # Send initialized notification (no response expected)
+        await self._send({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        })
+
+        self._initialized = True
+
+    async def call_tool(self, name: str, arguments: dict | None = None) -> dict:
+        """Call an MCP tool and return the parsed result."""
+        await self.ensure_initialized()
+
+        result = await self._send({
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "tools/call",
+            "params": {
+                "name": name,
+                "arguments": arguments or {},
+            },
+        })
+
+        if "error" in result:
+            err = result["error"]
+            return {"error": err.get("message", str(err)) if isinstance(err, dict) else str(err)}
+
+        # MCP tool results have content array with text items
+        content = result.get("result", {}).get("content", [])
+        if content and content[0].get("type") == "text":
+            try:
+                return json.loads(content[0]["text"])
+            except (json.JSONDecodeError, KeyError):
+                return {"text": content[0].get("text", "")}
+
+        return result.get("result", {})
+
+    def reset(self):
+        """Reset session state on connection errors."""
+        self.session_id = None
+        self._initialized = False
+
+
+_impetus_mcp: ImpetusMCPClient | None = None
+
+
+def _get_impetus_mcp() -> ImpetusMCPClient:
+    global _impetus_mcp
+    if _impetus_mcp is None:
+        _impetus_mcp = ImpetusMCPClient()
+    return _impetus_mcp
+
+
+@app.get("/api/impetus/providers")
+async def api_impetus_providers():
+    """List providers RoboThor can act as via scribe delegation."""
+    try:
+        mcp = _get_impetus_mcp()
+        return await mcp.call_tool("list_actable_providers")
+    except Exception as e:
+        _get_impetus_mcp().reset()
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.post("/api/impetus/prescriptions/draft")
+async def api_impetus_create_draft(request: Request):
+    """Create a prescription draft via MCP (supports scribe delegation).
+
+    Body: {patientId, medicationId, directions, quantity, daysSupply,
+           refills?, notes?, actingAsProviderId?}
+    """
+    try:
+        body = await request.json()
+        mcp = _get_impetus_mcp()
+        return await mcp.call_tool("create_prescription_draft", body)
+    except Exception as e:
+        _get_impetus_mcp().reset()
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.post("/api/impetus/prescriptions/{rx_id}/transmit")
+async def api_impetus_transmit(rx_id: str, request: Request):
+    """Transmit a prescription to pharmacy via MCP.
+
+    Two-step flow:
+    1. First call (no confirmationId): creates pending confirmation
+    2. Second call (with confirmationId): executes after human approval
+
+    Body: {actingAsProviderId?, confirmationId?}
+    """
+    try:
+        body = await request.json()
+        body["prescriptionId"] = rx_id
+        mcp = _get_impetus_mcp()
+        return await mcp.call_tool("transmit_prescription", body)
+    except Exception as e:
+        _get_impetus_mcp().reset()
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 if __name__ == "__main__":
