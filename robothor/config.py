@@ -92,6 +92,10 @@ class Config:
     workspace: Path = field(default_factory=lambda: Path.home() / "robothor")
     memory_dir: Path = field(default_factory=lambda: Path.home() / "robothor" / "memory")
 
+    # Identity
+    owner_name: str = "there"
+    ai_name: str = "Robothor"
+
     # Components
     db: DatabaseConfig = field(default_factory=DatabaseConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
@@ -163,6 +167,8 @@ def _load_from_env() -> Config:
     return Config(
         workspace=workspace,
         memory_dir=memory_dir,
+        owner_name=os.environ.get("ROBOTHOR_OWNER_NAME", "there"),
+        ai_name=os.environ.get("ROBOTHOR_AI_NAME", "Robothor"),
         db=db,
         redis=redis_cfg,
         ollama=ollama_cfg,

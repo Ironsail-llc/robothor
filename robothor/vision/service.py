@@ -37,7 +37,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import cv2
 import httpx
 import numpy as np
 
@@ -46,6 +45,20 @@ from robothor.vision.detector import ObjectDetector, detect_motion
 from robothor.vision.face import FaceRecognizer
 
 logger = logging.getLogger(__name__)
+
+
+def _get_cv2():
+    """Lazy-import cv2 so vision module can be imported without opencv installed."""
+    try:
+        import cv2
+
+        return cv2
+    except ImportError:
+        raise ImportError(
+            "opencv-python is required for vision features. "
+            "Install with: pip install robothor[vision]"
+        ) from None
+
 
 # Valid modes
 VALID_MODES = ("disarmed", "basic", "armed")
@@ -62,6 +75,7 @@ class CameraStream:
     def _connect(self) -> None:
         if self.cap is not None:
             self.cap.release()
+        cv2 = _get_cv2()
         self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if self.cap.isOpened():
@@ -225,7 +239,7 @@ class VisionService:
         day_dir = self.snapshot_dir / now.strftime("%Y-%m-%d")
         day_dir.mkdir(parents=True, exist_ok=True)
         path = day_dir / now.strftime("%H%M%S.jpg")
-        cv2.imwrite(str(path), frame)
+        _get_cv2().imwrite(str(path), frame)
         return str(path)
 
     async def ingest_event(self, event_text: str, metadata: dict) -> None:
@@ -263,7 +277,7 @@ class VisionService:
         self, frame: np.ndarray, prompt: str = "Describe what you see in this image in detail."
     ) -> str:
         """Send a frame to a vision LLM for analysis."""
-        _, buf = cv2.imencode(".jpg", frame)
+        _, buf = _get_cv2().imencode(".jpg", frame)
         img_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
 
         model = os.environ.get("ROBOTHOR_VISION_MODEL", "llama3.2-vision:11b")
@@ -292,7 +306,7 @@ class VisionService:
     async def _alert_unknown(self, frame: np.ndarray, snapshot_path: str, message: str) -> None:
         """Send instant alert for unknown person, then fire-and-forget VLM follow-up."""
         # Encode frame as JPEG for alert
-        _, buf = cv2.imencode(".jpg", frame)
+        _, buf = _get_cv2().imencode(".jpg", frame)
         image_bytes = buf.tobytes()
 
         await self.alerts.send(

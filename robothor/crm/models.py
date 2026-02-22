@@ -87,6 +87,13 @@ def task_to_dict(row: dict) -> dict:
         "dueAt": row["due_at"].isoformat() if row.get("due_at") else None,
         "personId": str(row["person_id"]) if row.get("person_id") else None,
         "companyId": str(row["company_id"]) if row.get("company_id") else None,
+        "createdByAgent": row.get("created_by_agent") or "",
+        "assignedToAgent": row.get("assigned_to_agent") or "",
+        "priority": row.get("priority") or "normal",
+        "tags": row.get("tags") or [],
+        "parentTaskId": str(row["parent_task_id"]) if row.get("parent_task_id") else None,
+        "resolvedAt": row["resolved_at"].isoformat() if row.get("resolved_at") else None,
+        "resolution": row.get("resolution") or "",
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }
