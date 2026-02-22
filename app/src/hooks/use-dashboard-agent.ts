@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useVisualState } from "@/hooks/use-visual-state";
 import { validateDashboardCode } from "@/lib/dashboard/code-validator";
+import { reportDashboardError } from "@/lib/dashboard/error-reporter";
 
 const DEBOUNCE_MS = 300;
 
@@ -60,7 +61,9 @@ export function useDashboardAgent() {
         }
 
         if (!res.ok) {
-          console.warn("[dashboard-agent] Generate failed:", res.status, await res.text().catch(() => ""));
+          const errorText = await res.text().catch(() => "");
+          console.warn("[dashboard-agent] Generate failed:", res.status, errorText);
+          reportDashboardError("generate-api", `HTTP ${res.status}`, { status: res.status, body: errorText });
           setIsUpdating(false);
           return;
         }
@@ -76,6 +79,7 @@ export function useDashboardAgent() {
             setDashboardCode(validation.code, data.type || "html");
           } else {
             console.warn("[dashboard-agent] Client validation failed:", validation.errors);
+            reportDashboardError("client-validation", validation.errors.join("; "), { errors: validation.errors });
           }
         } else {
           console.warn("[dashboard-agent] Response missing html field:", Object.keys(data));
@@ -83,6 +87,7 @@ export function useDashboardAgent() {
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
           console.error("[dashboard-agent] Error:", err);
+          reportDashboardError("generate-exception", String(err));
         }
       } finally {
         if (!abort.signal.aborted) {

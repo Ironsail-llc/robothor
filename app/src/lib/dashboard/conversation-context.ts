@@ -8,7 +8,34 @@ const BRIDGE_URL = getServiceUrl("bridge") || "http://localhost:9100";
 const ORCHESTRATOR_URL = getServiceUrl("orchestrator") || "http://localhost:9099";
 const VISION_URL = getServiceUrl("vision") || "http://localhost:8600";
 const SEARXNG_URL = getServiceUrl("searxng") || "http://localhost:8888";
-const FETCH_TIMEOUT = 3000;
+const FETCH_TIMEOUT = 5000;
+
+// ── TTL Cache ──────────────────────────────────────────────────
+interface CacheEntry { data: Record<string, unknown>; expiresAt: number }
+const dataCache = new Map<string, CacheEntry>();
+const CACHE_TTL: Record<string, number> = {
+  contacts:      5 * 60_000,   // 5 min
+  companies:     5 * 60_000,
+  health:        30_000,       // 30s
+  conversations: 60_000,       // 1 min
+  calendar:      60 * 60_000,  // 1 hr
+  overview:      30_000,
+};
+
+/** Clear all cached data — exposed for testing. */
+export function clearDataCache() { dataCache.clear(); }
+
+function getCached(key: string): Record<string, unknown> | null {
+  const entry = dataCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { dataCache.delete(key); return null; }
+  return entry.data;
+}
+
+function setCache(key: string, data: Record<string, unknown>) {
+  const ttl = CACHE_TTL[key] ?? 60_000;
+  dataCache.set(key, { data, expiresAt: Date.now() + ttl });
+}
 
 export interface ConversationContext {
   topic: string;
@@ -65,15 +92,21 @@ export async function fetchConversationContext(
 }
 
 async function fetchContacts(): Promise<Record<string, unknown>> {
+  const cached = getCached("contacts");
+  if (cached) return cached;
   try {
     const res = await fetchJson(`${BRIDGE_URL}/api/people?limit=20`);
-    return { people: res?.data || [] };
+    const data = { people: res?.data || [] };
+    setCache("contacts", data);
+    return data;
   } catch {
     return { people: [] };
   }
 }
 
 async function fetchInbox(): Promise<Record<string, unknown>> {
+  const cached = getCached("conversations");
+  if (cached) return cached;
   try {
     const res = await fetchJson(`${BRIDGE_URL}/api/conversations?status=open`);
     const conversations = res?.data?.payload ?? [];
@@ -81,17 +114,21 @@ async function fetchInbox(): Promise<Record<string, unknown>> {
       (sum: number, c: { unread_count?: number }) => sum + (c.unread_count || 0),
       0
     );
-    return {
+    const data = {
       conversations,
       openCount: conversations.length,
       unreadCount,
     };
+    setCache("conversations", data);
+    return data;
   } catch {
     return { conversations: [], openCount: 0, unreadCount: 0 };
   }
 }
 
 async function fetchHealth(): Promise<Record<string, unknown>> {
+  const cached = getCached("health");
+  if (cached) return cached;
   const checks = await Promise.allSettled([
     fetchJson(`${BRIDGE_URL}/health`),
     fetchJson(`${ORCHESTRATOR_URL}/health`),
@@ -103,10 +140,12 @@ async function fetchHealth(): Promise<Record<string, unknown>> {
     status: c.status === "fulfilled" ? "healthy" : "unhealthy",
   }));
   const allHealthy = services.every((s) => s.status === "healthy");
-  return {
+  const data = {
     status: allHealthy ? "ok" : "degraded",
     services,
   };
+  setCache("health", data);
+  return data;
 }
 
 async function fetchMemory(query: string): Promise<Record<string, unknown>> {
@@ -122,21 +161,27 @@ async function fetchMemory(query: string): Promise<Record<string, unknown>> {
 }
 
 async function fetchCompanies(): Promise<Record<string, unknown>> {
+  const cached = getCached("companies");
+  if (cached) return cached;
   try {
     const [people, companies] = await Promise.allSettled([
       fetchJson(`${BRIDGE_URL}/api/people?limit=20`),
-      fetchJson(`${BRIDGE_URL}/api/people?limit=20`), // Bridge proxies both
+      fetchJson(`${BRIDGE_URL}/api/companies?limit=20`),
     ]);
-    return {
+    const data = {
       people: people.status === "fulfilled" ? people.value?.data || [] : [],
       companies: companies.status === "fulfilled" ? companies.value?.data || [] : [],
     };
+    setCache("companies", data);
+    return data;
   } catch {
     return { people: [], companies: [] };
   }
 }
 
 async function fetchCalendar(): Promise<Record<string, unknown>> {
+  const cached = getCached("calendar");
+  if (cached) return cached;
   try {
     const res = await fetchJson(`${ORCHESTRATOR_URL}/query`, {
       method: "POST",
@@ -145,7 +190,9 @@ async function fetchCalendar(): Promise<Record<string, unknown>> {
         limit: 3,
       }),
     });
-    return { calendar: res?.answer || null };
+    const data = { calendar: res?.answer || null };
+    setCache("calendar", data);
+    return data;
   } catch {
     return { calendar: null };
   }
@@ -189,10 +236,13 @@ export async function fetchWebSearch(query: string): Promise<Record<string, unkn
 
 /**
  * Fetch data from Impetus One via Bridge proxy.
+ * Uses a tight 2s timeout with no retries — Impetus data is supplemental,
+ * not worth blocking dashboard generation for.
  */
+const IMPETUS_TIMEOUT = 2000;
 async function fetchImpetusData(resource: string): Promise<Record<string, unknown>> {
   try {
-    const res = await fetchJson(`${BRIDGE_URL}/api/impetus/${resource}`);
+    const res = await fetchJson(`${BRIDGE_URL}/api/impetus/${resource}`, undefined, 0, IMPETUS_TIMEOUT);
     return { [resource]: res };
   } catch {
     return { [resource]: [] };
@@ -306,14 +356,25 @@ export async function fetchDataForNeeds(
   return merged;
 }
 
-async function fetchJson(url: string, options?: RequestInit) {
-  const res = await fetch(url, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT),
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+async function fetchJson(url: string, options?: RequestInit, retries = 1, timeoutMs = FETCH_TIMEOUT) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: { "Content-Type": "application/json", ...options?.headers },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return res.json();
+    } catch (err) {
+      if (attempt < retries) {
+        // Brief backoff before retry
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
   }
-  return res.json();
 }

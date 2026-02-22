@@ -2,6 +2,7 @@
 
 import { useMemo, useEffect, useRef, useState, useCallback } from "react";
 import DOMPurify from "dompurify";
+import { reportDashboardError } from "@/lib/dashboard/error-reporter";
 
 /**
  * Tools that dashboard actions can invoke.
@@ -23,22 +24,26 @@ export const ACTION_ALLOWLIST = new Set([
 
 interface SrcdocRendererProps {
   html: string;
+  preSanitized?: boolean;
   onAction?: (action: { tool: string; params: Record<string, unknown>; id: string }) => void;
 }
 
-export function SrcdocRenderer({ html, onAction }: SrcdocRendererProps) {
+export function SrcdocRenderer({ html, preSanitized, onAction }: SrcdocRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(400);
 
   const srcdoc = useMemo(() => {
-    const sanitized = DOMPurify.sanitize(html, {
-      ADD_TAGS: ["canvas", "svg", "polyline", "path", "circle", "rect", "line", "text", "g", "defs", "linearGradient", "stop", "form", "textarea", "select", "input"],
-      ADD_ATTR: ["data-chart", "data-testid", "data-tab", "data-sort-dir", "viewBox", "points", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill", "d", "cx", "cy", "r", "x1", "y1", "x2", "y2", "offset", "stop-color", "stop-opacity", "height", "width", "onclick", "onsubmit", "placeholder", "rows", "required", "disabled"],
-      ALLOW_DATA_ATTR: true,
-      ALLOW_UNKNOWN_PROTOCOLS: false,
-      FORBID_TAGS: ["iframe", "object", "embed", "meta"],
-      FORBID_ATTR: ["onerror", "onload", "onmouseover", "onfocus", "onblur"],
-    });
+    // Skip client-side DOMPurify when already sanitized server-side
+    const sanitized = preSanitized
+      ? html
+      : DOMPurify.sanitize(html, {
+          ADD_TAGS: ["canvas", "svg", "polyline", "path", "circle", "rect", "line", "text", "g", "defs", "linearGradient", "stop", "form", "textarea", "select", "input"],
+          ADD_ATTR: ["data-chart", "data-testid", "data-tab", "data-sort-dir", "viewBox", "points", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill", "d", "cx", "cy", "r", "x1", "y1", "x2", "y2", "offset", "stop-color", "stop-opacity", "height", "width", "onclick", "onsubmit", "placeholder", "rows", "required", "disabled"],
+          ALLOW_DATA_ATTR: true,
+          ALLOW_UNKNOWN_PROTOCOLS: false,
+          FORBID_TAGS: ["iframe", "object", "embed", "meta"],
+          FORBID_ATTR: ["onerror", "onload", "onmouseover", "onfocus", "onblur"],
+        });
 
     return `<!DOCTYPE html>
 <html class="dark">
@@ -207,6 +212,7 @@ export function SrcdocRenderer({ html, onAction }: SrcdocRendererProps) {
           });
         } catch(e) {
           el.innerHTML = '<p class="text-xs text-rose-400/60">Chart render error</p>';
+          window.parent.postMessage({ type: 'robothor:error', source: 'chart-render', message: String(e), spec: el.getAttribute('data-chart') }, '*');
         }
       });
     }
@@ -282,6 +288,12 @@ ${sanitized}
   setTimeout(reportHeight, 500);
   setTimeout(reportHeight, 1500);
 <\/script>
+<script>
+  // Global error handler — catches uncaught script errors inside the dashboard
+  window.onerror = function(msg, src, line, col, err) {
+    window.parent.postMessage({ type: 'robothor:error', source: 'script-error', message: String(msg), details: { line: line, col: col } }, '*');
+  };
+<\/script>
 </body>
 </html>`;
   }, [html]);
@@ -303,6 +315,12 @@ ${sanitized}
       if (e.origin !== "null" && e.origin !== window.location.origin) return;
       if (e.data?.type === "srcdoc-height" && typeof e.data.height === "number") {
         setHeight(Math.max(200, Math.min(e.data.height + 32, 5000)));
+      }
+      // Handle error reports from iframe (chart errors, script errors)
+      if (e.data?.type === "robothor:error") {
+        const { source, message, spec, details } = e.data;
+        console.error(`[iframe-error] ${source}: ${message}`);
+        reportDashboardError(`iframe/${source}`, String(message), { spec, ...details });
       }
       // Handle action requests from dashboard
       if (e.data?.type === "robothor:action" && typeof e.data.tool === "string") {

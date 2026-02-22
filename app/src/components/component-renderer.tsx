@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, Suspense, type ErrorInfo, type ReactNode } from "react";
 import { getComponent } from "@/lib/component-registry";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -65,9 +65,11 @@ export function ComponentRenderer({ toolName, props }: ComponentRendererProps) {
         </div>
       }
     >
-      <div data-testid="rendered-component">
-        <Comp {...props} />
-      </div>
+      <Suspense fallback={<ComponentLoading />}>
+        <div data-testid="rendered-component">
+          <Comp {...props} />
+        </div>
+      </Suspense>
     </ErrorBoundary>
   );
 }

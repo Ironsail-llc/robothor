@@ -9,6 +9,7 @@ import { WelcomeSkeleton } from "./welcome-skeleton";
 import { SrcdocRenderer } from "./srcdoc-renderer";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, RefreshCw, Loader2 } from "lucide-react";
+import { reportDashboardError } from "@/lib/dashboard/error-reporter";
 
 export function LiveCanvas() {
   const {
@@ -73,7 +74,10 @@ export function LiveCanvas() {
       })
       .catch((err) => {
         if ((err as Error).name !== "AbortError") {
-          setCanvasMode("idle");
+          console.error("[welcome] Failed:", err);
+          reportDashboardError("welcome", String(err));
+          setError(String(err));
+          setCanvasMode("error");
         }
       });
 
@@ -82,19 +86,23 @@ export function LiveCanvas() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save dashboard to session when it changes
+  // Save dashboard to session when it changes (debounced to avoid rapid-fire POSTs)
   const lastSavedRef = useRef<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!dashboardCode || dashboardCode === lastSavedRef.current) return;
-    lastSavedRef.current = dashboardCode;
-    // Fire-and-forget save
-    fetch("/api/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ html: dashboardCode }),
-    }).catch(() => {
-      // Non-critical — session save is best-effort
-    });
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      lastSavedRef.current = dashboardCode;
+      fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: dashboardCode }),
+      }).catch(() => {
+        // Non-critical — session save is best-effort
+      });
+    }, 3000);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [dashboardCode]);
 
   // Handle actions from dashboard iframes
@@ -198,7 +206,7 @@ export function LiveCanvas() {
         {/* Dashboard code rendered — always use srcdoc (HTML-first) */}
         {canvasMode === "dashboard" && dashboardCode && (
           <div className="h-full" ref={iframeRef}>
-            <SrcdocRenderer html={dashboardCode} onAction={handleAction} />
+            <SrcdocRenderer html={dashboardCode} preSanitized onAction={handleAction} />
           </div>
         )}
 

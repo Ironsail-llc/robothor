@@ -7,11 +7,13 @@ import {
   fetchConversationContext,
   fetchDataForNeeds,
   fetchWebSearch,
+  clearDataCache,
 } from "@/lib/dashboard/conversation-context";
 
 describe("fetchConversationContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearDataCache();
   });
 
   function mockJsonResponse(data: unknown) {
@@ -104,6 +106,7 @@ describe("fetchConversationContext", () => {
 describe("fetchWebSearch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearDataCache();
   });
 
   it("fetches from SearXNG and returns formatted results", async () => {
@@ -154,6 +157,7 @@ describe("fetchWebSearch", () => {
 describe("fetchDataForNeeds", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearDataCache();
   });
 
   it("returns empty object for empty needs array", async () => {

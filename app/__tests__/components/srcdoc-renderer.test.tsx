@@ -59,7 +59,9 @@ describe("SrcdocRenderer", () => {
     render(<SrcdocRenderer html='<img onerror="alert(1)" src="x">' />);
     const iframe = screen.getByTestId("srcdoc-renderer") as HTMLIFrameElement;
     const srcdoc = iframe.getAttribute("srcdoc") || "";
-    expect(srcdoc).not.toContain("onerror");
+    // The malicious onerror attribute on the <img> should be stripped by DOMPurify.
+    // Note: window.onerror in the trusted wrapper script is intentional (error observability).
+    expect(srcdoc).not.toContain('onerror="alert');
   });
 
   it("strips iframe tags via DOMPurify", () => {
