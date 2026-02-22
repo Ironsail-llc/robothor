@@ -80,7 +80,7 @@ class CameraStream:
             logger.warning("Frame read failed, reconnecting...")
             self._connect()
             return None
-        return frame
+        return frame  # type: ignore[no-any-return]
 
     def release(self) -> None:
         if self.cap is not None:
@@ -119,9 +119,9 @@ class VisionService:
         self.health_port = health_port or int(os.environ.get("VISION_HEALTH_PORT", "8600"))
 
         # Directories
-        _default_state = Path(os.environ.get("ROBOTHOR_MEMORY_DIR", Path.home() / "robothor" / "memory"))
-        self.snapshot_dir = Path(snapshot_dir or os.environ.get("SNAPSHOT_DIR", _default_state / "snapshots"))
-        self.face_data_dir = Path(face_data_dir or os.environ.get("FACE_DATA_DIR", _default_state / "faces"))
+        _default_state = Path(os.environ.get("ROBOTHOR_MEMORY_DIR", str(Path.home() / "robothor" / "memory")))
+        self.snapshot_dir = Path(snapshot_dir or os.environ.get("SNAPSHOT_DIR", str(_default_state / "snapshots")))
+        self.face_data_dir = Path(face_data_dir or os.environ.get("FACE_DATA_DIR", str(_default_state / "faces")))
         self.state_dir = Path(state_dir or os.environ.get("STATE_DIR", str(_default_state)))
 
         # Camera identification
@@ -264,7 +264,8 @@ class VisionService:
         async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(f"{self.ollama_url}/api/chat", json=payload)
             resp.raise_for_status()
-            return resp.json()["message"]["content"]
+            result: str = resp.json()["message"]["content"]
+            return result
 
     # ── Alert Helpers ────────────────────────────────────────────
 
