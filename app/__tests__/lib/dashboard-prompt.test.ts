@@ -1,4 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Mock config module
+vi.mock("@/lib/config", () => ({
+  HELM_AGENT_ID: "helm-user",
+  OWNER_NAME: "there",
+  AI_NAME: "Robothor",
+  SESSION_KEY: "agent:main:webchat-user",
+}));
+
 import { getDashboardSystemPrompt, getTimeAwarePrompt, buildEnrichedPrompt } from "@/lib/dashboard/system-prompt";
 import { TEMPLATE_CATALOG, generateCatalogPrompt } from "@/lib/dashboard/template-catalog";
 

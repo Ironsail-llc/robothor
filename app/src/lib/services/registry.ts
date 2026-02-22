@@ -41,7 +41,7 @@ const ENV_OVERRIDES: Record<string, string> = {
 
 const MANIFEST_PATHS = [
   path.resolve(__dirname, "../../../../robothor-services.json"),
-  "/home/philip/robothor/robothor-services.json",
+  path.join(process.env.ROBOTHOR_WORKSPACE || path.join(process.env.HOME || "", "robothor"), "robothor-services.json"),
 ];
 
 let _manifest: Manifest | null = null;

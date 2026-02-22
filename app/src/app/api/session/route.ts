@@ -9,10 +9,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceUrl } from "@/lib/services/registry";
+import { HELM_AGENT_ID } from "@/lib/config";
 
 const BRIDGE_URL = getServiceUrl("bridge") || "http://localhost:9100";
 const BLOCK_NAME = "helm_state";
-const AGENT_ID = "helm-user";
 const MAX_DASHBOARD_SIZE = 100_000; // 100KB limit
 
 /**
@@ -22,7 +22,7 @@ export async function GET() {
   try {
     const res = await fetch(
       `${BRIDGE_URL}/api/memory-blocks/${BLOCK_NAME}`,
-      { headers: { "X-Agent-Id": AGENT_ID } }
+      { headers: { "X-Agent-Id": HELM_AGENT_ID } }
     );
 
     if (!res.ok) {
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "X-Agent-Id": AGENT_ID,
+          "X-Agent-Id": HELM_AGENT_ID,
         },
         body: JSON.stringify({ content: state }),
       }

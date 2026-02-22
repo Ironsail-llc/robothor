@@ -4,6 +4,16 @@ import { fetchDataForNeeds } from "@/lib/dashboard/conversation-context";
 import { triageDashboard } from "@/lib/dashboard/triage-prompt";
 import { isTrivialResponse } from "@/lib/dashboard/topic-detector";
 import type { ConversationMessage } from "@/lib/dashboard/topic-detector";
+import DOMPurify from "isomorphic-dompurify";
+
+export const SANITIZE_CONFIG = {
+  ADD_TAGS: ["canvas", "svg", "polyline", "path", "circle", "rect", "line", "text", "g", "defs", "linearGradient", "stop", "form", "textarea", "select", "input"],
+  ADD_ATTR: ["data-chart", "data-testid", "data-tab", "data-sort-dir", "viewBox", "points", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill", "d", "cx", "cy", "r", "x1", "y1", "x2", "y2", "offset", "stop-color", "stop-opacity", "height", "width", "onclick", "onsubmit", "placeholder", "rows", "required", "disabled"],
+  ALLOW_DATA_ATTR: true,
+  ALLOW_UNKNOWN_PROTOCOLS: false,
+  FORBID_TAGS: ["iframe", "object", "embed", "meta"],
+  FORBID_ATTR: ["onerror", "onload", "onmouseover", "onfocus", "onblur"],
+};
 
 const OPENROUTER_API_KEY = () => process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -15,9 +25,11 @@ const requestLog: number[] = [];
 
 function isRateLimited(): boolean {
   const now = Date.now();
-  while (requestLog.length > 0 && requestLog[0] < now - RATE_LIMIT_WINDOW) {
-    requestLog.shift();
-  }
+  const cutoff = now - RATE_LIMIT_WINDOW;
+  // Find first entry within the window — O(1) amortized via splice
+  const firstValid = requestLog.findIndex((t) => t >= cutoff);
+  if (firstValid > 0) requestLog.splice(0, firstValid);
+  else if (firstValid === -1) requestLog.length = 0;
   if (requestLog.length >= RATE_LIMIT_MAX) return true;
   requestLog.push(now);
   return false;
@@ -88,22 +100,27 @@ async function handleTriagedDashboard(messages: ConversationMessage[], agentData
     return new Response(null, { status: 204 });
   }
 
-  // Phase 1: Triage — should dashboard update?
+  // Phase 1: Triage + speculative data fetch in parallel.
+  // Start fetching commonly-needed data ("overview" = health + inbox) while
+  // triage runs, saving ~1s when triage decides it needs health/inbox/overview.
   const apiKey = OPENROUTER_API_KEY();
-  const triage = await triageDashboard(messages, apiKey);
+  const [triage, speculativeData] = await Promise.all([
+    triageDashboard(messages, apiKey),
+    fetchDataForNeeds(["health", "conversations"]).catch(() => ({})),
+  ]);
   console.log("[dashboard] Triage:", JSON.stringify({ shouldUpdate: triage.shouldUpdate, dataNeeds: triage.dataNeeds, summary: triage.summary }));
 
   if (!triage.shouldUpdate) {
     return new Response(null, { status: 204 });
   }
 
-  // Phase 2: Fetch only what the agent didn't already provide
+  // Phase 2: Fetch only what the agent didn't provide and speculation didn't cover
   const unsatisfiedNeeds = triage.dataNeeds.filter(
-    (need) => !isNeedSatisfied(need, agentData)
+    (need) => !isNeedSatisfied(need, agentData) && !isNeedSatisfied(need, speculativeData)
   );
-  console.log("[dashboard] Fetching:", unsatisfiedNeeds, "| Agent provided:", agentData ? Object.keys(agentData) : "none");
+  console.log("[dashboard] Fetching:", unsatisfiedNeeds, "| Speculative:", Object.keys(speculativeData), "| Agent provided:", agentData ? Object.keys(agentData) : "none");
   const fetchedData = await fetchDataForNeeds(unsatisfiedNeeds);
-  const enrichedData = { ...fetchedData, ...agentData };
+  const enrichedData = { ...speculativeData, ...fetchedData, ...agentData };
   console.log("[dashboard] Data keys:", Object.keys(enrichedData));
 
   // Phase 3: Generate dashboard HTML (buffered, not streamed)
@@ -183,15 +200,18 @@ async function generateBuffered(systemPrompt: string, userPrompt: string) {
     const codeType = detectCodeType(validation.code);
 
     if (!validation.valid) {
-      console.error("[dashboard] Validation failed:", validation.errors);
+      console.error("[dashboard-error] source=server-validation |", validation.errors.join("; "), "| code_length:", fullCode.length, "| first_100:", fullCode.slice(0, 100));
       return new Response(
-        JSON.stringify({ error: "Generated dashboard failed quality check" }),
+        JSON.stringify({ error: "Generated dashboard failed quality check", errors: validation.errors }),
         { status: 422, headers: { "Content-Type": "application/json" } }
       );
     }
 
+    // Sanitize server-side so the client can skip DOMPurify (saves 50-200ms + 40KB bundle)
+    const sanitized = DOMPurify.sanitize(validation.code, SANITIZE_CONFIG);
+
     return new Response(
-      JSON.stringify({ html: validation.code, type: codeType }),
+      JSON.stringify({ html: sanitized, type: codeType, sanitized: true }),
       {
         status: 200,
         headers: { "Content-Type": "application/json" },

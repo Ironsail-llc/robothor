@@ -10,17 +10,25 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceUrl } from "@/lib/services/registry";
+import { HELM_AGENT_ID } from "@/lib/config";
 
 const BRIDGE_URL = getServiceUrl("bridge") || "http://localhost:9100";
-const AGENT_ID = "helm-user";
 
 // Simple in-memory rate limiter (10 actions/minute)
 const rateLimiter = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60_000;
+let lastCleanup = Date.now();
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
+  // Purge expired entries periodically (every 5 min)
+  if (now - lastCleanup > 5 * 60_000) {
+    for (const [key, entry] of rateLimiter) {
+      if (now > entry.resetAt) rateLimiter.delete(key);
+    }
+    lastCleanup = now;
+  }
   const entry = rateLimiter.get(ip);
   if (!entry || now > entry.resetAt) {
     rateLimiter.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
@@ -103,13 +111,14 @@ export async function POST(request: NextRequest) {
     const resolvedParams = params || {};
     const url = `${BRIDGE_URL}${route.path(resolvedParams)}`;
     const headers: Record<string, string> = {
-      "X-Agent-Id": AGENT_ID,
+      "X-Agent-Id": HELM_AGENT_ID,
       "Content-Type": "application/json",
     };
 
     let response: Response;
+    const fetchOpts = { headers, signal: AbortSignal.timeout(10_000) };
     if (route.method === "GET") {
-      response = await fetch(url, { headers });
+      response = await fetch(url, fetchOpts);
     } else {
       const requestBody: Record<string, unknown> = {};
       if (route.bodyKeys) {
@@ -120,8 +129,8 @@ export async function POST(request: NextRequest) {
         }
       }
       response = await fetch(url, {
+        ...fetchOpts,
         method: route.method,
-        headers,
         body: JSON.stringify(requestBody),
       });
     }

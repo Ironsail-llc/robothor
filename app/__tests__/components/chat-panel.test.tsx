@@ -68,7 +68,7 @@ describe("ChatPanel", () => {
   it("displays initial greeting on empty state", () => {
     render(<ChatPanel />);
     expect(screen.getByTestId("empty-state")).toBeInTheDocument();
-    expect(screen.getByText(/Hey Philip/)).toBeInTheDocument();
+    expect(screen.getByText(/Hey.*\. What can I help/)).toBeInTheDocument();
   });
 
   it("renders suggested prompts", () => {

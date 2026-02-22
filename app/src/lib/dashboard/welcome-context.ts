@@ -4,6 +4,7 @@
  */
 
 import { getServiceUrl } from "@/lib/services/registry";
+import { OWNER_NAME } from "@/lib/config";
 const BRIDGE_URL = getServiceUrl("bridge") || "http://localhost:9100";
 const ORCHESTRATOR_URL = getServiceUrl("orchestrator") || "http://localhost:9099";
 
@@ -54,7 +55,7 @@ export async function fetchWelcomeContext(): Promise<WelcomeContext> {
     timestamp: now.toISOString(),
     hour,
     dayOfWeek,
-    greeting: `${greeting}, Philip`,
+    greeting: `${greeting}, ${OWNER_NAME}`,
     health,
     inbox,
     calendar,

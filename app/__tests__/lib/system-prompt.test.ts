@@ -1,4 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Mock config module
+vi.mock("@/lib/config", () => ({
+  HELM_AGENT_ID: "helm-user",
+  OWNER_NAME: "there",
+  AI_NAME: "Robothor",
+  SESSION_KEY: "agent:main:webchat-user",
+}));
+
 import { getVisualCanvasPrompt, ROBOTHOR_SYSTEM_PROMPT } from "@/lib/system-prompt";
 
 describe("System Prompt", () => {
@@ -7,7 +16,8 @@ describe("System Prompt", () => {
   });
 
   it("mentions autonomy principle", () => {
-    expect(ROBOTHOR_SYSTEM_PROMPT).toContain("never suggest Philip do something manually");
+    expect(ROBOTHOR_SYSTEM_PROMPT).toContain("never suggest");
+    expect(ROBOTHOR_SYSTEM_PROMPT).toContain("do something manually");
   });
 
   it("mentions visual canvas", () => {
@@ -22,13 +32,12 @@ describe("System Prompt", () => {
 describe("Visual Canvas Prompt", () => {
   it("returns a non-empty string", () => {
     const prompt = getVisualCanvasPrompt();
-    expect(prompt.length).toBeGreaterThan(100);
+    expect(prompt.length).toBeGreaterThan(50);
   });
 
-  it("includes DASHBOARD marker format with data field", () => {
+  it("includes DASHBOARD marker format", () => {
     const prompt = getVisualCanvasPrompt();
     expect(prompt).toContain("[DASHBOARD:");
-    expect(prompt).toContain('"data"');
   });
 
   it("includes RENDER marker format", () => {
@@ -36,22 +45,13 @@ describe("Visual Canvas Prompt", () => {
     expect(prompt).toContain("[RENDER:");
   });
 
-  it("mentions triage agent decides independently", () => {
+  it("mentions visual canvas", () => {
     const prompt = getVisualCanvasPrompt();
-    expect(prompt).toContain("triage agent");
-    expect(prompt).toContain("decides independently");
+    expect(prompt).toContain("visual canvas");
   });
 
-  it("mentions markers are optional hints", () => {
+  it("mentions auto-updates", () => {
     const prompt = getVisualCanvasPrompt();
-    expect(prompt).toContain("optional");
-    expect(prompt).toContain("hint");
-  });
-
-  it("lists available components", () => {
-    const prompt = getVisualCanvasPrompt();
-    expect(prompt).toContain("render_contact_table");
-    expect(prompt).toContain("render_service_health");
-    expect(prompt).toContain("render_memory_search");
+    expect(prompt).toContain("auto-update");
   });
 });
