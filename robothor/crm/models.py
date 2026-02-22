@@ -41,7 +41,9 @@ def person_to_dict(row: dict) -> dict:
         "company": {
             "id": str(row["company_id"]) if row.get("company_id") else None,
             "name": row.get("company_name") or "",
-        } if row.get("company_id") else None,
+        }
+        if row.get("company_id")
+        else None,
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }
@@ -100,7 +102,9 @@ def conversation_to_dict(row: dict) -> dict:
         "personId": str(row["person_id"]) if row.get("person_id") else None,
         "personName": row.get("person_name") or row.get("display_name") or "",
         "metadata": row.get("metadata") or {},
-        "lastActivityAt": row["last_activity_at"].isoformat() if row.get("last_activity_at") else None,
+        "lastActivityAt": row["last_activity_at"].isoformat()
+        if row.get("last_activity_at")
+        else None,
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }

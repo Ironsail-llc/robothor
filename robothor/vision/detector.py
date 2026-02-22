@@ -46,6 +46,7 @@ class ObjectDetector:
             return True
         try:
             from ultralytics import YOLO
+
             self._model = YOLO(self.model_name)
             logger.info("YOLO model loaded: %s", self.model_name)
             return True
@@ -74,11 +75,13 @@ class ObjectDetector:
         detections = []
         for r in results:
             for box in r.boxes:
-                detections.append({
-                    "class": r.names[int(box.cls[0])],
-                    "confidence": round(float(box.conf[0]), 3),
-                    "bbox": [round(float(x), 1) for x in box.xyxy[0].tolist()],
-                })
+                detections.append(
+                    {
+                        "class": r.names[int(box.cls[0])],
+                        "confidence": round(float(box.conf[0]), 3),
+                        "bbox": [round(float(x), 1) for x in box.xyxy[0].tolist()],
+                    }
+                )
         return detections
 
     def has_person(self, frame: np.ndarray) -> bool:

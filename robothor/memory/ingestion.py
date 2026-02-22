@@ -58,7 +58,12 @@ async def ingest_content(
     if not content or not content.strip():
         raise ValueError("Content cannot be empty")
 
-    logger.info("Extracting facts from %s content (%d chars) via %s", content_type, len(content), source_channel)
+    logger.info(
+        "Extracting facts from %s content (%d chars) via %s",
+        content_type,
+        len(content),
+        source_channel,
+    )
     facts = await extract_facts(content)
     logger.info("Extracted %d facts", len(facts))
 

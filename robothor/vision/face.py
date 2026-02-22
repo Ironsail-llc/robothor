@@ -40,8 +40,8 @@ class FaceRecognizer:
         model_name: str | None = None,
         match_threshold: float | None = None,
     ):
-        self.data_dir = Path(data_dir) if data_dir else Path(
-            os.environ.get("FACE_DATA_DIR", "faces")
+        self.data_dir = (
+            Path(data_dir) if data_dir else Path(os.environ.get("FACE_DATA_DIR", "faces"))
         )
         self.model_name = model_name or FACE_MODEL
         self.match_threshold = match_threshold or FACE_MATCH_THRESHOLD
@@ -55,6 +55,7 @@ class FaceRecognizer:
             return True
         try:
             from insightface.app import FaceAnalysis
+
             self._app = FaceAnalysis(
                 name=self.model_name,
                 providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
@@ -119,8 +120,10 @@ class FaceRecognizer:
         best_name: str | None = None
         best_sim = 0.0
         for name, enrolled_emb in self.enrolled.items():
-            sim = float(np.dot(embedding, enrolled_emb) /
-                        (np.linalg.norm(embedding) * np.linalg.norm(enrolled_emb)))
+            sim = float(
+                np.dot(embedding, enrolled_emb)
+                / (np.linalg.norm(embedding) * np.linalg.norm(enrolled_emb))
+            )
             if sim > best_sim:
                 best_sim = sim
                 best_name = name

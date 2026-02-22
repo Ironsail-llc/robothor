@@ -115,13 +115,21 @@ class VisionService:
         # Connection URLs
         self.rtsp_url = rtsp_url or os.environ.get("RTSP_URL", "rtsp://localhost:8554/webcam")
         self.ollama_url = ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434")
-        self.orchestrator_url = orchestrator_url or os.environ.get("ORCHESTRATOR_URL", "http://localhost:9099")
+        self.orchestrator_url = orchestrator_url or os.environ.get(
+            "ORCHESTRATOR_URL", "http://localhost:9099"
+        )
         self.health_port = health_port or int(os.environ.get("VISION_HEALTH_PORT", "8600"))
 
         # Directories
-        _default_state = Path(os.environ.get("ROBOTHOR_MEMORY_DIR", str(Path.home() / "robothor" / "memory")))
-        self.snapshot_dir = Path(snapshot_dir or os.environ.get("SNAPSHOT_DIR", str(_default_state / "snapshots")))
-        self.face_data_dir = Path(face_data_dir or os.environ.get("FACE_DATA_DIR", str(_default_state / "faces")))
+        _default_state = Path(
+            os.environ.get("ROBOTHOR_MEMORY_DIR", str(Path.home() / "robothor" / "memory"))
+        )
+        self.snapshot_dir = Path(
+            snapshot_dir or os.environ.get("SNAPSHOT_DIR", str(_default_state / "snapshots"))
+        )
+        self.face_data_dir = Path(
+            face_data_dir or os.environ.get("FACE_DATA_DIR", str(_default_state / "faces"))
+        )
         self.state_dir = Path(state_dir or os.environ.get("STATE_DIR", str(_default_state)))
 
         # Camera identification
@@ -129,10 +137,16 @@ class VisionService:
 
         # Detection settings
         self.capture_fps = capture_fps or float(os.environ.get("CAPTURE_FPS", "1.0"))
-        self.motion_threshold = motion_threshold or float(os.environ.get("MOTION_THRESHOLD", "0.15"))
+        self.motion_threshold = motion_threshold or float(
+            os.environ.get("MOTION_THRESHOLD", "0.15")
+        )
         self.motion_cooldown = motion_cooldown or float(os.environ.get("MOTION_COOLDOWN", "30.0"))
-        self.person_alert_cooldown = person_alert_cooldown or float(os.environ.get("PERSON_ALERT_COOLDOWN", "120.0"))
-        self.person_gone_timeout = person_gone_timeout or int(os.environ.get("PERSON_GONE_TIMEOUT", "60"))
+        self.person_alert_cooldown = person_alert_cooldown or float(
+            os.environ.get("PERSON_ALERT_COOLDOWN", "120.0")
+        )
+        self.person_gone_timeout = person_gone_timeout or int(
+            os.environ.get("PERSON_GONE_TIMEOUT", "60")
+        )
 
         # Mode
         self.default_mode = default_mode or os.environ.get("VISION_DEFAULT_MODE", "basic")
@@ -238,13 +252,16 @@ class VisionService:
         """Publish to event bus (best-effort)."""
         try:
             from robothor.events.bus import publish
+
             publish("vision", event_type, payload, source="vision_service")
         except Exception as e:
             logger.debug("Event bus publish failed (non-fatal): %s", e)
 
     # ── VLM Analysis ─────────────────────────────────────────────
 
-    async def analyze_vlm(self, frame: np.ndarray, prompt: str = "Describe what you see in this image in detail.") -> str:
+    async def analyze_vlm(
+        self, frame: np.ndarray, prompt: str = "Describe what you see in this image in detail."
+    ) -> str:
         """Send a frame to a vision LLM for analysis."""
         _, buf = cv2.imencode(".jpg", frame)
         img_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
@@ -254,7 +271,10 @@ class VisionService:
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "You are a vision system. Describe what you see clearly and concisely. Note any people, objects, and notable details."},
+                {
+                    "role": "system",
+                    "content": "You are a vision system. Describe what you see clearly and concisely. Note any people, objects, and notable details.",
+                },
                 {"role": "user", "content": prompt, "images": [img_b64]},
             ],
             "stream": False,
@@ -342,7 +362,11 @@ class VisionService:
                 self.last_detection_time = now_str
                 object_classes = list({d["class"] for d in detections})
                 snapshot_path = self.save_snapshot(frame)
-                logger.info("Motion detected (score=%.3f, objects=%s)", motion_score, object_classes or "none")
+                logger.info(
+                    "Motion detected (score=%.3f, objects=%s)",
+                    motion_score,
+                    object_classes or "none",
+                )
                 await self.ingest_event(
                     f"Motion detected at {self.camera_id} (score={motion_score})"
                     + (f", objects: {', '.join(object_classes)}" if object_classes else ""),
@@ -399,10 +423,16 @@ class VisionService:
                     "unknown": True,
                 }
                 logger.info("UNKNOWN person detected (id=%s) — sending alert", unknown_id)
-                await self._alert_unknown(frame, snapshot_path, f"Unknown person detected at {self.camera_id}")
-                await self.publish_event("vision.person_unknown", {
-                    "snapshot": snapshot_path, "camera": self.camera_id,
-                })
+                await self._alert_unknown(
+                    frame, snapshot_path, f"Unknown person detected at {self.camera_id}"
+                )
+                await self.publish_event(
+                    "vision.person_unknown",
+                    {
+                        "snapshot": snapshot_path,
+                        "camera": self.camera_id,
+                    },
+                )
 
         # Person detected but no face visible
         if persons and not faces:
@@ -411,7 +441,9 @@ class VisionService:
             self._last_person_alert_time = now_ts
             snapshot_path = self.save_snapshot(frame)
             logger.info("Person detected (no face visible) — sending alert")
-            await self._alert_unknown(frame, snapshot_path, f"Person detected at {self.camera_id} (face not visible)")
+            await self._alert_unknown(
+                frame, snapshot_path, f"Person detected at {self.camera_id} (face not visible)"
+            )
             await self.ingest_event(
                 f"Person detected at {self.camera_id} (face not visible)",
                 {
@@ -449,7 +481,11 @@ class VisionService:
                 self._last_motion_time = now_ts
                 object_classes = list({d["class"] for d in detections})
                 snapshot_path = self.save_snapshot(frame)
-                logger.info("Motion detected (score=%.3f, objects=%s)", motion_score, object_classes or "none")
+                logger.info(
+                    "Motion detected (score=%.3f, objects=%s)",
+                    motion_score,
+                    object_classes or "none",
+                )
                 await self.ingest_event(
                     f"Motion detected at {self.camera_id} (score={motion_score})"
                     + (f", objects: {', '.join(object_classes)}" if object_classes else ""),
@@ -469,7 +505,10 @@ class VisionService:
 
         if persons:
             self.last_detection_time = now_str
-            self.last_detection_details = {"persons": len(persons), "total_objects": len(detections)}
+            self.last_detection_details = {
+                "persons": len(persons),
+                "total_objects": len(detections),
+            }
 
             faces = self.recognizer.detect(frame)
 
@@ -509,7 +548,9 @@ class VisionService:
                     }
                     seen_this_frame.add(unknown_id)
                     logger.info("UNKNOWN person detected (id=%s) — sending alert", unknown_id)
-                    await self._alert_unknown(frame, snapshot_path, f"Unknown person detected at {self.camera_id}")
+                    await self._alert_unknown(
+                        frame, snapshot_path, f"Unknown person detected at {self.camera_id}"
+                    )
 
             if persons and not faces:
                 key = "_person_no_face"
@@ -522,7 +563,11 @@ class VisionService:
                     }
                     seen_this_frame.add(key)
                     logger.info("Person detected (no face visible) — sending alert")
-                    await self._alert_unknown(frame, snapshot_path, f"Person detected at {self.camera_id} (face not visible)")
+                    await self._alert_unknown(
+                        frame,
+                        snapshot_path,
+                        f"Person detected at {self.camera_id} (face not visible)",
+                    )
                     await self.ingest_event(
                         f"Person detected at {self.camera_id} (face not visible)",
                         {
@@ -592,7 +637,9 @@ class VisionService:
             if faces:
                 best_face = max(faces, key=lambda f: f["det_score"])
                 embeddings.append(best_face["embedding"])
-                logger.info("Enrollment frame %d/%d captured for %s", len(embeddings), num_frames, name)
+                logger.info(
+                    "Enrollment frame %d/%d captured for %s", len(embeddings), num_frames, name
+                )
                 if len(embeddings) >= num_frames:
                     break
 
@@ -601,7 +648,10 @@ class VisionService:
         camera.release()
 
         if len(embeddings) < 2:
-            return {"success": False, "error": f"Could only capture {len(embeddings)} face(s), need at least 2"}
+            return {
+                "success": False,
+                "error": f"Could only capture {len(embeddings)} face(s), need at least 2",
+            }
 
         ok = self.recognizer.enroll(name, embeddings)
         if not ok:
@@ -615,7 +665,12 @@ class VisionService:
             snapshot_path = self.save_snapshot(frame)
 
         logger.info("Enrolled %s with %d face samples", name, len(embeddings))
-        return {"success": True, "name": name, "samples": len(embeddings), "snapshot_path": snapshot_path}
+        return {
+            "success": True,
+            "name": name,
+            "samples": len(embeddings),
+            "snapshot_path": snapshot_path,
+        }
 
     # ── HTTP Server ──────────────────────────────────────────────
 
@@ -624,7 +679,9 @@ class VisionService:
         body_str = json.dumps(body)
         return f"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {len(body_str)}\r\n\r\n{body_str}".encode()
 
-    async def handle_request(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def handle_request(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         """Handle HTTP requests on the service endpoint."""
         data = await reader.read(8192)
         request = data.decode(errors="replace")
@@ -637,7 +694,7 @@ class VisionService:
         req_body = ""
         body_start = request.find("\r\n\r\n")
         if body_start >= 0:
-            req_body = request[body_start + 4:]
+            req_body = request[body_start + 4 :]
 
         try:
             resp = await self._route_request(method, path, req_body)
@@ -652,30 +709,39 @@ class VisionService:
     async def _route_request(self, method: str, path: str, body: str) -> bytes:
         """Route an HTTP request to the appropriate handler."""
         if path == "/health":
-            return self._json_response("200 OK", {
-                "running": self.running,
-                "mode": self.current_mode,
-                "started_at": self.start_time,
-                "people_present": [k for k in self.people_present if not k.startswith("_")],
-                "last_detection": self.last_detection_time,
-                "last_detection_details": self.last_detection_details,
-                "last_motion_score": self._last_motion_score,
-                "motion_threshold": self.motion_threshold,
-                "enrolled_faces": self.recognizer.enrolled_names,
-                "models_loaded": self.detector.loaded and self.recognizer.loaded,
-                "camera_url": self.rtsp_url,
-            })
+            return self._json_response(
+                "200 OK",
+                {
+                    "running": self.running,
+                    "mode": self.current_mode,
+                    "started_at": self.start_time,
+                    "people_present": [k for k in self.people_present if not k.startswith("_")],
+                    "last_detection": self.last_detection_time,
+                    "last_detection_details": self.last_detection_details,
+                    "last_motion_score": self._last_motion_score,
+                    "motion_threshold": self.motion_threshold,
+                    "enrolled_faces": self.recognizer.enrolled_names,
+                    "models_loaded": self.detector.loaded and self.recognizer.loaded,
+                    "camera_url": self.rtsp_url,
+                },
+            )
 
         if path == "/mode" and method == "GET":
-            return self._json_response("200 OK", {"mode": self.current_mode, "valid_modes": list(VALID_MODES)})
+            return self._json_response(
+                "200 OK", {"mode": self.current_mode, "valid_modes": list(VALID_MODES)}
+            )
 
         if path == "/mode" and method == "POST":
             try:
                 req_data = json.loads(body)
                 new_mode = self.set_mode(req_data["mode"])
-                return self._json_response("200 OK", {"mode": new_mode, "message": f"Switched to {new_mode}"})
+                return self._json_response(
+                    "200 OK", {"mode": new_mode, "message": f"Switched to {new_mode}"}
+                )
             except (json.JSONDecodeError, KeyError):
-                return self._json_response("400 Bad Request", {"error": 'Send JSON: {"mode": "basic|armed|disarmed"}'})
+                return self._json_response(
+                    "400 Bad Request", {"error": 'Send JSON: {"mode": "basic|armed|disarmed"}'}
+                )
             except ValueError as e:
                 return self._json_response("400 Bad Request", {"error": str(e)})
 
@@ -686,8 +752,12 @@ class VisionService:
             if frame is not None:
                 detections = self.detector.detect(frame)
                 snapshot_path = self.save_snapshot(frame)
-                return self._json_response("200 OK", {"detections": detections, "snapshot_path": snapshot_path})
-            return self._json_response("503 Service Unavailable", {"detections": [], "error": "Camera unavailable"})
+                return self._json_response(
+                    "200 OK", {"detections": detections, "snapshot_path": snapshot_path}
+                )
+            return self._json_response(
+                "503 Service Unavailable", {"detections": [], "error": "Camera unavailable"}
+            )
 
         if path == "/identifications":
             camera = CameraStream(self.rtsp_url)
@@ -698,17 +768,24 @@ class VisionService:
                 results = []
                 for face in faces:
                     name, sim = self.recognizer.match(face["embedding"])
-                    results.append({
-                        "name": name or "unknown",
-                        "known": name is not None,
-                        "similarity": round(sim, 3),
-                        "det_score": round(face["det_score"], 3),
-                    })
-                return self._json_response("200 OK", {
-                    "identifications": results,
-                    "people_present": [k for k in self.people_present if not k.startswith("_")],
-                })
-            return self._json_response("503 Service Unavailable", {"identifications": [], "error": "Camera unavailable"})
+                    results.append(
+                        {
+                            "name": name or "unknown",
+                            "known": name is not None,
+                            "similarity": round(sim, 3),
+                            "det_score": round(face["det_score"], 3),
+                        }
+                    )
+                return self._json_response(
+                    "200 OK",
+                    {
+                        "identifications": results,
+                        "people_present": [k for k in self.people_present if not k.startswith("_")],
+                    },
+                )
+            return self._json_response(
+                "503 Service Unavailable", {"identifications": [], "error": "Camera unavailable"}
+            )
 
         if path == "/enroll" and method == "POST":
             try:
@@ -735,19 +812,36 @@ class VisionService:
                 snapshot_path = self.save_snapshot(frame)
                 try:
                     description = await self.analyze_vlm(frame, prompt)
-                    return self._json_response("200 OK", {
-                        "description": description,
-                        "snapshot_path": snapshot_path,
-                        "prompt": prompt,
-                    })
+                    return self._json_response(
+                        "200 OK",
+                        {
+                            "description": description,
+                            "snapshot_path": snapshot_path,
+                            "prompt": prompt,
+                        },
+                    )
                 except Exception as e:
-                    return self._json_response("502 Bad Gateway", {"error": f"VLM analysis failed: {e}", "snapshot_path": snapshot_path})
+                    return self._json_response(
+                        "502 Bad Gateway",
+                        {"error": f"VLM analysis failed: {e}", "snapshot_path": snapshot_path},
+                    )
             return self._json_response("503 Service Unavailable", {"error": "Camera unavailable"})
 
-        return self._json_response("404 Not Found", {"error": "Not found", "endpoints": [
-            "GET /health", "GET /mode", "POST /mode", "GET /detections",
-            "GET /identifications", "POST /enroll", "POST /look",
-        ]})
+        return self._json_response(
+            "404 Not Found",
+            {
+                "error": "Not found",
+                "endpoints": [
+                    "GET /health",
+                    "GET /mode",
+                    "POST /mode",
+                    "GET /detections",
+                    "GET /identifications",
+                    "POST /enroll",
+                    "POST /look",
+                ],
+            },
+        )
 
     # ── Detection Loop ───────────────────────────────────────────
 
@@ -757,7 +851,9 @@ class VisionService:
         interval = 1.0 / self.capture_fps
         reconnect_wait = 5.0
 
-        logger.info("Detection loop starting (%.1f FPS, mode=%s)", self.capture_fps, self.current_mode)
+        logger.info(
+            "Detection loop starting (%.1f FPS, mode=%s)", self.capture_fps, self.current_mode
+        )
 
         while self.running:
             t0 = time.time()
@@ -793,6 +889,7 @@ class VisionService:
 
     async def run(self) -> None:
         """Start the vision service (HTTP server + detection loop)."""
+
         def handle_signal(sig, _frame):
             logger.info("Signal %s received, shutting down...", sig)
             self.running = False

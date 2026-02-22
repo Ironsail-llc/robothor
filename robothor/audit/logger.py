@@ -290,7 +290,9 @@ def query_telemetry(
         conn = _get_connection()
         cur = conn.cursor()
 
-        query = "SELECT id, timestamp, service, metric, value, unit, details FROM telemetry WHERE 1=1"
+        query = (
+            "SELECT id, timestamp, service, metric, value, unit, details FROM telemetry WHERE 1=1"
+        )
         params: list = []
 
         if service:

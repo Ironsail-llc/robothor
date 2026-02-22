@@ -61,13 +61,16 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     """OpenAI-compatible chat completion request."""
+
     model: str = "default"
     messages: list[ChatMessage]
     temperature: float | None = None
     max_tokens: int | None = None
     stream: bool = False
     # Custom extensions
-    profile: str | None = Field(None, description="RAG profile: fast, general, research, expert, heavy, code")
+    profile: str | None = Field(
+        None, description="RAG profile: fast, general, research, expert, heavy, code"
+    )
     use_memory: bool = Field(True, description="Search memory database")
     use_web: bool = Field(True, description="Search the web")
 
@@ -86,6 +89,7 @@ class UsageInfo(BaseModel):
 
 class ChatResponse(BaseModel):
     """OpenAI-compatible chat completion response."""
+
     id: str
     object: str = "chat.completion"
     created: int
@@ -97,6 +101,7 @@ class ChatResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     """Simple query request for the /query endpoint."""
+
     question: str
     profile: str | None = None
     memory_limit: int | None = None
@@ -105,6 +110,7 @@ class QueryRequest(BaseModel):
 
 class IngestRequest(BaseModel):
     """Request body for the /ingest endpoint."""
+
     content: str
     source_channel: str = "api"
     content_type: str = "conversation"
@@ -112,7 +118,9 @@ class IngestRequest(BaseModel):
 
 
 class VisionLookRequest(BaseModel):
-    prompt: str = Field(default="Describe what you see in this image in detail.", description="What to analyze")
+    prompt: str = Field(
+        default="Describe what you see in this image in detail.", description="What to analyze"
+    )
 
 
 class VisionEnrollRequest(BaseModel):
@@ -198,6 +206,7 @@ async def chat_completions(req: ChatRequest):
     )
 
     if req.stream:
+
         async def stream_response():
             chunk = {
                 "id": response.id,
@@ -246,6 +255,7 @@ async def list_profiles():
 async def stats():
     """Memory system statistics."""
     from robothor.memory.tiers import get_memory_stats
+
     return get_memory_stats()
 
 

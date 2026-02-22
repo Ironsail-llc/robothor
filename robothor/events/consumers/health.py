@@ -42,19 +42,21 @@ class HealthConsumer(BaseConsumer):
         services = payload.get("services", {})
 
         degraded = [
-            name for name, state in services.items()
+            name
+            for name, state in services.items()
             if isinstance(state, str) and state.startswith("error")
         ]
 
         if degraded:
-            logger.warning(
-                "Degraded services: %s (overall: %s)", ", ".join(degraded), status
+            logger.warning("Degraded services: %s (overall: %s)", ", ".join(degraded), status)
+            self._escalate(
+                event,
+                {
+                    "status": status,
+                    "degraded_services": degraded,
+                    "source": event.get("source", ""),
+                },
             )
-            self._escalate(event, {
-                "status": status,
-                "degraded_services": degraded,
-                "source": event.get("source", ""),
-            })
         else:
             logger.debug("All services healthy")
 

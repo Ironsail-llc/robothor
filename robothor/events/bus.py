@@ -170,9 +170,7 @@ def publish(
             pass  # capabilities module not available — allow (backward compat)
 
     if stream not in VALID_STREAMS:
-        logger.warning(
-            "Event bus: invalid stream '%s', must be one of %s", stream, VALID_STREAMS
-        )
+        logger.warning("Event bus: invalid stream '%s', must be one of %s", stream, VALID_STREAMS)
         return None
 
     try:
@@ -284,9 +282,7 @@ def subscribe(
                         # Auto-ack on successful processing
                         r.xack(key, group, msg_id)
                     except Exception as e:
-                        logger.error(
-                            "Event bus: handler error for %s: %s", msg_id, e
-                        )
+                        logger.error("Event bus: handler error for %s: %s", msg_id, e)
         except Exception as e:
             logger.warning("Event bus: subscribe loop error: %s", e)
             if max_iterations is not None:
@@ -354,15 +350,17 @@ def read_recent(stream: str, count: int = 10) -> list[dict]:
         entries = r.xrevrange(key, count=count)
         result = []
         for msg_id, fields in entries:
-            result.append({
-                "id": msg_id,
-                "timestamp": fields.get("timestamp", ""),
-                "type": fields.get("type", ""),
-                "source": fields.get("source", ""),
-                "actor": fields.get("actor", ""),
-                "payload": json.loads(fields.get("payload", "{}")),
-                "correlation_id": fields.get("correlation_id", ""),
-            })
+            result.append(
+                {
+                    "id": msg_id,
+                    "timestamp": fields.get("timestamp", ""),
+                    "type": fields.get("type", ""),
+                    "source": fields.get("source", ""),
+                    "actor": fields.get("actor", ""),
+                    "payload": json.loads(fields.get("payload", "{}")),
+                    "correlation_id": fields.get("correlation_id", ""),
+                }
+            )
         return result
     except Exception as e:
         logger.warning("Event bus read_recent failed: %s", e)

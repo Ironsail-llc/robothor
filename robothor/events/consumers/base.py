@@ -49,9 +49,7 @@ class BaseConsumer(ABC):
     def __init__(self) -> None:
         self._running = True
         # Allow override from env vars
-        self.consumer_name = os.environ.get(
-            "CONSUMER_NAME", self.consumer_name
-        )
+        self.consumer_name = os.environ.get("CONSUMER_NAME", self.consumer_name)
 
     @abstractmethod
     def handle(self, event: dict) -> None:

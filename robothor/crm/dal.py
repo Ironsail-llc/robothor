@@ -42,6 +42,7 @@ def _safe_audit(operation: str, entity_type: str, entity_id: str | None, **kwarg
     """Wrap audit logging so it never propagates exceptions."""
     try:
         from robothor.audit.logger import log_crm_mutation
+
         log_crm_mutation(operation, entity_type, entity_id, **kwargs)
     except Exception as e:
         logger.warning("Audit call failed (non-fatal): %s", e)
@@ -55,7 +56,8 @@ def search_people(name: str) -> list[dict]:
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         pattern = f"%{name}%"
-        cur.execute("""
+        cur.execute(
+            """
             SELECT p.*, c.name AS company_name
             FROM crm_people p
             LEFT JOIN crm_companies c ON c.id = p.company_id
@@ -63,7 +65,9 @@ def search_people(name: str) -> list[dict]:
               AND (p.first_name ILIKE %s OR p.last_name ILIKE %s)
             ORDER BY p.updated_at DESC
             LIMIT 50
-        """, (pattern, pattern))
+        """,
+            (pattern, pattern),
+        )
         return [person_to_dict(r) for r in cur.fetchall()]
 
 
@@ -87,15 +91,24 @@ def create_person(
     with get_connection() as conn:
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO crm_people (id, first_name, last_name, email, phone)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (person_id, first_name, last_name, email, phone))
+            """,
+                (person_id, first_name, last_name, email, phone),
+            )
             conn.commit()
             _safe_audit(
-                "create", "person", person_id,
-                details={"first_name": first_name, "last_name": last_name,
-                         "email": email, "phone": phone},
+                "create",
+                "person",
+                person_id,
+                details={
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email": email,
+                    "phone": phone,
+                },
             )
             return person_id
         except Exception as e:
@@ -108,12 +121,15 @@ def get_person(person_id: str) -> dict | None:
     """Get a person by ID, with company JOIN."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT p.*, c.name AS company_name
             FROM crm_people p
             LEFT JOIN crm_companies c ON c.id = p.company_id
             WHERE p.id = %s AND p.deleted_at IS NULL
-        """, (person_id,))
+        """,
+            (person_id,),
+        )
         row = cur.fetchone()
         return person_to_dict(row) if row else None
 
@@ -125,10 +141,14 @@ def update_person(person_id: str, **fields: Any) -> bool:
             fields[key] = scrub_null_string(fields[key])
 
     col_map = {
-        "job_title": "job_title", "company_id": "company_id",
-        "city": "city", "linkedin_url": "linkedin_url",
-        "phone": "phone", "avatar_url": "avatar_url",
-        "first_name": "first_name", "last_name": "last_name",
+        "job_title": "job_title",
+        "company_id": "company_id",
+        "city": "city",
+        "linkedin_url": "linkedin_url",
+        "phone": "phone",
+        "avatar_url": "avatar_url",
+        "first_name": "first_name",
+        "last_name": "last_name",
         "email": "email",
     }
     sets: list[str] = []
@@ -200,9 +220,13 @@ def merge_people(keeper_id: str, loser_id: str) -> dict | None:
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
-            cur.execute("SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL", (keeper_id,))
+            cur.execute(
+                "SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL", (keeper_id,)
+            )
             keeper = cur.fetchone()
-            cur.execute("SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL", (loser_id,))
+            cur.execute(
+                "SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL", (loser_id,)
+            )
             loser = cur.fetchone()
 
             if not keeper or not loser:
@@ -210,14 +234,25 @@ def merge_people(keeper_id: str, loser_id: str) -> dict | None:
                 return None
 
             # 1. Fill empty fields
-            fillable = ["first_name", "last_name", "email", "phone", "job_title",
-                         "city", "linkedin_url", "avatar_url", "company_id"]
+            fillable = [
+                "first_name",
+                "last_name",
+                "email",
+                "phone",
+                "job_title",
+                "city",
+                "linkedin_url",
+                "avatar_url",
+                "company_id",
+            ]
             updates: list[str] = []
             update_vals: list[Any] = []
             for field in fillable:
                 keeper_val = keeper.get(field)
                 loser_val = loser.get(field)
-                keeper_empty = not keeper_val or (isinstance(keeper_val, str) and not keeper_val.strip())
+                keeper_empty = not keeper_val or (
+                    isinstance(keeper_val, str) and not keeper_val.strip()
+                )
                 loser_has = loser_val and (not isinstance(loser_val, str) or loser_val.strip())
                 if keeper_empty and loser_has:
                     updates.append(f"{field} = %s")
@@ -259,31 +294,49 @@ def merge_people(keeper_id: str, loser_id: str) -> dict | None:
                 )
 
             # 3. Re-point related records
-            cur.execute("UPDATE contact_identifiers SET person_id = %s WHERE person_id = %s",
-                        (keeper_id, loser_id))
-            cur.execute("UPDATE crm_conversations SET person_id = %s WHERE person_id = %s",
-                        (keeper_id, loser_id))
-            cur.execute("UPDATE crm_notes SET person_id = %s WHERE person_id = %s AND deleted_at IS NULL",
-                        (keeper_id, loser_id))
-            cur.execute("UPDATE crm_tasks SET person_id = %s WHERE person_id = %s AND deleted_at IS NULL",
-                        (keeper_id, loser_id))
+            cur.execute(
+                "UPDATE contact_identifiers SET person_id = %s WHERE person_id = %s",
+                (keeper_id, loser_id),
+            )
+            cur.execute(
+                "UPDATE crm_conversations SET person_id = %s WHERE person_id = %s",
+                (keeper_id, loser_id),
+            )
+            cur.execute(
+                "UPDATE crm_notes SET person_id = %s WHERE person_id = %s AND deleted_at IS NULL",
+                (keeper_id, loser_id),
+            )
+            cur.execute(
+                "UPDATE crm_tasks SET person_id = %s WHERE person_id = %s AND deleted_at IS NULL",
+                (keeper_id, loser_id),
+            )
 
             # 4. Soft-delete loser
-            cur.execute("UPDATE crm_people SET deleted_at = NOW(), updated_at = NOW() WHERE id = %s",
-                        (loser_id,))
+            cur.execute(
+                "UPDATE crm_people SET deleted_at = NOW(), updated_at = NOW() WHERE id = %s",
+                (loser_id,),
+            )
 
             # 5. Create merge note
             loser_name = f"{loser.get('first_name', '')} {loser.get('last_name', '')}".strip()
             note_id = str(uuid.uuid4())
             cur.execute(
                 "INSERT INTO crm_notes (id, title, body, person_id) VALUES (%s, %s, %s, %s)",
-                (note_id, "Duplicate Merged",
-                 f"Merged duplicate: {loser_name} (id: {loser_id})", keeper_id),
+                (
+                    note_id,
+                    "Duplicate Merged",
+                    f"Merged duplicate: {loser_name} (id: {loser_id})",
+                    keeper_id,
+                ),
             )
 
             conn.commit()
-            _safe_audit("merge", "person", keeper_id,
-                        details={"loser_id": loser_id, "loser_name": loser_name})
+            _safe_audit(
+                "merge",
+                "person",
+                keeper_id,
+                details={"loser_id": loser_id, "loser_name": loser_name},
+            )
             return get_person(keeper_id)
 
         except Exception as e:
@@ -302,9 +355,13 @@ def merge_companies(keeper_id: str, loser_id: str) -> dict | None:
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
-            cur.execute("SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL", (keeper_id,))
+            cur.execute(
+                "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL", (keeper_id,)
+            )
             keeper = cur.fetchone()
-            cur.execute("SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL", (loser_id,))
+            cur.execute(
+                "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL", (loser_id,)
+            )
             loser = cur.fetchone()
 
             if not keeper or not loser:
@@ -317,7 +374,9 @@ def merge_companies(keeper_id: str, loser_id: str) -> dict | None:
             for field in fillable:
                 keeper_val = keeper.get(field)
                 loser_val = loser.get(field)
-                keeper_empty = not keeper_val or (isinstance(keeper_val, str) and not keeper_val.strip())
+                keeper_empty = not keeper_val or (
+                    isinstance(keeper_val, str) and not keeper_val.strip()
+                )
                 loser_has = loser_val and (not isinstance(loser_val, str) or loser_val.strip())
                 if keeper_empty and loser_has:
                     updates.append(f"{field} = %s")
@@ -331,16 +390,26 @@ def merge_companies(keeper_id: str, loser_id: str) -> dict | None:
                     update_vals,
                 )
 
-            cur.execute("UPDATE crm_people SET company_id = %s WHERE company_id = %s AND deleted_at IS NULL",
-                        (keeper_id, loser_id))
-            cur.execute("UPDATE crm_notes SET company_id = %s WHERE company_id = %s AND deleted_at IS NULL",
-                        (keeper_id, loser_id))
-            cur.execute("UPDATE crm_companies SET deleted_at = NOW(), updated_at = NOW() WHERE id = %s",
-                        (loser_id,))
+            cur.execute(
+                "UPDATE crm_people SET company_id = %s WHERE company_id = %s AND deleted_at IS NULL",
+                (keeper_id, loser_id),
+            )
+            cur.execute(
+                "UPDATE crm_notes SET company_id = %s WHERE company_id = %s AND deleted_at IS NULL",
+                (keeper_id, loser_id),
+            )
+            cur.execute(
+                "UPDATE crm_companies SET deleted_at = NOW(), updated_at = NOW() WHERE id = %s",
+                (loser_id,),
+            )
 
             conn.commit()
-            _safe_audit("merge", "company", keeper_id,
-                        details={"loser_id": loser_id, "loser_name": loser.get("name", "")})
+            _safe_audit(
+                "merge",
+                "company",
+                keeper_id,
+                details={"loser_id": loser_id, "loser_name": loser.get("name", "")},
+            )
             return get_company(keeper_id)
 
         except Exception as e:
@@ -355,13 +424,16 @@ def list_people(search: str | None = None, limit: int = 20) -> list[dict]:
         return search_people(search)
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT p.*, c.name AS company_name
             FROM crm_people p
             LEFT JOIN crm_companies c ON c.id = p.company_id
             WHERE p.deleted_at IS NULL
             ORDER BY p.updated_at DESC LIMIT %s
-        """, (limit,))
+        """,
+            (limit,),
+        )
         return [person_to_dict(r) for r in cur.fetchall()]
 
 
@@ -389,7 +461,9 @@ def find_or_create_company(name: str) -> str | None:
         try:
             cur.execute("INSERT INTO crm_companies (id, name) VALUES (%s, %s)", (company_id, name))
             conn.commit()
-            _safe_audit("create", "company", company_id, details={"name": name, "via": "find_or_create"})
+            _safe_audit(
+                "create", "company", company_id, details={"name": name, "via": "find_or_create"}
+            )
             return company_id
         except Exception as e:
             conn.rollback()
@@ -410,12 +484,22 @@ def create_company(
     with get_connection() as conn:
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO crm_companies (id, name, domain_name, employees,
                     address, linkedin_url, ideal_customer_profile)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (company_id, name, domain_name, employees, address,
-                  linkedin_url, ideal_customer_profile))
+            """,
+                (
+                    company_id,
+                    name,
+                    domain_name,
+                    employees,
+                    address,
+                    linkedin_url,
+                    ideal_customer_profile,
+                ),
+            )
             conn.commit()
             _safe_audit("create", "company", company_id, details={"name": name})
             return company_id
@@ -440,9 +524,12 @@ def get_company(company_id: str) -> dict | None:
 def update_company(company_id: str, **fields: Any) -> bool:
     """Update a company's fields. Only sets non-None fields."""
     col_map = {
-        "domain_name": "domain_name", "employees": "employees",
-        "address": "address", "linkedin_url": "linkedin_url",
-        "ideal_customer_profile": "ideal_customer_profile", "name": "name",
+        "domain_name": "domain_name",
+        "employees": "employees",
+        "address": "address",
+        "linkedin_url": "linkedin_url",
+        "ideal_customer_profile": "ideal_customer_profile",
+        "name": "name",
     }
     sets: list[str] = []
     vals: list[Any] = []
@@ -467,7 +554,9 @@ def update_company(company_id: str, **fields: Any) -> bool:
             ok: bool = cur.rowcount > 0
             conn.commit()
             if ok:
-                _safe_audit("update", "company", company_id, details={"fields": list(fields.keys())})
+                _safe_audit(
+                    "update", "company", company_id, details={"fields": list(fields.keys())}
+                )
             return ok
         except Exception as e:
             conn.rollback()
@@ -501,17 +590,23 @@ def list_companies(search: str | None = None, limit: int = 50) -> list[dict]:
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         if search:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT * FROM crm_companies
                 WHERE deleted_at IS NULL AND name ILIKE %s
                 ORDER BY updated_at DESC LIMIT %s
-            """, (f"%{search}%", limit))
+            """,
+                (f"%{search}%", limit),
+            )
         else:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT * FROM crm_companies
                 WHERE deleted_at IS NULL
                 ORDER BY updated_at DESC LIMIT %s
-            """, (limit,))
+            """,
+                (limit,),
+            )
         return [company_to_dict(r) for r in cur.fetchall()]
 
 
@@ -529,10 +624,13 @@ def create_note(
     with get_connection() as conn:
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO crm_notes (id, title, body, person_id, company_id)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (note_id, title, body, person_id, company_id))
+            """,
+                (note_id, title, body, person_id, company_id),
+            )
             conn.commit()
             _safe_audit("create", "note", note_id, details={"title": title})
             return note_id
@@ -547,7 +645,8 @@ def get_note(note_id: str) -> dict | None:
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT * FROM crm_notes WHERE id = %s AND deleted_at IS NULL", (note_id,),
+            "SELECT * FROM crm_notes WHERE id = %s AND deleted_at IS NULL",
+            (note_id,),
         )
         row = cur.fetchone()
         return note_to_dict(row) if row else None
@@ -580,7 +679,12 @@ def list_notes(
 
 def update_note(note_id: str, **fields: Any) -> bool:
     """Update a note. Accepted: title, body, person_id, company_id."""
-    col_map = {"title": "title", "body": "body", "person_id": "person_id", "company_id": "company_id"}
+    col_map = {
+        "title": "title",
+        "body": "body",
+        "person_id": "person_id",
+        "company_id": "company_id",
+    }
     sets: list[str] = []
     vals: list[Any] = []
     for key, col in col_map.items():
@@ -646,10 +750,13 @@ def create_task(
     with get_connection() as conn:
         cur = conn.cursor()
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO crm_tasks (id, title, body, status, due_at, person_id, company_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (task_id, title, body, status, due_at, person_id, company_id))
+            """,
+                (task_id, title, body, status, due_at, person_id, company_id),
+            )
             conn.commit()
             _safe_audit("create", "task", task_id, details={"title": title})
             return task_id
@@ -664,7 +771,8 @@ def get_task(task_id: str) -> dict | None:
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT * FROM crm_tasks WHERE id = %s AND deleted_at IS NULL", (task_id,),
+            "SELECT * FROM crm_tasks WHERE id = %s AND deleted_at IS NULL",
+            (task_id,),
         )
         row = cur.fetchone()
         return task_to_dict(row) if row else None
@@ -698,8 +806,12 @@ def list_tasks(
 def update_task(task_id: str, **fields: Any) -> bool:
     """Update a task. Accepted: title, body, status, due_at, person_id, company_id."""
     col_map = {
-        "title": "title", "body": "body", "status": "status",
-        "due_at": "due_at", "person_id": "person_id", "company_id": "company_id",
+        "title": "title",
+        "body": "body",
+        "status": "status",
+        "due_at": "due_at",
+        "person_id": "person_id",
+        "company_id": "company_id",
     }
     sets: list[str] = []
     vals: list[Any] = []
@@ -762,7 +874,8 @@ def list_conversations(
     offset = (page - 1) * page_size
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT c.*,
                    COALESCE(p.first_name || ' ' || p.last_name, '') AS person_name
             FROM crm_conversations c
@@ -770,7 +883,9 @@ def list_conversations(
             WHERE c.status = %s
             ORDER BY c.last_activity_at DESC NULLS LAST
             LIMIT %s OFFSET %s
-        """, (status, page_size, offset))
+        """,
+            (status, page_size, offset),
+        )
         return [conversation_to_dict(r) for r in cur.fetchall()]
 
 
@@ -778,13 +893,16 @@ def get_conversation(conversation_id: int) -> dict | None:
     """Get a conversation by ID."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT c.*,
                    COALESCE(p.first_name || ' ' || p.last_name, '') AS person_name
             FROM crm_conversations c
             LEFT JOIN crm_people p ON p.id = c.person_id
             WHERE c.id = %s
-        """, (conversation_id,))
+        """,
+            (conversation_id,),
+        )
         row = cur.fetchone()
         return conversation_to_dict(row) if row else None
 
@@ -793,11 +911,14 @@ def list_messages(conversation_id: int) -> list[dict]:
     """List all messages in a conversation."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT * FROM crm_messages
             WHERE conversation_id = %s
             ORDER BY created_at ASC
-        """, (conversation_id,))
+        """,
+            (conversation_id,),
+        )
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -812,20 +933,26 @@ def send_message(
         cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             msg_id = str(uuid.uuid4())
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO crm_messages (id, conversation_id, content, message_type, private)
                 VALUES (%s, %s, %s, %s, %s) RETURNING *
-            """, (msg_id, conversation_id, content, message_type, private))
+            """,
+                (msg_id, conversation_id, content, message_type, private),
+            )
             msg = cur.fetchone()
 
             # Update conversation counters
-            cur.execute("""
+            cur.execute(
+                """
                 UPDATE crm_conversations
                 SET messages_count = messages_count + 1,
                     last_activity_at = NOW(),
                     updated_at = NOW()
                 WHERE id = %s
-            """, (conversation_id,))
+            """,
+                (conversation_id,),
+            )
             conn.commit()
             return dict(msg) if msg else None
         except Exception as e:
@@ -869,19 +996,28 @@ def get_metadata_objects() -> list[dict]:
 
 def get_object_metadata(object_name: str) -> dict | None:
     """Return column info for a CRM table."""
-    valid = {"crm_people", "crm_companies", "crm_notes", "crm_tasks",
-             "crm_conversations", "crm_messages"}
+    valid = {
+        "crm_people",
+        "crm_companies",
+        "crm_notes",
+        "crm_tasks",
+        "crm_conversations",
+        "crm_messages",
+    }
     if object_name not in valid:
         return None
 
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT column_name, data_type, is_nullable
             FROM information_schema.columns
             WHERE table_name = %s
             ORDER BY ordinal_position
-        """, (object_name,))
+        """,
+            (object_name,),
+        )
         cols = cur.fetchall()
         return {"name": object_name, "columns": [dict(c) for c in cols]}
 

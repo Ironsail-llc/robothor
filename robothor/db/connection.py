@@ -30,9 +30,7 @@ _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 _pool_lock = threading.Lock()
 
 
-def get_pool(
-    minconn: int = 2, maxconn: int = 20
-) -> psycopg2.pool.ThreadedConnectionPool:
+def get_pool(minconn: int = 2, maxconn: int = 20) -> psycopg2.pool.ThreadedConnectionPool:
     """Get or create the connection pool."""
     global _pool
     if _pool is not None and not _pool.closed:
@@ -45,7 +43,12 @@ def get_pool(
         cfg = get_config().db
         logger.info(
             "Creating connection pool: %s@%s:%s/%s (min=%d, max=%d)",
-            cfg.user, cfg.host, cfg.port, cfg.name, minconn, maxconn,
+            cfg.user,
+            cfg.host,
+            cfg.port,
+            cfg.name,
+            minconn,
+            maxconn,
         )
         _pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=minconn,

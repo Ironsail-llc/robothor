@@ -247,7 +247,9 @@ async def run_lifecycle_maintenance() -> dict:
 
         for fact in unscored:
             score = await judge_importance(fact["fact_text"])
-            cur.execute("UPDATE memory_facts SET importance_score = %s WHERE id = %s", (score, fact["id"]))
+            cur.execute(
+                "UPDATE memory_facts SET importance_score = %s WHERE id = %s", (score, fact["id"])
+            )
             facts_scored += 1
 
         # Step 2: Update decay scores
@@ -268,7 +270,9 @@ async def run_lifecycle_maintenance() -> dict:
                 reinforcement_count=fact["reinforcement_count"],
                 importance_score=fact["importance_score"],
             )
-            cur.execute("UPDATE memory_facts SET decay_score = %s WHERE id = %s", (score, fact["id"]))
+            cur.execute(
+                "UPDATE memory_facts SET decay_score = %s WHERE id = %s", (score, fact["id"])
+            )
             decay_updated += 1
 
     return {
