@@ -61,6 +61,36 @@ class CreateNoteRequest(BaseModel):
     companyId: str | None = None
 
 
+# ─── Tasks ──────────────────────────────────────────────────────────────
+
+
+class CreateTaskRequest(BaseModel):
+    title: str
+    body: str | None = None
+    status: str = "TODO"
+    dueAt: str | None = None
+    personId: str | None = None
+    companyId: str | None = None
+    assignedToAgent: str | None = None
+    priority: str = "normal"
+    tags: list[str] | None = None
+    parentTaskId: str | None = None
+
+
+class UpdateTaskRequest(BaseModel):
+    title: str | None = None
+    body: str | None = None
+    status: str | None = None
+    dueAt: str | None = None
+    personId: str | None = None
+    companyId: str | None = None
+    assignedToAgent: str | None = None
+    priority: str | None = None
+    tags: list[str] | None = None
+    parentTaskId: str | None = None
+    resolution: str | None = None
+
+
 # ─── Messages ────────────────────────────────────────────────────────────
 
 
