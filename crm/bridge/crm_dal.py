@@ -895,6 +895,13 @@ def _task_to_dict(row: dict) -> dict:
         "assigneeId": str(row["assignee_id"]) if row.get("assignee_id") else None,
         "personId": str(row["person_id"]) if row.get("person_id") else None,
         "companyId": str(row["company_id"]) if row.get("company_id") else None,
+        "createdByAgent": row.get("created_by_agent") or "",
+        "assignedToAgent": row.get("assigned_to_agent") or "",
+        "priority": row.get("priority") or "normal",
+        "tags": row.get("tags") or [],
+        "parentTaskId": str(row["parent_task_id"]) if row.get("parent_task_id") else None,
+        "resolvedAt": row["resolved_at"].isoformat() if row.get("resolved_at") else None,
+        "resolution": row.get("resolution") or "",
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }
@@ -902,20 +909,28 @@ def _task_to_dict(row: dict) -> dict:
 
 def create_task(title: str, body: str | None = None, status: str = "TODO",
                 due_at: str | None = None, person_id: str | None = None,
-                company_id: str | None = None) -> str | None:
+                company_id: str | None = None,
+                created_by_agent: str | None = None,
+                assigned_to_agent: str | None = None,
+                priority: str = "normal",
+                tags: list[str] | None = None,
+                parent_task_id: str | None = None) -> str | None:
     """Create a task. Returns task UUID."""
     task_id = str(uuid.uuid4())
     conn = _conn()
     cur = conn.cursor()
     try:
         cur.execute("""
-            INSERT INTO crm_tasks (id, title, body, status, due_at, person_id, company_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (task_id, title, body, status, due_at, person_id, company_id))
+            INSERT INTO crm_tasks (id, title, body, status, due_at, person_id, company_id,
+                                   created_by_agent, assigned_to_agent, priority, tags, parent_task_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (task_id, title, body, status, due_at, person_id, company_id,
+              created_by_agent, assigned_to_agent, priority, tags or [], parent_task_id))
         conn.commit()
         _safe_audit(
             "create", "task", task_id,
-            details={"title": title, "status": status, "person_id": person_id},
+            details={"title": title, "status": status, "person_id": person_id,
+                     "assigned_to_agent": assigned_to_agent, "priority": priority},
         )
         return task_id
     except Exception as e:
@@ -940,10 +955,18 @@ def get_task(task_id: str) -> dict | None:
 
 
 def update_task(task_id: str, **fields) -> bool:
-    """Update a task. Accepted: title, body, status, due_at, person_id, company_id."""
+    """Update a task.
+
+    Accepted: title, body, status, due_at, person_id, company_id,
+              created_by_agent, assigned_to_agent, priority, tags,
+              parent_task_id, resolved_at, resolution.
+    """
     col_map = {
         "title": "title", "body": "body", "status": "status",
         "due_at": "due_at", "person_id": "person_id", "company_id": "company_id",
+        "created_by_agent": "created_by_agent", "assigned_to_agent": "assigned_to_agent",
+        "priority": "priority", "parent_task_id": "parent_task_id",
+        "resolved_at": "resolved_at", "resolution": "resolution",
     }
     sets = []
     vals = []
@@ -951,6 +974,10 @@ def update_task(task_id: str, **fields) -> bool:
         if key in fields and fields[key] is not None:
             sets.append(f"{col} = %s")
             vals.append(fields[key])
+    # tags needs special handling (array type)
+    if "tags" in fields and fields["tags"] is not None:
+        sets.append("tags = %s")
+        vals.append(fields["tags"])
     if not sets:
         return False
     sets.append("updated_at = NOW()")
@@ -998,8 +1025,14 @@ def delete_task(task_id: str) -> bool:
 
 
 def list_tasks(status: str | None = None, person_id: str | None = None,
-               limit: int = 50) -> list:
-    """List tasks, optionally filtered by status or person."""
+               limit: int = 50,
+               assigned_to_agent: str | None = None,
+               created_by_agent: str | None = None,
+               tags: list[str] | None = None,
+               priority: str | None = None,
+               parent_task_id: str | None = None,
+               exclude_resolved: bool = False) -> list:
+    """List tasks with optional filters."""
     conn = _conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     conditions = ["deleted_at IS NULL"]
@@ -1010,12 +1043,97 @@ def list_tasks(status: str | None = None, person_id: str | None = None,
     if person_id:
         conditions.append("person_id = %s")
         params.append(person_id)
+    if assigned_to_agent:
+        conditions.append("assigned_to_agent = %s")
+        params.append(assigned_to_agent)
+    if created_by_agent:
+        conditions.append("created_by_agent = %s")
+        params.append(created_by_agent)
+    if tags:
+        conditions.append("tags @> %s")
+        params.append(tags)
+    if priority:
+        conditions.append("priority = %s")
+        params.append(priority)
+    if parent_task_id:
+        conditions.append("parent_task_id = %s")
+        params.append(parent_task_id)
+    if exclude_resolved:
+        conditions.append("resolved_at IS NULL")
     where = " AND ".join(conditions)
     params.append(limit)
     cur.execute(f"SELECT * FROM crm_tasks WHERE {where} ORDER BY updated_at DESC LIMIT %s", params)
     rows = cur.fetchall()
     conn.close()
     return [_task_to_dict(r) for r in rows]
+
+
+def list_agent_tasks(agent_id: str, include_unassigned: bool = False,
+                     status: str | None = None, limit: int = 50) -> list:
+    """Get an agent's task inbox, priority-ordered.
+
+    Returns tasks assigned to this agent (and optionally unassigned tasks),
+    ordered by priority (urgent > high > normal > low), then due_at, then created_at.
+    """
+    conn = _conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    conditions = ["deleted_at IS NULL"]
+    params: list[Any] = []
+    if include_unassigned:
+        conditions.append("(assigned_to_agent = %s OR assigned_to_agent IS NULL)")
+        params.append(agent_id)
+    else:
+        conditions.append("assigned_to_agent = %s")
+        params.append(agent_id)
+    if status:
+        conditions.append("status = %s")
+        params.append(status)
+    where = " AND ".join(conditions)
+    params.append(limit)
+    cur.execute(f"""
+        SELECT * FROM crm_tasks
+        WHERE {where}
+        ORDER BY
+            CASE priority
+                WHEN 'urgent' THEN 0
+                WHEN 'high' THEN 1
+                WHEN 'normal' THEN 2
+                WHEN 'low' THEN 3
+                ELSE 4
+            END,
+            due_at ASC NULLS LAST,
+            created_at ASC
+        LIMIT %s
+    """, params)
+    rows = cur.fetchall()
+    conn.close()
+    return [_task_to_dict(r) for r in rows]
+
+
+def resolve_task(task_id: str, resolution: str, agent_id: str | None = None) -> bool:
+    """Mark a task as DONE with a resolution summary."""
+    conn = _conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE crm_tasks
+            SET status = 'DONE', resolved_at = NOW(), resolution = %s, updated_at = NOW()
+            WHERE id = %s AND deleted_at IS NULL
+        """, (resolution, task_id))
+        ok = cur.rowcount > 0
+        conn.commit()
+        if ok:
+            _safe_audit(
+                "resolve", "task", task_id,
+                details={"resolution": resolution, "agent_id": agent_id},
+            )
+        return ok
+    except Exception as e:
+        conn.rollback()
+        logger.error("Failed to resolve task %s: %s", task_id, e)
+        return False
+    finally:
+        conn.close()
 
 
 # ─── Conversations ───────────────────────────────────────────────────────
