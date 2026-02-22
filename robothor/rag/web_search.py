@@ -26,6 +26,7 @@ def _searxng_url() -> str:
         return url
     try:
         from robothor.services.registry import get_service_url
+
         svc_url = get_service_url("searxng")
         if svc_url:
             return svc_url
@@ -74,13 +75,15 @@ async def search_web(
 
     results = []
     for r in data.get("results", [])[:limit]:
-        results.append({
-            "title": r.get("title", ""),
-            "url": r.get("url", ""),
-            "content": r.get("content", ""),
-            "source": r.get("engine", "web"),
-            "score": r.get("score", 0.0),
-        })
+        results.append(
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", ""),
+                "source": r.get("engine", "web"),
+                "score": r.get("score", 0.0),
+            }
+        )
 
     return results
 
@@ -136,13 +139,15 @@ def web_results_to_memory_format(results: list[dict]) -> list[dict]:
     """
     formatted = []
     for r in results:
-        formatted.append({
-            "content": f"{r['title']}\n{r['content']}",
-            "content_type": "web_search",
-            "tier": "web",
-            "similarity": min(r.get("score", 0.5), 1.0),
-            "metadata": {"url": r["url"], "source": r["source"]},
-        })
+        formatted.append(
+            {
+                "content": f"{r['title']}\n{r['content']}",
+                "content_type": "web_search",
+                "tier": "web",
+                "similarity": min(r.get("score", 0.5), 1.0),
+                "metadata": {"url": r["url"], "source": r["source"]},
+            }
+        )
     return formatted
 
 

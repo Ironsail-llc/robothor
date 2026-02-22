@@ -19,9 +19,7 @@ import time
 
 import httpx
 
-RERANKER_MODEL = os.environ.get(
-    "ROBOTHOR_RERANKER_MODEL", "dengcao/Qwen3-Reranker-0.6B:F16"
-)
+RERANKER_MODEL = os.environ.get("ROBOTHOR_RERANKER_MODEL", "dengcao/Qwen3-Reranker-0.6B:F16")
 
 
 def _ollama_url() -> str:
@@ -31,6 +29,7 @@ def _ollama_url() -> str:
         return url
     try:
         from robothor.config import get_config
+
         cfg_url: str = get_config().ollama.url  # type: ignore[attr-defined]
         return cfg_url
     except Exception:
@@ -70,14 +69,10 @@ def build_reranker_prompt(
     Uses pre-filled <think> tags to skip reasoning and get a direct yes/no.
     """
     system = (
-        'Judge whether the Document meets the requirements based on the Query and the Instruct provided. '
+        "Judge whether the Document meets the requirements based on the Query and the Instruct provided. "
         'Note that the answer can only be "yes" or "no".'
     )
-    user = (
-        f"<Instruct>: {instruction}\n"
-        f"<Query>: {query}\n"
-        f"<Document>: {document[:3000]}"
-    )
+    user = f"<Instruct>: {instruction}\n<Query>: {query}\n<Document>: {document[:3000]}"
     return (
         f"<|im_start|>system\n{system}<|im_end|>\n"
         f"<|im_start|>user\n{user}<|im_end|>\n"

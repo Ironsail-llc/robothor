@@ -134,9 +134,7 @@ def get_config() -> Config:
 def _load_from_env() -> Config:
     """Load configuration from environment variables."""
     workspace = Path(os.environ.get("ROBOTHOR_WORKSPACE", Path.home() / "robothor"))
-    memory_dir = Path(
-        os.environ.get("ROBOTHOR_MEMORY_DIR", workspace / "memory")
-    )
+    memory_dir = Path(os.environ.get("ROBOTHOR_MEMORY_DIR", workspace / "memory"))
 
     db = DatabaseConfig(
         host=os.environ.get("ROBOTHOR_DB_HOST", "127.0.0.1"),
@@ -156,18 +154,10 @@ def _load_from_env() -> Config:
     ollama_cfg = OllamaConfig(
         host=os.environ.get("ROBOTHOR_OLLAMA_HOST", "127.0.0.1"),
         port=int(os.environ.get("ROBOTHOR_OLLAMA_PORT", "11434")),
-        embedding_model=os.environ.get(
-            "ROBOTHOR_EMBEDDING_MODEL", "qwen3-embedding:0.6b"
-        ),
-        reranker_model=os.environ.get(
-            "ROBOTHOR_RERANKER_MODEL", "Qwen3-Reranker-0.6B:F16"
-        ),
-        generation_model=os.environ.get(
-            "ROBOTHOR_GENERATION_MODEL", "qwen3-next:latest"
-        ),
-        vision_model=os.environ.get(
-            "ROBOTHOR_VISION_MODEL", "llama3.2-vision:11b"
-        ),
+        embedding_model=os.environ.get("ROBOTHOR_EMBEDDING_MODEL", "qwen3-embedding:0.6b"),
+        reranker_model=os.environ.get("ROBOTHOR_RERANKER_MODEL", "Qwen3-Reranker-0.6B:F16"),
+        generation_model=os.environ.get("ROBOTHOR_GENERATION_MODEL", "qwen3-next:latest"),
+        vision_model=os.environ.get("ROBOTHOR_VISION_MODEL", "llama3.2-vision:11b"),
     )
 
     return Config(

@@ -42,6 +42,7 @@ def _ollama_url() -> str:
         return url
     try:
         from robothor.config import get_config
+
         cfg_url: str = get_config().ollama.url  # type: ignore[attr-defined]
         return cfg_url
     except Exception:
@@ -55,6 +56,7 @@ def _embedding_model() -> str:
         return model
     try:
         from robothor.config import get_config
+
         return get_config().ollama.embedding_model
     except Exception:
         return "qwen3-embedding:0.6b"
@@ -287,11 +289,13 @@ async def analyze_image(
     messages: list[dict[str, Any]] = []
     if system:
         messages.append({"role": "system", "content": system})
-    messages.append({
-        "role": "user",
-        "content": prompt,
-        "images": [image_base64],
-    })
+    messages.append(
+        {
+            "role": "user",
+            "content": prompt,
+            "images": [image_base64],
+        }
+    )
 
     payload = {
         "model": "llama3.2-vision:11b",

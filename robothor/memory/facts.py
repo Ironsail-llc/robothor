@@ -130,12 +130,14 @@ def parse_extraction_response(raw: str) -> list[dict]:
             entities = []
         entities = [str(e) for e in entities if e]
 
-        valid_facts.append({
-            "fact_text": fact_text.strip(),
-            "category": category,
-            "entities": entities,
-            "confidence": confidence,
-        })
+        valid_facts.append(
+            {
+                "fact_text": fact_text.strip(),
+                "category": category,
+                "entities": entities,
+                "confidence": confidence,
+            }
+        )
 
     return valid_facts
 

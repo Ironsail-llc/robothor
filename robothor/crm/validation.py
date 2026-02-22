@@ -17,18 +17,45 @@ from __future__ import annotations
 
 PERSON_BLOCKLIST: set[str] = {
     # Furniture / objects misidentified as people (from vision pipeline)
-    "couch", "chair", "table", "desk", "lamp", "sofa", "bed", "shelf",
-    "door", "window", "wall", "floor", "ceiling", "cabinet", "dresser",
+    "couch",
+    "chair",
+    "table",
+    "desk",
+    "lamp",
+    "sofa",
+    "bed",
+    "shelf",
+    "door",
+    "window",
+    "wall",
+    "floor",
+    "ceiling",
+    "cabinet",
+    "dresser",
     # Bot / system accounts
-    "claude", "vision monitor system", "robothor vision monitor",
-    "chatwoot inbox monitor", "chatwoot monitor", "robothor system",
-    "email responder", "human resources", "gemini (google workspace)",
-    "gemini notes", "google meet", "linkedin (automated)",
-    "linkedin (noreply)", "gitguardian", "openrouter team",
+    "claude",
+    "vision monitor system",
+    "robothor vision monitor",
+    "chatwoot inbox monitor",
+    "chatwoot monitor",
+    "robothor system",
+    "email responder",
+    "human resources",
+    "gemini (google workspace)",
+    "gemini notes",
+    "google meet",
+    "linkedin (automated)",
+    "linkedin (noreply)",
+    "gitguardian",
+    "openrouter team",
 }
 
 COMPANY_BLOCKLIST: set[str] = {
-    "null", "none", "unknown", "test", "n/a",
+    "null",
+    "none",
+    "unknown",
+    "test",
+    "n/a",
 }
 
 NULL_STRINGS: set[str] = {"null", "none", "n/a"}

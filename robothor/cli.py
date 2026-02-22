@@ -20,17 +20,13 @@ def main(argv: list[str] | None = None) -> int:
         prog="robothor",
         description="Robothor — An AI brain with persistent memory, vision, and self-healing.",
     )
-    parser.add_argument(
-        "--version", action="store_true", help="Show version and exit"
-    )
+    parser.add_argument("--version", action="store_true", help="Show version and exit")
 
     subparsers = parser.add_subparsers(dest="command")
 
     # migrate
     migrate_parser = subparsers.add_parser("migrate", help="Run database migrations")
-    migrate_parser.add_argument(
-        "--dry-run", action="store_true", help="Show SQL without executing"
-    )
+    migrate_parser.add_argument("--dry-run", action="store_true", help="Show SQL without executing")
 
     # serve
     serve_parser = subparsers.add_parser("serve", help="Start the API server")
@@ -46,7 +42,10 @@ def main(argv: list[str] | None = None) -> int:
     # pipeline
     pipeline_parser = subparsers.add_parser("pipeline", help="Run intelligence pipeline")
     pipeline_parser.add_argument(
-        "--tier", type=int, choices=[1, 2, 3], default=1,
+        "--tier",
+        type=int,
+        choices=[1, 2, 3],
+        default=1,
         help="Pipeline tier (1=ingest, 2=analysis, 3=deep)",
     )
 
@@ -57,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.version or args.command == "version":
         from robothor import __version__
+
         print(f"robothor {__version__}")
         return 0
 
