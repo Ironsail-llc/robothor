@@ -12,54 +12,46 @@ From zero to a working Robothor brain in 10 minutes.
 ## Option A: Docker (recommended)
 
 ```bash
-git clone https://github.com/robothor-ai/robothor.git
-cd robothor
-
-# Configure
-cp infra/robothor.env.example .env
-# Edit .env -- at minimum, set ROBOTHOR_DB_PASSWORD
-
-# Start infrastructure
-docker compose -f infra/docker-compose.yml up -d
-
-# Install the package
-pip install -e ".[all]"
-
-# Run migrations
-psql -U robothor -d robothor_memory -f infra/migrations/001_init.sql
-
-# Pull required Ollama models
-docker exec robothor-ollama ollama pull qwen3-embedding:0.6b
-docker exec robothor-ollama ollama pull Qwen3-Reranker-0.6B:F16
-
-# Check status
+pip install robothor
+robothor init --docker   # Generates docker-compose, starts containers, runs migrations, pulls models
 robothor status
+robothor serve
 ```
 
-## Option B: Manual Setup
+The wizard creates a `~/robothor` workspace with a `docker-compose.yml` (PostgreSQL+pgvector, Redis, Ollama), starts the containers, runs the database migration, and pulls the required embedding/reranker models.
+
+## Option B: Local Infrastructure
 
 Install PostgreSQL with pgvector, Redis, and Ollama on your system, then:
 
 ```bash
 pip install robothor
-
-# Configure
-export ROBOTHOR_DB_HOST=localhost
-export ROBOTHOR_DB_NAME=robothor_memory
-export ROBOTHOR_DB_USER=your-user
-export ROBOTHOR_DB_PASSWORD=your-password
-
-# Create database and run migrations
-createdb robothor_memory
-psql -d robothor_memory -c "CREATE EXTENSION IF NOT EXISTS vector"
-psql -d robothor_memory -f infra/migrations/001_init.sql
-
-# Pull Ollama models
-ollama pull qwen3-embedding:0.6b
-ollama pull Qwen3-Reranker-0.6B:F16
-
+robothor init            # Interactive: prompts for DB config, runs migrations, pulls models
 robothor status
+robothor serve
 ```
+
+The wizard checks prerequisites, prompts for database connection details, creates the workspace, runs migrations, and pulls Ollama models.
+
+### Non-interactive mode
+
+For CI or scripted installs, use `--yes` with environment variables:
+
+```bash
+export ROBOTHOR_DB_HOST=localhost
+export ROBOTHOR_DB_PASSWORD=mypassword
+robothor init --yes      # Uses env vars + defaults, zero prompts
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--yes`, `-y` | Non-interactive mode (uses env vars + defaults) |
+| `--docker` | Generate docker-compose.yml and start containers |
+| `--skip-models` | Skip Ollama model pulling |
+| `--skip-db` | Skip database migration |
+| `--workspace PATH` | Workspace directory (default: `~/robothor`) |
 
 ## Store Your First Fact
 

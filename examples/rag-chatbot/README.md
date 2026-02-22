@@ -4,7 +4,7 @@ Build a conversational chatbot powered by Retrieval-Augmented Generation (RAG). 
 
 ## Prerequisites
 
-1. **PostgreSQL 16** with pgvector extension and the memory tables created (see the basic-memory example README for schema).
+1. **PostgreSQL 16** with pgvector extension and tables created (`robothor migrate`).
 2. **Ollama** running locally with these models pulled:
    - `qwen3-embedding:0.6b` (required, for semantic search)
    - `qwen3-next:latest` (required, for answer generation)
@@ -14,7 +14,7 @@ Build a conversational chatbot powered by Retrieval-Augmented Generation (RAG). 
 ## Install
 
 ```bash
-pip install robothor[llm]
+pip install robothor
 ```
 
 ## Configure
@@ -23,6 +23,12 @@ pip install robothor[llm]
 export ROBOTHOR_DB_NAME=robothor_memory
 export ROBOTHOR_DB_USER=your_user
 export ROBOTHOR_DB_PASSWORD=your_password
+```
+
+## Set Up Database
+
+```bash
+robothor migrate
 ```
 
 ## Run

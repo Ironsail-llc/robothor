@@ -28,23 +28,16 @@ Not another agent framework. An AI *brain* — persistent memory that decays and
 
 ```bash
 pip install robothor
-
-# Configure
-export ROBOTHOR_DB_HOST=localhost
-export ROBOTHOR_DB_NAME=robothor_memory
-
-# Check status
+robothor init            # Interactive setup: DB config, migrations, Ollama models
 robothor status
+robothor serve
 ```
 
 ### Full Stack (Docker)
 
 ```bash
-git clone https://github.com/Ironsail-Philip/robothor.git
-cd robothor
-docker-compose -f infra/docker-compose.yml up -d   # PostgreSQL+pgvector, Redis, Ollama
-
-# Start the API server
+pip install robothor
+robothor init --docker   # Starts PostgreSQL+pgvector, Redis, Ollama in Docker
 robothor serve
 ```
 
@@ -53,7 +46,7 @@ robothor serve
 ```
 robothor/
 ├── config.py              # Env-based configuration with validation
-├── cli.py                 # Command-line interface (status, serve, migrate*)
+├── cli.py                 # Command-line interface (init, status, serve, migrate)
 ├── db/
 │   └── connection.py      # PostgreSQL connection factory with pooling
 ├── memory/
@@ -370,7 +363,7 @@ MIT License. See [LICENSE](LICENSE).
 - CRM module (people, companies, notes, tasks, validation, blocklists)
 - Vision module (YOLO detection, InsightFace recognition, pluggable alerts, service loop)
 - API layer (FastAPI orchestrator, MCP server with 35 tools)
-- CLI tool (`robothor status`, `robothor serve`; `migrate` and `pipeline` coming in v0.2)
+- CLI tool (`robothor init`, `robothor status`, `robothor serve`, `robothor migrate`; `pipeline` coming in v0.2)
 - Agent templates (6 agents, 7 skills, 11 cron jobs, plugin template)
 - Infrastructure templates (Docker Compose, systemd services, env config)
 - 4 usage examples (basic-memory, rag-chatbot, vision-sentry, full-stack)
