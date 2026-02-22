@@ -3,6 +3,7 @@
 import { Component, Suspense, type ErrorInfo, type ReactNode } from "react";
 import { getComponent } from "@/lib/component-registry";
 import { Skeleton } from "@/components/ui/skeleton";
+import { reportDashboardError } from "@/lib/dashboard/error-reporter";
 
 interface ComponentRendererProps {
   toolName: string;
@@ -13,6 +14,7 @@ interface ComponentRendererProps {
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallback: ReactNode;
+  toolName?: string;
 }
 
 interface ErrorBoundaryState {
@@ -31,6 +33,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Component render error:", error, errorInfo);
+    reportDashboardError(
+      `component/${this.props.toolName || "unknown"}`,
+      error.message,
+      { stack: errorInfo.componentStack?.slice(0, 500) },
+    );
   }
 
   render() {
@@ -59,6 +66,7 @@ export function ComponentRenderer({ toolName, props }: ComponentRendererProps) {
 
   return (
     <ErrorBoundary
+      toolName={toolName}
       fallback={
         <div className="p-4 text-sm text-destructive" data-testid="component-error">
           Error rendering {toolName}
