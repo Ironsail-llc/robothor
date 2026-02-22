@@ -26,7 +26,9 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command")
 
     # migrate (stub — v0.2)
-    migrate_parser = subparsers.add_parser("migrate", help="Run database migrations (coming in v0.2)")
+    migrate_parser = subparsers.add_parser(
+        "migrate", help="Run database migrations (coming in v0.2)"
+    )
     migrate_parser.add_argument("--dry-run", action="store_true", help="Show SQL without executing")
 
     # serve
@@ -41,7 +43,9 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("status", help="Show system status")
 
     # pipeline (stub — v0.2)
-    pipeline_parser = subparsers.add_parser("pipeline", help="Run intelligence pipeline (coming in v0.2)")
+    pipeline_parser = subparsers.add_parser(
+        "pipeline", help="Run intelligence pipeline (coming in v0.2)"
+    )
     pipeline_parser.add_argument(
         "--tier",
         type=int,
