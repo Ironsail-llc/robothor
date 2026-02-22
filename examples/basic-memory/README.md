@@ -9,51 +9,11 @@ A minimal example showing how to use Robothor's memory system: store facts, sear
    ```bash
    ollama pull qwen3-embedding:0.6b
    ```
-3. **Database setup** -- create the database and tables:
-   ```sql
-   CREATE DATABASE robothor_memory;
-   \c robothor_memory
-   CREATE EXTENSION IF NOT EXISTS vector;
-
-   CREATE TABLE memory_facts (
-       id SERIAL PRIMARY KEY,
-       fact_text TEXT NOT NULL,
-       category TEXT NOT NULL DEFAULT 'personal',
-       entities TEXT[] DEFAULT '{}',
-       confidence FLOAT DEFAULT 1.0,
-       source_content TEXT,
-       source_type TEXT DEFAULT 'api',
-       embedding vector(1024),
-       metadata JSONB DEFAULT '{}',
-       is_active BOOLEAN DEFAULT TRUE,
-       created_at TIMESTAMPTZ DEFAULT NOW()
-   );
-
-   CREATE TABLE memory_entities (
-       id SERIAL PRIMARY KEY,
-       name TEXT NOT NULL,
-       entity_type TEXT NOT NULL,
-       aliases TEXT[] DEFAULT '{}',
-       mention_count INT DEFAULT 1,
-       last_seen TIMESTAMPTZ DEFAULT NOW(),
-       UNIQUE(name, entity_type)
-   );
-
-   CREATE TABLE memory_relations (
-       id SERIAL PRIMARY KEY,
-       source_entity_id INT REFERENCES memory_entities(id),
-       target_entity_id INT REFERENCES memory_entities(id),
-       relation_type TEXT NOT NULL,
-       fact_id INT REFERENCES memory_facts(id),
-       confidence FLOAT DEFAULT 1.0,
-       UNIQUE(source_entity_id, target_entity_id, relation_type)
-   );
-   ```
 
 ## Install
 
 ```bash
-pip install robothor[llm]
+pip install robothor
 ```
 
 ## Configure
@@ -67,6 +27,14 @@ export ROBOTHOR_DB_NAME=robothor_memory
 export ROBOTHOR_DB_USER=your_user
 export ROBOTHOR_DB_PASSWORD=your_password
 ```
+
+## Set Up Database
+
+```bash
+robothor migrate
+```
+
+This creates all required tables (memory, entities, CRM, audit, etc.). Safe to re-run — uses `IF NOT EXISTS` everywhere.
 
 ## Run
 

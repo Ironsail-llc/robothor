@@ -78,8 +78,8 @@ services:
     working_dir: /app
     command: >
       bash -c "
-        pip install --quiet robothor[api,llm] &&
-        python -m robothor.api.server
+        pip install --quiet robothor[api] &&
+        robothor serve --host 0.0.0.0
       "
     ports:
       - "${ROBOTHOR_API_PORT:-9099}:9099"
