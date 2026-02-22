@@ -3,10 +3,11 @@ Robothor CLI — entry point for all operations.
 
 Usage:
     robothor serve          # Start the API server
-    robothor migrate        # Run database migrations
     robothor status         # Show system status
-    robothor pipeline       # Run intelligence pipeline
+    robothor mcp            # Start the MCP server
     robothor version        # Show version
+    robothor migrate        # (coming in v0.2)
+    robothor pipeline       # (coming in v0.2)
 """
 
 from __future__ import annotations
@@ -24,8 +25,8 @@ def main(argv: list[str] | None = None) -> int:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    # migrate
-    migrate_parser = subparsers.add_parser("migrate", help="Run database migrations")
+    # migrate (stub — v0.2)
+    migrate_parser = subparsers.add_parser("migrate", help="Run database migrations (coming in v0.2)")
     migrate_parser.add_argument("--dry-run", action="store_true", help="Show SQL without executing")
 
     # serve
@@ -39,8 +40,8 @@ def main(argv: list[str] | None = None) -> int:
     # status
     subparsers.add_parser("status", help="Show system status")
 
-    # pipeline
-    pipeline_parser = subparsers.add_parser("pipeline", help="Run intelligence pipeline")
+    # pipeline (stub — v0.2)
+    pipeline_parser = subparsers.add_parser("pipeline", help="Run intelligence pipeline (coming in v0.2)")
     pipeline_parser.add_argument(
         "--tier",
         type=int,

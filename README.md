@@ -1,178 +1,381 @@
 # Robothor
 
-**An autonomous AI entity — persistent memory, semantic search, knowledge graph, vision, CRM, and self-healing infrastructure.**
+**An AI brain with persistent memory, semantic search, knowledge graph, vision, and self-healing infrastructure.**
 
-Not an assistant. Not a framework. An AI *brain* that runs 24/7 on your hardware — managing email, calendar, CRM, security cameras, and voice calls autonomously. Zero cloud dependency for intelligence.
+Not another agent framework. An AI *brain* — persistent memory that decays and strengthens, a knowledge graph that grows autonomously, agents that see through cameras and read your email — all on your hardware with zero cloud dependency for intelligence.
 
-[![Tests: 816+](https://img.shields.io/badge/tests-816%2B%20passing-brightgreen.svg)]()
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![Fork Ready](https://img.shields.io/badge/status-fork%20ready-green.svg)]()
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-441%20passing-brightgreen.svg)]()
 
-## What This Is
+## What Makes This Different
 
-Robothor is a complete AI operating system running on a single machine. It processes real emails, real meetings, real security alerts — and responds to them autonomously. The system has been battle-tested in daily production use since February 2026.
+| Feature | LangChain / CrewAI / AutoGen | Robothor |
+|---------|------------------------------|----------|
+| Memory | Stateless (you build it) | Three-tier: working, short-term (48h TTL), long-term (permanent) |
+| Knowledge | None | Entity graph with relationships, auto-extracted from all inputs |
+| Memory Lifecycle | None | Facts decay, strengthen, supersede, and consolidate autonomously |
+| Conflict Resolution | None | Newer facts supersede older ones with confidence scoring |
+| Vision | None | YOLO + face recognition + scene analysis (all local) |
+| CRM | None | Built-in contact management with cross-channel identity resolution |
+| Event Bus | None | Redis Streams with RBAC and consumer groups |
+| Agent RBAC | None | Per-agent capability manifests — tools, streams, endpoints |
+| Self-Healing | None | Watchdogs, health-gated boot, auto-restart, structured audit trail |
+| Service Registry | None | Self-describing topology with dependency-ordered orchestration |
+| Cloud Dependency | Required (OpenAI, etc.) | Optional. Runs 100% local with Ollama |
 
-**Hardware:** NVIDIA Grace Blackwell GB10, 128 GB unified memory, 20 ARM cores
+## Quick Start
 
-## System Architecture
+```bash
+pip install robothor
+
+# Configure
+export ROBOTHOR_DB_HOST=localhost
+export ROBOTHOR_DB_NAME=robothor_memory
+
+# Check status
+robothor status
+```
+
+### Full Stack (Docker)
+
+```bash
+git clone https://github.com/Ironsail-Philip/robothor.git
+cd robothor
+docker-compose -f infra/docker-compose.yml up -d   # PostgreSQL+pgvector, Redis, Ollama
+
+# Start the API server
+robothor serve
+```
+
+## Package Structure
 
 ```
-Layer 1: Data Collection (Python crons)
-  email_sync, calendar_sync, jira_sync, garmin_sync, meet_transcript_sync
-  vision_service (YOLO + InsightFace, always-on)
-
-Layer 1 Hook: Email Pipeline (event-driven, ~60s email-to-reply)
-  email_sync → email_hook → triage → classify → analyze → respond
-
-Layer 1.5: Intelligence Pipeline (3 tiers, all local LLM + pgvector)
-  Tier 1: continuous_ingest (*/10 min) — incremental dedup
-  Tier 2: periodic_analysis (4x daily) — meeting prep, memory blocks, entities
-  Tier 3: intelligence_pipeline (daily) — relationships, patterns, quality
-
-Layer 2: Agent Orchestration (OpenClaw + Kimi K2.5)
-  Email Classifier, Calendar Monitor, Email Analyst, Email Responder
-  Supervisor Heartbeat, Vision Monitor, CRM Steward, Conversation Resolver
-
-Layer 3: Delivery
-  Telegram (primary), Google Chat, Voice (Twilio), Web (the Helm)
+robothor/
+├── config.py              # Env-based configuration with validation
+├── cli.py                 # Command-line interface (status, serve, migrate*)
+├── db/
+│   └── connection.py      # PostgreSQL connection factory with pooling
+├── memory/
+│   ├── facts.py           # Fact storage with confidence, categories, lifecycle
+│   ├── entities.py        # Knowledge graph — entities with types and aliases
+│   ├── conflicts.py       # Conflict resolution — supersession and confidence scoring
+│   ├── lifecycle.py       # Autonomous decay, strengthening, consolidation
+│   ├── tiers.py           # Three-tier memory management (working/short/long)
+│   ├── contact_matching.py # Fuzzy name matching for cross-channel identity
+│   ├── ingestion.py       # Content ingestion with fact extraction
+│   └── ingest_state.py    # Deduplication via content hashing and watermarks
+├── rag/
+│   ├── search.py          # Semantic search over pgvector embeddings
+│   ├── reranker.py        # Cross-encoder reranking (Qwen3-Reranker)
+│   ├── pipeline.py        # Full RAG pipeline: embed → search → rerank → generate
+│   ├── context.py         # Context assembly for LLM generation
+│   ├── profiles.py        # Query profiles for different retrieval strategies
+│   └── web_search.py      # SearXNG integration for web-augmented RAG
+├── events/
+│   ├── bus.py             # Redis Streams — publish, subscribe, ack, consumer groups
+│   ├── capabilities.py    # Agent RBAC — capability manifests and access control
+│   └── consumers/         # Event-driven consumer workers
+│       ├── base.py        # BaseConsumer with signal handling and error recovery
+│       ├── email.py       # Email pipeline consumer
+│       ├── calendar.py    # Calendar event consumer
+│       ├── health.py      # Health alert consumer with escalation
+│       └── vision.py      # Vision event consumer
+├── audit/
+│   └── logger.py          # Structured audit logging with typed events
+├── llm/
+│   └── ollama.py          # Ollama client — chat, embeddings, model management
+├── services/
+│   └── registry.py        # Service registry with topology sort and health checks
+├── vision/
+│   ├── detector.py        # YOLO object detection + motion detection
+│   ├── face.py            # InsightFace recognition — enroll, match, persist
+│   ├── alerts.py          # Pluggable alert backends (Telegram, webhook)
+│   └── service.py         # VisionService — camera loop, mode switching, HTTP API
+├── crm/
+│   ├── dal.py             # Data access layer — CRUD for people, companies, notes, tasks
+│   ├── models.py          # Pydantic models for all CRM entities
+│   └── validation.py      # Input validation, blocklists, email normalization
+└── api/
+    ├── orchestrator.py    # FastAPI RAG orchestrator with vision endpoints
+    └── mcp.py             # MCP server — 35 tools for memory, CRM, vision
 ```
 
-## Core Modules
+## Architecture
 
-### Memory System
-Three-tier architecture with structured facts and entity graph:
-- **Working memory** — context window (current session)
-- **Short-term** — PostgreSQL, 48h TTL, auto-decays
-- **Long-term** — PostgreSQL + pgvector, permanent, importance-scored
-- **Knowledge graph** — entities, relationships, auto-extracted from all inputs
-- **Conflict resolution** — newer facts supersede older ones with confidence scoring
+```
+Intelligence Layer (robothor.*)          Agent Orchestration
+┌────────────────────────────┐          ┌──────────────────┐
+│ memory/   - facts, entities│◄────────►│ OpenClaw or any  │
+│ rag/      - search, rerank │          │ agent framework  │
+│ crm/      - contacts, merge│          │                  │
+│ vision/   - detect, faces  │          │ Bridge (HTTP     │
+│ events/   - Redis Streams  │          │  adapter for     │
+│ audit/    - event logging  │          │  non-Python      │
+│ llm/      - provider layer │          │  orchestrators)  │
+│ services/ - registry       │          └──────────────────┘
+└────────────────────────────┘
+        ▲               ▲
+        │               │
+   ┌────┘               └────┐
+   │                         │
+MCP Server              System Scripts
+(direct import)         (direct import)
+```
 
-### RAG Pipeline
-Fully local retrieval-augmented generation:
-- Qwen3-Embedding (dense vectors) → pgvector → Qwen3-Reranker → LLM generation
-- All local. No API keys needed for search.
+### Three-Tier Memory
 
-### Event Bus (Redis Streams)
-Publish-subscribe replacing polling:
-- 7 streams: email, calendar, CRM, vision, health, agent, system
-- Standard envelope format with correlation IDs
-- Dual-write: Redis Streams + JSON files (fallback)
-- SSE endpoint for real-time events in the Helm dashboard
+1. **Working Memory** — Current context window (managed by the agent framework)
+2. **Short-Term Memory** — PostgreSQL, 48-hour TTL, auto-decays based on access patterns
+3. **Long-Term Memory** — PostgreSQL + pgvector, permanent, importance-scored with semantic search
+
+Facts are extracted from all inputs (email, calendar, conversations, vision events) and stored with confidence scores, categories, and lifecycle states. The knowledge graph grows autonomously as entities and relationships are discovered.
+
+### Memory Lifecycle
+
+Facts aren't static. They have a lifecycle:
+- **Active** — current, high-confidence facts
+- **Decaying** — facts losing relevance over time (configurable TTL)
+- **Superseded** — replaced by newer, conflicting information (old fact linked to new)
+- **Consolidated** — merged with related facts during periodic analysis
+
+```python
+import asyncio
+from robothor.memory.facts import store_fact, search_facts
+from robothor.memory.conflicts import resolve_and_store
+
+# Store a fact (async — all memory operations are async)
+fact_id = asyncio.run(store_fact(
+    fact={"fact_text": "Philip prefers Neovim for Python development",
+          "category": "preference", "confidence": 0.9,
+          "entities": ["Philip"]},
+    source_content="conversation about editors",
+    source_type="conversation",
+))
+
+# Later, a conflicting fact arrives — resolve_and_store finds similar
+# facts, classifies the relationship, and supersedes if appropriate
+result = asyncio.run(resolve_and_store(
+    fact={"fact_text": "Philip switched to VS Code with Copilot",
+          "category": "preference", "confidence": 0.95,
+          "entities": ["Philip"]},
+    source_content="conversation about editors",
+    source_type="conversation",
+    similarity_threshold=0.7,
+))
+# result["action"] = "superseded" — old fact linked to new one
+```
+
+### Event Bus
+
+Redis Streams with standard envelopes, consumer groups, and RBAC:
+
+```python
+from robothor.events.bus import publish, subscribe
+
+# Publish an event
+publish("email", "email.received", {
+    "from": "alice@example.com",
+    "subject": "Meeting tomorrow",
+}, source="email-sync")
+
+# Subscribe with a consumer group
+def handle_email(event):
+    print(f"New email: {event['payload']['subject']}")
+
+subscribe("email", "classifier-group", "worker-1", handler=handle_email)
+```
 
 ### Agent RBAC
-Per-agent capability isolation:
-- Capability manifest for 11 agents (tools, streams, endpoints)
-- Bridge middleware enforces via `X-Agent-Id` header
-- Unauthorized = 403 + audit trail. Missing header = full access (backward compatible)
+
+Declare what each agent can access:
+
+```python
+from robothor.events.capabilities import load_capabilities, check_tool_access
+
+load_capabilities("agent_capabilities.json")
+
+# Check before allowing a tool call
+if not check_tool_access("vision-monitor", "list_people"):
+    print("Denied — vision agent can't access CRM")
+
+# Endpoint-level checks too
+from robothor.events.capabilities import check_endpoint_access
+allowed = check_endpoint_access("crm-steward", "GET", "/api/people")  # True
+denied = check_endpoint_access("vision-monitor", "GET", "/api/people")  # False
+```
 
 ### Service Registry
-Self-describing infrastructure:
-- `robothor-services.json` — 20 services with ports, health endpoints, dependencies
-- Boot orchestrator starts services in topological dependency order
-- Health-gated: waits for each service before starting dependents
-- Environment variable overrides for all service URLs
 
-### Vision System
-Always-on with event-triggered smart detection:
-- **basic mode**: motion → YOLO → InsightFace → instant Telegram photo → async VLM
-- Unknown person → Telegram alert in <2 seconds
-- Models: YOLOv8-nano (6 MB), InsightFace buffalo_l (300 MB), llama3.2-vision (7.8 GB)
+Self-describing infrastructure with dependency-ordered boot:
 
-### CRM Stack
-Native PostgreSQL tables with cross-channel identity:
-- `crm_people`, `crm_companies`, `crm_notes`, `crm_tasks`, `crm_conversations`, `crm_messages`
-- Bridge service (port 9100): contact resolution, webhooks, merge operations
-- Fuzzy name matching for cross-channel identity resolution
+```python
+from robothor.services.registry import get_service_url, get_health_url
 
-### The Helm (app.robothor.ai)
-Agent-driven live dashboard:
-- Next.js 16 + Dockview, HTML-first rendering (iframe srcdoc)
-- Gemini Flash generates dashboards, Canvas Action Protocol for two-way interaction
-- Custom SSE chat via OpenClaw Gateway WebSocket bridge
-- Session persistence across reloads
+# No more hardcoded ports
+bridge_url = get_service_url("bridge")        # http://127.0.0.1:9100
+health_url = get_health_url("bridge")         # http://127.0.0.1:9100/health
 
-### Audit & Observability
-Structured audit trail across all operations:
-- Typed events: crm.create/update/delete/merge, service.health, ipc.webhook, auth.denied
-- Time-series telemetry table for service metrics
-- Query APIs: `/api/audit`, `/api/audit/stats`, `/api/telemetry`
+# Environment overrides work too
+# export BRIDGE_URL=http://remote-host:9100
+```
 
-## Services & Ports
+### RAG Pipeline
 
-| Service | Port | Description |
-|---------|------|-------------|
-| Bridge | 9100 | CRM glue service, contact resolution, webhooks |
-| Orchestrator | 9099 | RAG endpoints, vision proxy |
-| Helm | 3004 | Live dashboard (app.robothor.ai) |
-| Gateway | 18789 | OpenClaw messaging |
-| Vision | 8600 | YOLO + InsightFace detection |
-| Voice | 8765 | Twilio ConversationRelay |
-| SMS | 8766 | Twilio SMS webhooks |
-| TTS | 8880 | Kokoro local voice synthesis |
-| Webcam | 8554/8890 | RTSP + HLS stream |
-| Uptime Kuma | 3010 | Service monitoring |
-| Vaultwarden | 8222 | Password vault |
+Fully local retrieval-augmented generation:
 
-All services managed by systemd with auto-restart. Cloudflare tunnel for external access with Zero Trust policies.
+```python
+import asyncio
+from robothor.rag.pipeline import run_pipeline
 
-## Infrastructure
+result = asyncio.run(run_pipeline(
+    query="What did Philip decide about the deployment?",
+    profile="factual",  # or "conversational", "analytical", etc.
+))
+# Returns dict with: answer, sources, profile_used
+```
 
-| Component | Technology |
-|-----------|-----------|
-| Database | PostgreSQL 16 + pgvector 0.6 |
-| Cache | Redis 7 (2 GB, shared) |
-| Embeddings | Qwen3-Embedding 0.6B (local, Ollama) |
-| Reranking | Qwen3-Reranker 0.6B (local, Ollama) |
-| Generation | Qwen3-Next 80B (on-demand, local) |
-| Vision | YOLOv8-nano + InsightFace + llama3.2-vision |
-| TTS | Kokoro (local, CPU, ~3x realtime) |
-| Tunnel | Cloudflare Tunnel with Access policies |
-| Secrets | SOPS + age (encrypted at rest, tmpfs at runtime) |
-| Monitoring | Uptime Kuma + structured audit trail |
-| Backup | LUKS-encrypted SSD, daily at 4:30 AM |
+**Stack:** Qwen3-Embedding (dense vectors) → pgvector → Qwen3-Reranker (cross-encoder) → LLM generation. All local. No API keys needed.
+
+### Vision
+
+Always-on camera monitoring with three modes:
+
+```python
+from robothor.vision.service import VisionService
+
+service = VisionService(
+    rtsp_url="rtsp://localhost:8554/webcam",
+    default_mode="basic",
+)
+
+# Modes: disarmed (idle), basic (motion → detect → identify → alert), armed (per-frame)
+service.set_mode("basic")
+
+# Process a frame — detects objects, recognizes faces, sends alerts
+await service.process_frame_basic(frame)
+```
+
+**Stack:** Motion detection → YOLOv8 (objects) → InsightFace ArcFace (faces) → pluggable alerts (Telegram, webhook). Scene analysis via vision LLM (optional). All local.
+
+### CRM
+
+Built-in contact management with cross-channel identity resolution:
+
+```python
+from robothor.crm.dal import create_person, list_people, merge_people
+
+# Create contacts
+person_id = create_person("Jane", "Smith", email="jane@example.com")
+
+# Search
+results = list_people(search="Jane")
+
+# Merge duplicates (keeper absorbs loser's data)
+merge_people(keeper_id=person_id, loser_id=duplicate_id)
+```
+
+## Requirements
+
+- **Python 3.11+**
+- **PostgreSQL 16+** with pgvector 0.6+ extension
+- **Redis 7+**
+- **Ollama** (for LLM features — embeddings, reranking, generation)
+
+## Configuration
+
+All configuration via environment variables with sensible defaults:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ROBOTHOR_WORKSPACE` | `~/robothor` | Working directory |
+| `ROBOTHOR_DB_HOST` | `127.0.0.1` | PostgreSQL host |
+| `ROBOTHOR_DB_PORT` | `5432` | PostgreSQL port |
+| `ROBOTHOR_DB_NAME` | `robothor_memory` | Database name |
+| `ROBOTHOR_DB_USER` | `$USER` | Database user |
+| `ROBOTHOR_DB_PASSWORD` | *(empty)* | Database password |
+| `ROBOTHOR_REDIS_HOST` | `127.0.0.1` | Redis host |
+| `ROBOTHOR_REDIS_PORT` | `6379` | Redis port |
+| `ROBOTHOR_OLLAMA_HOST` | `127.0.0.1` | Ollama host |
+| `ROBOTHOR_OLLAMA_PORT` | `11434` | Ollama port |
+| `EVENT_BUS_ENABLED` | `true` | Enable/disable Redis Streams event bus |
 
 ## Testing
 
 ```bash
-# Full suite
-bash run_tests.sh
+# Install dev dependencies
+pip install -e ".[dev]"
 
-# By module
-cd crm/bridge && python -m pytest tests/ -v    # 107 tests
-cd app && pnpm test                              # 311 tests
-cd brain/memory_system && bash run_tests.sh      # 398 tests
+# Fast unit tests (pre-commit)
+pytest -m "not slow and not llm and not e2e"
+
+# Full suite
+pytest
+
+# With coverage
+pytest --cov=robothor
+
+# Lint and type check
+ruff check robothor/ tests/
+mypy robothor/ --ignore-missing-imports
 ```
 
-**816+ tests** across Python (pytest) and TypeScript (vitest). Zero failures.
+**441 tests** across 25 test modules covering config, database, memory, events, consumers, audit, services, contact matching, LLM client, RAG pipeline, CRM, vision, and API layers.
 
-## Fork Readiness
+## Development
 
-The system passes all 6 fork criteria (verified by `scripts/verify-fork-readiness.py`):
+```bash
+git clone https://github.com/Ironsail-Philip/robothor.git
+cd robothor
+pip install -e ".[dev]"
+pytest
+ruff check .
+mypy robothor/
+```
 
-1. Services discoverable via registry
-2. Agent permissions in capability manifest
-3. Helm handles interactive actions
-4. Event bus connects components
-5. System self-describes at runtime
-6. Boot is health-gated
+See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards, PR process, and architecture details.
 
-## Repository Layout
+## Origin
 
-| Path | Purpose |
-|------|---------|
-| `brain/` → `~/clawd/` | Core: memory system, scripts, voice, vision, dashboards |
-| `comms/` → `~/moltbot/` | OpenClaw messaging framework |
-| `runtime/` → `~/.openclaw/` | OpenClaw runtime: agents, cron jobs, credentials |
-| `app/` | The Helm — Next.js 16 live dashboard |
-| `crm/` | CRM stack: Bridge service, migrations, Docker Compose |
-| `scripts/` | Boot orchestrator, backup, verification |
-| `health/` → `~/garmin-sync/` | Garmin health data sync |
-| `docs/` | Data flow, cron map, testing strategy |
+Robothor started as a personal AI system — an autonomous entity that manages email, calendar, CRM, vision security, and voice calls for its creator. After months of battle-testing in production (handling real emails, real meetings, real security alerts), the core intelligence layer is being extracted into this open-source package.
+
+The production system runs 24/7 on a single machine (NVIDIA Grace Blackwell GB10, 128 GB unified memory) with:
+- 1,100+ tests across Python and TypeScript
+- 23 services managed by a self-healing boot orchestrator
+- Three-tier intelligence pipeline processing data every 10 minutes
+- Event-driven email pipeline with ~60-second end-to-end response time
+- Always-on vision system with face recognition and instant alerts
+
+This package is the brain. Bring your own body.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) (coming soon).
+MIT License. See [LICENSE](LICENSE).
 
-## Related
+## Status
 
-- **[robothor (pip package)](https://github.com/Ironsail-llc/robothor)** — Extracted open-source Python package of the core intelligence layer
+**v0.1.0** — Alpha. Full intelligence layer extracted and tested.
+
+**Implemented:**
+- Config system with validation
+- Database connection factory with pooling
+- Service registry with topology sort and health checks
+- Event bus (Redis Streams) with RBAC and consumer groups
+- Event consumers (email, calendar, health, vision) with graceful shutdown
+- Audit logging with typed events
+- Memory system (facts, entities, lifecycle, conflicts, tiers, ingestion, dedup)
+- Contact matching with fuzzy name resolution
+- RAG pipeline (search, rerank, context assembly, web search, profiles)
+- LLM client (Ollama — chat, embeddings, model management)
+- CRM module (people, companies, notes, tasks, validation, blocklists)
+- Vision module (YOLO detection, InsightFace recognition, pluggable alerts, service loop)
+- API layer (FastAPI orchestrator, MCP server with 35 tools)
+- CLI tool (`robothor status`, `robothor serve`; `migrate` and `pipeline` coming in v0.2)
+- Agent templates (6 agents, 7 skills, 11 cron jobs, plugin template)
+- Infrastructure templates (Docker Compose, systemd services, env config)
+- 4 usage examples (basic-memory, rag-chatbot, vision-sentry, full-stack)
+
+**Coming:**
+- Documentation site
+- PyPI release
+- More examples and tutorials

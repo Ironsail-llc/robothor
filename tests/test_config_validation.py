@@ -122,24 +122,15 @@ class TestOpenClawJson:
             f"Default heartbeat should be '0', got '{hb.get('every')}'"
         )
 
-    def test_only_supervisor_has_heartbeat(self, agents_by_id):
-        """Only supervisor agent has a heartbeat enabled."""
+    def test_no_agent_has_heartbeat(self, agents_by_id):
+        """No agent uses per-agent heartbeat (supervisor uses cron schedule instead)."""
         for agent_id, agent in agents_by_id.items():
             hb = agent.get("heartbeat", {})
             hb_every = hb.get("every", "0")
-            if agent_id == "supervisor":
-                assert hb_every != "0", "Supervisor should have heartbeat enabled"
-            else:
-                # Either no heartbeat key (inherits disabled default) or explicitly "0"
-                if "heartbeat" in agent:
-                    assert hb_every == "0", (
-                        f"Agent '{agent_id}' should not have heartbeat, got '{hb_every}'"
-                    )
-
-    def test_supervisor_heartbeat_is_17m(self, agents_by_id):
-        """Supervisor heartbeat is 17 minutes."""
-        hb = agents_by_id["supervisor"].get("heartbeat", {})
-        assert hb.get("every") == "17m"
+            if "heartbeat" in agent:
+                assert hb_every == "0", (
+                    f"Agent '{agent_id}' should not have heartbeat, got '{hb_every}'"
+                )
 
     def test_supervisor_denies_crm_writes(self, agents_by_id):
         """Supervisor cannot perform CRM write operations."""
