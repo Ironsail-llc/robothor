@@ -66,6 +66,9 @@ Issues = "https://github.com/Ironsail-Philip/robothor/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["robothor"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"infra/migrations" = "robothor/migrations"
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

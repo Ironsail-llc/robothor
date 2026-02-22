@@ -50,11 +50,17 @@ def get_pool(minconn: int = 2, maxconn: int = 20) -> psycopg2.pool.ThreadedConne
             minconn,
             maxconn,
         )
-        _pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn=minconn,
-            maxconn=maxconn,
-            **cfg.dict,
-        )
+        try:
+            _pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=minconn,
+                maxconn=maxconn,
+                **cfg.dict,
+            )
+        except psycopg2.OperationalError as e:
+            raise ConnectionError(
+                f"Cannot connect to PostgreSQL at {cfg.host}:{cfg.port}/{cfg.name}: {e}\n"
+                f"Check ROBOTHOR_DB_* environment variables and ensure PostgreSQL is running."
+            ) from e
         return _pool
 
 

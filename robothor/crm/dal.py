@@ -7,8 +7,8 @@ Response shapes are defined in robothor.crm.models.
 Usage:
     from robothor.crm.dal import create_person, search_people, get_person
 
-    person_id = create_person("Philip", "Ironsail", email="philip@example.com")
-    people = search_people("Philip")
+    person_id = create_person("Jane", "Smith", email="jane@example.com")
+    people = search_people("Jane")
 """
 
 from __future__ import annotations
@@ -744,6 +744,11 @@ def create_task(
     due_at: str | None = None,
     person_id: str | None = None,
     company_id: str | None = None,
+    created_by_agent: str | None = None,
+    assigned_to_agent: str | None = None,
+    priority: str = "normal",
+    tags: list[str] | None = None,
+    parent_task_id: str | None = None,
 ) -> str | None:
     """Create a task. Returns task UUID."""
     task_id = str(uuid.uuid4())
@@ -752,13 +757,37 @@ def create_task(
         try:
             cur.execute(
                 """
-                INSERT INTO crm_tasks (id, title, body, status, due_at, person_id, company_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO crm_tasks (id, title, body, status, due_at, person_id, company_id,
+                                       created_by_agent, assigned_to_agent, priority, tags, parent_task_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
-                (task_id, title, body, status, due_at, person_id, company_id),
+                (
+                    task_id,
+                    title,
+                    body,
+                    status,
+                    due_at,
+                    person_id,
+                    company_id,
+                    created_by_agent,
+                    assigned_to_agent,
+                    priority,
+                    tags or [],
+                    parent_task_id,
+                ),
             )
             conn.commit()
-            _safe_audit("create", "task", task_id, details={"title": title})
+            _safe_audit(
+                "create",
+                "task",
+                task_id,
+                details={
+                    "title": title,
+                    "assigned_to_agent": assigned_to_agent,
+                    "created_by_agent": created_by_agent,
+                    "priority": priority,
+                },
+            )
             return task_id
         except Exception as e:
             conn.rollback()
@@ -782,8 +811,14 @@ def list_tasks(
     status: str | None = None,
     person_id: str | None = None,
     limit: int = 50,
+    assigned_to_agent: str | None = None,
+    created_by_agent: str | None = None,
+    tags: list[str] | None = None,
+    priority: str | None = None,
+    parent_task_id: str | None = None,
+    exclude_resolved: bool = False,
 ) -> list[dict]:
-    """List tasks with optional status/person filter."""
+    """List tasks with optional filters."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         conditions = ["deleted_at IS NULL"]
@@ -794,6 +829,23 @@ def list_tasks(
         if person_id:
             conditions.append("person_id = %s")
             params.append(person_id)
+        if assigned_to_agent:
+            conditions.append("assigned_to_agent = %s")
+            params.append(assigned_to_agent)
+        if created_by_agent:
+            conditions.append("created_by_agent = %s")
+            params.append(created_by_agent)
+        if tags:
+            conditions.append("tags @> %s")
+            params.append(tags)
+        if priority:
+            conditions.append("priority = %s")
+            params.append(priority)
+        if parent_task_id:
+            conditions.append("parent_task_id = %s")
+            params.append(parent_task_id)
+        if exclude_resolved:
+            conditions.append("resolved_at IS NULL")
         params.append(limit)
         cur.execute(
             f"SELECT * FROM crm_tasks WHERE {' AND '.join(conditions)} "
@@ -804,7 +856,12 @@ def list_tasks(
 
 
 def update_task(task_id: str, **fields: Any) -> bool:
-    """Update a task. Accepted: title, body, status, due_at, person_id, company_id."""
+    """Update a task.
+
+    Accepted: title, body, status, due_at, person_id, company_id,
+              created_by_agent, assigned_to_agent, priority, tags,
+              parent_task_id, resolved_at, resolution.
+    """
     col_map = {
         "title": "title",
         "body": "body",
@@ -812,6 +869,12 @@ def update_task(task_id: str, **fields: Any) -> bool:
         "due_at": "due_at",
         "person_id": "person_id",
         "company_id": "company_id",
+        "created_by_agent": "created_by_agent",
+        "assigned_to_agent": "assigned_to_agent",
+        "priority": "priority",
+        "parent_task_id": "parent_task_id",
+        "resolved_at": "resolved_at",
+        "resolution": "resolution",
     }
     sets: list[str] = []
     vals: list[Any] = []
@@ -819,6 +882,10 @@ def update_task(task_id: str, **fields: Any) -> bool:
         if key in fields and fields[key] is not None:
             sets.append(f"{col} = %s")
             vals.append(fields[key])
+    # tags needs special handling (array type)
+    if "tags" in fields and fields["tags"] is not None:
+        sets.append("tags = %s")
+        vals.append(fields["tags"])
     if not sets:
         return False
     sets.append("updated_at = NOW()")
@@ -859,6 +926,87 @@ def delete_task(task_id: str) -> bool:
         except Exception as e:
             conn.rollback()
             logger.error("Failed to delete task %s: %s", task_id, e)
+            return False
+
+
+def list_agent_tasks(
+    agent_id: str,
+    include_unassigned: bool = False,
+    status: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Get an agent's task inbox, priority-ordered.
+
+    Returns tasks assigned to this agent (and optionally unassigned tasks),
+    ordered by priority (urgent > high > normal > low), then due_at, then created_at.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conditions = ["deleted_at IS NULL"]
+        params: list[Any] = []
+        if include_unassigned:
+            conditions.append("(assigned_to_agent = %s OR assigned_to_agent IS NULL)")
+            params.append(agent_id)
+        else:
+            conditions.append("assigned_to_agent = %s")
+            params.append(agent_id)
+        if status:
+            conditions.append("status = %s")
+            params.append(status)
+        params.append(limit)
+        cur.execute(
+            f"""SELECT * FROM crm_tasks
+                WHERE {" AND ".join(conditions)}
+                ORDER BY
+                    CASE priority
+                        WHEN 'urgent' THEN 0
+                        WHEN 'high' THEN 1
+                        WHEN 'normal' THEN 2
+                        WHEN 'low' THEN 3
+                        ELSE 4
+                    END,
+                    due_at ASC NULLS LAST,
+                    created_at ASC
+                LIMIT %s""",
+            params,
+        )
+        return [task_to_dict(r) for r in cur.fetchall()]
+
+
+def resolve_task(
+    task_id: str,
+    resolution: str,
+    agent_id: str | None = None,
+) -> bool:
+    """Mark a task as DONE with a resolution summary.
+
+    Sets status=DONE, resolved_at=NOW(), and the resolution text.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """UPDATE crm_tasks
+                   SET status = 'DONE', resolved_at = NOW(), resolution = %s, updated_at = NOW()
+                   WHERE id = %s AND deleted_at IS NULL""",
+                (resolution, task_id),
+            )
+            ok: bool = cur.rowcount > 0
+            conn.commit()
+            if ok:
+                _safe_audit(
+                    "resolve",
+                    "task",
+                    task_id,
+                    details={
+                        "resolution": resolution,
+                        "agent_id": agent_id,
+                    },
+                )
+            return ok
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to resolve task %s: %s", task_id, e)
             return False
 
 

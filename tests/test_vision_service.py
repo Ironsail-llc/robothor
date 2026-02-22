@@ -108,8 +108,8 @@ class TestModeManagement:
 class TestSnapshot:
     def test_save_snapshot(self, service, fake_frame, tmp_dirs):
         snapshot_dir = tmp_dirs[0]
-        with patch("robothor.vision.service.cv2") as mock_cv2:
-            mock_cv2.imwrite = MagicMock()
+        mock_cv2 = MagicMock()
+        with patch("robothor.vision.service._get_cv2", return_value=mock_cv2):
             path = service.save_snapshot(fake_frame)
         assert "snapshots" in path or snapshot_dir.name in path
         mock_cv2.imwrite.assert_called_once()
@@ -193,9 +193,10 @@ class TestPublishEvent:
 class TestVLM:
     @pytest.mark.asyncio
     async def test_analyze_vlm_calls_ollama(self, service, fake_frame):
-        with patch("robothor.vision.service.cv2") as mock_cv2, \
+        mock_cv2 = MagicMock()
+        mock_cv2.imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
+        with patch("robothor.vision.service._get_cv2", return_value=mock_cv2), \
              patch("robothor.vision.service.httpx.AsyncClient") as mock_client_cls:
-            mock_cv2.imencode.return_value = (True, np.array([1, 2, 3], dtype=np.uint8))
             mock_resp = MagicMock()
             mock_resp.json.return_value = {"message": {"content": "I see a room"}}
             mock_resp.raise_for_status = MagicMock()
@@ -503,52 +504,71 @@ class TestAlertIntegration:
 
 
 class TestCameraStream:
-    def test_init_connects(self):
-        with patch("robothor.vision.service.cv2") as mock_cv2:
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cv2.VideoCapture.return_value = mock_cap
-            mock_cv2.CAP_FFMPEG = 1800
-            mock_cv2.CAP_PROP_BUFFERSIZE = 38
+    def _make_mock_cv2(self, mock_cap):
+        """Create a mock cv2 module with common attributes."""
+        mock_cv2 = MagicMock()
+        mock_cv2.VideoCapture.return_value = mock_cap
+        mock_cv2.CAP_FFMPEG = 1800
+        mock_cv2.CAP_PROP_BUFFERSIZE = 38
+        return mock_cv2
 
+    def test_init_connects(self):
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cv2 = self._make_mock_cv2(mock_cap)
+        with patch("robothor.vision.service._get_cv2", return_value=mock_cv2):
             cam = CameraStream("rtsp://test:8554/webcam")
             assert cam.url == "rtsp://test:8554/webcam"
             mock_cv2.VideoCapture.assert_called_once()
 
     def test_read_returns_frame(self):
-        with patch("robothor.vision.service.cv2") as mock_cv2:
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.return_value = (True, np.zeros((100, 100, 3)))
-            mock_cv2.VideoCapture.return_value = mock_cap
-            mock_cv2.CAP_FFMPEG = 1800
-            mock_cv2.CAP_PROP_BUFFERSIZE = 38
-
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.read.return_value = (True, np.zeros((100, 100, 3)))
+        mock_cv2 = self._make_mock_cv2(mock_cap)
+        with patch("robothor.vision.service._get_cv2", return_value=mock_cv2):
             cam = CameraStream("rtsp://test:8554/webcam")
             frame = cam.read()
             assert frame is not None
 
     def test_read_returns_none_on_failure(self):
-        with patch("robothor.vision.service.cv2") as mock_cv2:
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.return_value = (False, None)
-            mock_cv2.VideoCapture.return_value = mock_cap
-            mock_cv2.CAP_FFMPEG = 1800
-            mock_cv2.CAP_PROP_BUFFERSIZE = 38
-
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.read.return_value = (False, None)
+        mock_cv2 = self._make_mock_cv2(mock_cap)
+        with patch("robothor.vision.service._get_cv2", return_value=mock_cv2):
             cam = CameraStream("rtsp://test:8554/webcam")
             frame = cam.read()
             assert frame is None
 
     def test_release(self):
-        with patch("robothor.vision.service.cv2") as mock_cv2:
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cv2.VideoCapture.return_value = mock_cap
-            mock_cv2.CAP_FFMPEG = 1800
-            mock_cv2.CAP_PROP_BUFFERSIZE = 38
-
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cv2 = self._make_mock_cv2(mock_cap)
+        with patch("robothor.vision.service._get_cv2", return_value=mock_cv2):
             cam = CameraStream("rtsp://test:8554/webcam")
             cam.release()
             mock_cap.release.assert_called_once()
+
+
+# ─── Lazy cv2 Import ──────────────────────────────────────────
+
+
+class TestLazyCv2Import:
+    def test_import_without_cv2(self):
+        """Importing the module should succeed even without opencv installed."""
+        # The module is already imported (it uses lazy _get_cv2), so we test
+        # that _get_cv2 raises a helpful ImportError when cv2 is missing.
+        from robothor.vision.service import _get_cv2
+
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "cv2":
+                raise ImportError("No module named 'cv2'")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=mock_import):
+            with pytest.raises(ImportError, match="pip install robothor\\[vision\\]"):
+                _get_cv2()

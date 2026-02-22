@@ -130,3 +130,15 @@ class TestGetConfig:
         monkeypatch.setenv("ROBOTHOR_WORKSPACE", "/opt/robothor")
         cfg = get_config()
         assert str(cfg.workspace) == "/opt/robothor"
+
+    def test_identity_defaults(self):
+        cfg = get_config()
+        assert cfg.owner_name == "there"
+        assert cfg.ai_name == "Robothor"
+
+    def test_identity_env_override(self, monkeypatch):
+        monkeypatch.setenv("ROBOTHOR_OWNER_NAME", "Alice")
+        monkeypatch.setenv("ROBOTHOR_AI_NAME", "Jarvis")
+        cfg = get_config()
+        assert cfg.owner_name == "Alice"
+        assert cfg.ai_name == "Jarvis"

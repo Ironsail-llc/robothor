@@ -8,7 +8,7 @@ from becoming CRM records.
 Usage:
     from robothor.crm.validation import validate_person_input, scrub_null_string
 
-    valid, reason = validate_person_input("Philip", "Ironsail", "philip@example.com")
+    valid, reason = validate_person_input("Jane", "Smith", "jane@example.com")
 """
 
 from __future__ import annotations
