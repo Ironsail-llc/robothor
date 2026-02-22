@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getGatewayClient } from "@/lib/gateway/server-client";
-
-const SESSION_KEY = "agent:main:webchat-philip";
+import { ensureCanvasPromptInjected, SESSION_KEY } from "@/lib/gateway/session-state";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -12,6 +11,10 @@ export async function GET(req: Request) {
   try {
     await client.ensureConnected();
     const result = await client.chatHistory(SESSION_KEY, limit);
+
+    // Eagerly inject visual canvas prompt in background while returning history
+    ensureCanvasPromptInjected().catch(() => {});
+
     return NextResponse.json({
       messages: result.messages || [],
       sessionKey: result.sessionKey,

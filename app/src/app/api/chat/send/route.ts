@@ -1,29 +1,8 @@
 import { getGatewayClient } from "@/lib/gateway/server-client";
 import { extractText } from "@/lib/gateway/types";
 import type { ChatEvent } from "@/lib/gateway/types";
-import { getVisualCanvasPrompt } from "@/lib/system-prompt";
+import { ensureCanvasPromptInjected, SESSION_KEY } from "@/lib/gateway/session-state";
 import { MarkerInterceptor } from "@/lib/gateway/marker-interceptor";
-
-const SESSION_KEY = "agent:main:webchat-philip";
-
-/** Track whether we've injected the visual canvas prompt this process */
-let injectedSession = false;
-
-async function ensureSessionInjected() {
-  if (injectedSession) return;
-  const client = getGatewayClient();
-  try {
-    await client.chatInject(
-      SESSION_KEY,
-      getVisualCanvasPrompt(),
-      "visual-canvas-init"
-    );
-    injectedSession = true;
-  } catch {
-    // Session may not exist yet — injection will happen on first history call
-    console.warn("[chat/send] Could not inject visual canvas prompt");
-  }
-}
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -40,7 +19,7 @@ export async function POST(req: Request) {
 
   try {
     await client.ensureConnected();
-    await ensureSessionInjected();
+    await ensureCanvasPromptInjected();
 
     const { events } = await client.chatSend(SESSION_KEY, message);
 

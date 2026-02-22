@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock config module
+vi.mock("@/lib/config", () => ({
+  HELM_AGENT_ID: "helm-user",
+  OWNER_NAME: "there",
+  AI_NAME: "Robothor",
+  SESSION_KEY: "agent:main:webchat-user",
+}));
+
 // Mock the gateway client module
 const mockChatHistory = vi.fn();
 const mockEnsureConnected = vi.fn();
@@ -24,7 +32,7 @@ describe("GET /api/chat/history", () => {
       { role: "assistant", content: "hello" },
     ];
     mockChatHistory.mockResolvedValue({
-      sessionKey: "agent:main:webchat-philip",
+      sessionKey: "agent:main:webchat-user",
       messages,
     });
 
@@ -34,7 +42,7 @@ describe("GET /api/chat/history", () => {
 
     expect(res.status).toBe(200);
     expect(body.messages).toEqual(messages);
-    expect(body.sessionKey).toBe("agent:main:webchat-philip");
+    expect(body.sessionKey).toBe("agent:main:webchat-user");
   });
 
   it("returns 502 when gateway is unreachable", async () => {
@@ -55,7 +63,7 @@ describe("GET /api/chat/history", () => {
     await GET(req);
 
     expect(mockChatHistory).toHaveBeenCalledWith(
-      "agent:main:webchat-philip",
+      "agent:main:webchat-user",
       10
     );
   });

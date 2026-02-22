@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock config module
+vi.mock("@/lib/config", () => ({
+  HELM_AGENT_ID: "helm-user",
+  OWNER_NAME: "there",
+  AI_NAME: "Robothor",
+  SESSION_KEY: "agent:main:webchat-user",
+}));
+
 // Mock the gateway client module
 const mockChatSend = vi.fn();
 const mockChatInject = vi.fn();

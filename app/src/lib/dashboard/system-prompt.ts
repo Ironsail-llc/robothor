@@ -214,7 +214,7 @@ Always: \`text-xs font-medium px-2.5 py-0.5 rounded-full\`
 11. Use badges/pills for status values, not plain text
 12. Give each canvas a unique id
 13. Use Chart.js charts liberally — bar, line, doughnut, gauge, radar, horizontal bar
-14. Use data from the conversation and pre-fetched context — do NOT call fetch() or external APIs
+14. Use ONLY data from the conversation and pre-fetched context — do NOT call fetch() or external APIs, and do NOT invent/hallucinate numbers or statistics
 15. For charts, PREFER data-chart attributes with JSON specs (simpler, less error-prone). You MAY use inline <script>new Chart()</script> blocks for complex configurations that data-chart cannot express (custom annotations, multi-axis, advanced tooltips)
 16. Do NOT add <script src="..."> tags — libraries are already loaded
 
@@ -364,7 +364,7 @@ Choose the best chart types, card layouts, and metrics to represent this informa
 - **Use sparklines** — \`sparklineSVG(data, color)\` for inline trend data
 - **Use .gradient-text** on the main heading
 - Use \`createGradient()\` for chart fills, badges/pills for status values
-- Use real values from the data AND conversation — never show placeholder or empty data
+- Use ONLY real values from the provided data and conversation — never invent, estimate, or hallucinate numbers
 - Make it information-dense, visually impressive, and polished
 - Include at least one chart — find a way to visualize data graphically
 - If a data field is null, empty, or missing: skip that card entirely — never render "No data" placeholders
@@ -374,46 +374,46 @@ Choose the best chart types, card layouts, and metrics to represent this informa
   return parts.join("\n");
 }
 
+import { OWNER_NAME } from "@/lib/config";
+
 /** Time-aware prompt additions for welcome dashboards */
-export function getTimeAwarePrompt(hour: number): string {
+export function getTimeAwarePrompt(hour: number, ownerName: string = OWNER_NAME): string {
+  const dataRule = "Use ONLY the real data values listed below. Never invent numbers, percentages, or statistics.";
+
   if (hour >= 6 && hour < 11) {
-    return `Generate a MORNING dashboard with:
-- A warm greeting "Good morning, Philip" as a large heading with gradient-text class
-- Today's date below the greeting
-- Use a glass card for the greeting hero section
-- Include a gauge chart for overall service health percentage
-- A metrics row with animated counters showing service health counts and inbox counts
-- Service status indicators with pulse-live dots and uptime badges
-- If calendar data is provided, show it in an accent card section
-- Use warm indigo/purple gradients on charts
+    return `Generate a MORNING welcome dashboard. ${dataRule}
+- A warm "Good morning, ${ownerName}" greeting as large heading with gradient-text class, date below
+- glass hero card for greeting
+- gauge chart for service health percentage (use exact healthy/total counts from data)
+- Animated counters for service health counts and inbox counts (use animateValue with exact values)
+- Service status row with pulse-live dots for each service
+- Calendar section ONLY if calendar data is provided and non-null
+- Warm indigo/purple chart colors
 Tone: Fresh, clean, focused on the day ahead.`;
   }
   if (hour >= 11 && hour < 17) {
-    return `Generate a MIDDAY dashboard with:
-- A brief status heading like "Afternoon, Philip" with gradient-text class
-- Compact bento layout — mix metric and status cards
-- Sparklines for quick at-a-glance trend metrics
-- Accent-border cards for status lists
-- Service health as small colored dots with pulse-live animation
-- If there are open conversations, list them in an accent card
-- Include at least one chart — bar chart for counts or doughnut for distribution
+    return `Generate a MIDDAY welcome dashboard. ${dataRule}
+- Brief heading with gradient-text class
+- Compact bento layout — metric and status cards
+- Sparklines for quick at-a-glance trends, animated counters with exact values from data
+- Service health as colored dots with pulse-live
+- Open conversations count ONLY if inbox data is provided
+- At least one chart using real values
 Tone: Productive, compact, no fluff.`;
   }
   if (hour >= 17 && hour < 22) {
-    return `Generate an EVENING dashboard with:
-- A relaxed heading "Evening, Philip" with gradient-text class
-- Relaxed spacing between cards
-- Today's summary in glass cards with softer colors (zinc-700 borders)
-- A summary doughnut chart for service health distribution
-- Glass card for the main status message
-- If there are tomorrow items, show them in a subtle card
+    return `Generate an EVENING welcome dashboard. ${dataRule}
+- Relaxed heading with gradient-text class
+- glass cards with softer zinc-700 borders
+- doughnut chart for service health distribution using exact counts
+- Status summary from real data only
 Tone: Relaxed, reflective.`;
   }
   // Night (22-6)
-  return `Generate a MINIMAL night dashboard with:
-- Brief heading "Hey Philip" with gradient-text class
-- A single glass card with service health
-- Use a gauge chart if showing health percentage
-- Very low visual noise — minimal cards, muted colors
+  return `Generate a MINIMAL night welcome dashboard. ${dataRule}
+- Brief heading with gradient-text class
+- Single glass card with service health from real data
+- gauge chart using exact health percentage
+- Very low visual noise
 Tone: Quiet, dark, minimal.`;
 }

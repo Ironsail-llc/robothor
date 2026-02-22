@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { useVisualState } from "@/hooks/use-visual-state";
+import { useThrottle } from "@/hooks/use-throttle";
 import { Send, Square, Loader2 } from "lucide-react";
 
 interface ChatMessage {
@@ -32,15 +33,16 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const throttledStreamingText = useThrottle(streamingText, 100);
   const scrollEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const { notifyConversationUpdate, setRender } = useVisualState();
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages (throttled during streaming)
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
+  }, [messages, throttledStreamingText]);
 
   // Load history on mount
   useEffect(() => {
@@ -232,7 +234,7 @@ export function ChatPanel() {
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center gap-2">
         <div className="w-2 h-2 rounded-full bg-green-500" />
-        <span className="text-sm font-semibold">Robothor</span>
+        <span className="text-sm font-semibold">{process.env.NEXT_PUBLIC_AI_NAME || "Robothor"}</span>
       </div>
 
       {/* Messages */}
@@ -241,7 +243,7 @@ export function ChatPanel() {
           {messages.length === 0 && !isStreaming && (
             <div className="space-y-4" data-testid="empty-state">
               <p className="text-sm text-muted-foreground">
-                Hey Philip. What can I help you with?
+                Hey {process.env.NEXT_PUBLIC_OWNER_NAME || "there"}. What can I help you with?
               </p>
               <div className="flex flex-wrap gap-2">
                 {suggestedPrompts.map((prompt) => (
@@ -291,10 +293,10 @@ export function ChatPanel() {
           {isStreaming && (
             <div className="flex justify-start" data-testid="streaming-message">
               <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-muted">
-                {streamingText ? (
+                {throttledStreamingText ? (
                   <div className="prose prose-sm prose-invert max-w-none">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {streamingText}
+                      {throttledStreamingText}
                     </ReactMarkdown>
                   </div>
                 ) : (
