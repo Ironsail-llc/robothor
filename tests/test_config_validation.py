@@ -21,6 +21,11 @@ JOBS_JSON = OPENCLAW_DIR / "cron" / "jobs.json"
 WORKSPACE = Path(os.path.expanduser("~/clawd"))
 SKILLS_DIR = WORKSPACE / ".agents" / "skills"
 
+# These tests validate local deployment config — skip in CI where files don't exist
+pytestmark = pytest.mark.skipif(
+    not OPENCLAW_JSON.exists(), reason="Local deployment config not present (CI)"
+)
+
 EXPECTED_AGENT_IDS = {"main", "supervisor", "email", "calendar", "crm", "vision"}
 EXPECTED_SKILLS = {
     "send-email",
