@@ -37,13 +37,14 @@ async def test_health_all_services_ok(test_client, mock_http_client):
 
 @pytest.mark.asyncio
 async def test_health_degraded_when_crm_down(test_client, mock_http_client):
-    """When CRM check fails, health reports degraded."""
+    """When CRM check fails, health reports 503 degraded."""
     mock_http_client.get = AsyncMock(
         return_value=MagicMock(spec=httpx.Response, status_code=200)
     )
 
     with patch("routers.health.check_health", return_value={"status": "error", "error": "connection refused"}):
         r = await test_client.get("/health")
+        assert r.status_code == 503
         data = r.json()
         assert data["status"] == "degraded"
         assert "error" in data["services"]["crm"]
@@ -51,7 +52,7 @@ async def test_health_degraded_when_crm_down(test_client, mock_http_client):
 
 @pytest.mark.asyncio
 async def test_health_degraded_when_memory_down(test_client, mock_http_client):
-    """When Memory service connection fails, health reports degraded."""
+    """When Memory service connection fails, health reports 503 degraded."""
 
     async def route_get(url, **kwargs):
         raise httpx.ConnectError("Connection refused")
@@ -60,6 +61,7 @@ async def test_health_degraded_when_memory_down(test_client, mock_http_client):
 
     with patch("routers.health.check_health", return_value={"status": "ok"}):
         r = await test_client.get("/health")
+        assert r.status_code == 503
         data = r.json()
         assert data["status"] == "degraded"
         assert "error" in data["services"]["memory"]

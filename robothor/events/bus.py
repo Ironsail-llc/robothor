@@ -114,6 +114,7 @@ def _make_envelope(
     source: str = "unknown",
     actor: str = "robothor",
     correlation_id: str | None = None,
+    tenant_id: str = "",
 ) -> dict[str, str]:
     """Create a standardized event envelope for Redis Streams."""
     return {
@@ -123,6 +124,7 @@ def _make_envelope(
         "actor": actor,
         "payload": json.dumps(payload) if isinstance(payload, dict) else str(payload),
         "correlation_id": correlation_id or "",
+        "tenant_id": tenant_id,
     }
 
 
@@ -135,6 +137,7 @@ def publish(
     actor: str = "robothor",
     correlation_id: str | None = None,
     agent_id: str | None = None,
+    tenant_id: str = "",
 ) -> str | None:
     """Publish an event to a Redis Stream.
 
@@ -146,6 +149,7 @@ def publish(
         actor: Agent or system identity
         correlation_id: Optional trace ID for correlation
         agent_id: Agent identity for RBAC check (None = no check, backward compat)
+        tenant_id: Tenant identifier for multi-tenant filtering
 
     Returns:
         Stream message ID on success, None on failure.
@@ -184,6 +188,7 @@ def publish(
             source=source,
             actor=actor,
             correlation_id=correlation_id,
+            tenant_id=tenant_id,
         )
         key = _stream_key(stream)
         msg_id: str | None = r.xadd(key, envelope, maxlen=MAXLEN, approximate=True)
@@ -277,6 +282,7 @@ def subscribe(
                             "actor": fields.get("actor", ""),
                             "payload": json.loads(fields.get("payload", "{}")),
                             "correlation_id": fields.get("correlation_id", ""),
+                            "tenant_id": fields.get("tenant_id", ""),
                         }
                         handler(event)
                         # Auto-ack on successful processing
@@ -359,6 +365,7 @@ def read_recent(stream: str, count: int = 10) -> list[dict]:
                     "actor": fields.get("actor", ""),
                     "payload": json.loads(fields.get("payload", "{}")),
                     "correlation_id": fields.get("correlation_id", ""),
+                    "tenant_id": fields.get("tenant_id", ""),
                 }
             )
         return result

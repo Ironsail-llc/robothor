@@ -5,6 +5,7 @@ Tests cover:
 - Bridge API endpoints (POST, PATCH, GET agent/, resolve)
 - DAL extensions (create_task, update_task, list_tasks, list_agent_tasks, resolve_task)
 - New fields (priority, tags, assigned_to_agent, etc.)
+- Task state machine (transitions, REVIEW status, history, SLA)
 """
 
 import sys
@@ -210,6 +211,41 @@ def test_create_task_request_defaults():
     assert req.assignedToAgent is None
 
 
+def test_create_task_rejects_invalid_person_id():
+    """CreateTaskRequest rejects non-UUID personId with ValidationError."""
+    from pydantic import ValidationError
+    from models import CreateTaskRequest
+    with pytest.raises(ValidationError, match="personId must be a valid UUID"):
+        CreateTaskRequest(
+            title="Test",
+            personId=':content".:company{"domainName": "valhallams.com"}"',
+        )
+
+
+def test_create_task_rejects_invalid_company_id():
+    """CreateTaskRequest rejects non-UUID companyId with ValidationError."""
+    from pydantic import ValidationError
+    from models import CreateTaskRequest
+    with pytest.raises(ValidationError, match="companyId must be a valid UUID"):
+        CreateTaskRequest(title="Test", companyId="not-a-uuid")
+
+
+def test_create_task_accepts_valid_uuid():
+    """CreateTaskRequest accepts valid UUIDs for personId/companyId."""
+    from models import CreateTaskRequest
+    valid_id = str(uuid.uuid4())
+    req = CreateTaskRequest(title="Test", personId=valid_id, companyId=valid_id)
+    assert req.personId == valid_id
+    assert req.companyId == valid_id
+
+
+def test_create_task_accepts_none_uuid():
+    """CreateTaskRequest accepts None for UUID fields."""
+    from models import CreateTaskRequest
+    req = CreateTaskRequest(title="Test", personId=None)
+    assert req.personId is None
+
+
 def test_update_task_request_all_none():
     """UpdateTaskRequest with no fields is valid (all optional)."""
     from models import UpdateTaskRequest
@@ -281,3 +317,165 @@ def test_task_to_dict_backward_compatible():
     assert result["parentTaskId"] is None
     assert result["resolvedAt"] is None
     assert result["resolution"] == ""
+
+
+def test_task_to_dict_sla_fields():
+    """task_to_dict includes SLA and started_at fields."""
+    from robothor.crm.models import task_to_dict
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    row = {
+        "id": uuid.uuid4(),
+        "title": "SLA task",
+        "body": None,
+        "status": "TODO",
+        "due_at": None,
+        "person_id": None,
+        "company_id": None,
+        "sla_deadline_at": now,
+        "escalation_count": 2,
+        "started_at": now,
+        "updated_at": now,
+        "created_at": now,
+    }
+    result = task_to_dict(row)
+    assert result["slaDeadlineAt"] is not None
+    assert result["escalationCount"] == 2
+    assert result["startedAt"] is not None
+
+
+# ─── State Machine Tests ─────────────────────────────────────────────
+
+
+def test_valid_transitions():
+    """VALID_TRANSITIONS covers all expected paths."""
+    from robothor.crm.dal import VALID_TRANSITIONS
+    assert "IN_PROGRESS" in VALID_TRANSITIONS["TODO"]
+    assert "DONE" in VALID_TRANSITIONS["TODO"]
+    assert "REVIEW" in VALID_TRANSITIONS["IN_PROGRESS"]
+    assert "TODO" in VALID_TRANSITIONS["IN_PROGRESS"]
+    assert "DONE" in VALID_TRANSITIONS["REVIEW"]
+    assert "IN_PROGRESS" in VALID_TRANSITIONS["REVIEW"]
+    assert "TODO" in VALID_TRANSITIONS["DONE"]
+
+
+def test_validate_transition_valid():
+    """_validate_transition allows valid transitions."""
+    from robothor.crm.dal import _validate_transition
+    ok, reason = _validate_transition("TODO", "IN_PROGRESS")
+    assert ok is True
+    assert reason == ""
+
+
+def test_validate_transition_invalid():
+    """_validate_transition rejects invalid transitions."""
+    from robothor.crm.dal import _validate_transition
+    ok, reason = _validate_transition("TODO", "REVIEW")
+    assert ok is False
+    assert "Cannot transition" in reason
+
+
+def test_validate_transition_review_to_done_requires_resolution():
+    """_validate_transition requires resolution for REVIEW -> DONE."""
+    from robothor.crm.dal import _validate_transition
+    ok, reason = _validate_transition("REVIEW", "DONE", resolution=None)
+    assert ok is False
+    assert "resolution" in reason.lower()
+
+    ok2, reason2 = _validate_transition("REVIEW", "DONE", resolution="All good")
+    assert ok2 is True
+
+
+def test_validate_transition_reopen_from_done():
+    """_validate_transition allows DONE -> TODO (reopen)."""
+    from robothor.crm.dal import _validate_transition
+    ok, reason = _validate_transition("DONE", "TODO")
+    assert ok is True
+
+
+def test_compute_sla_deadline():
+    """_compute_sla_deadline returns a future datetime for valid priorities."""
+    from robothor.crm.dal import _compute_sla_deadline
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    deadline = _compute_sla_deadline("urgent")
+    assert deadline is not None
+    assert deadline > now
+    # Urgent SLA is 30 min
+    diff = (deadline - now).total_seconds()
+    assert 29 * 60 <= diff <= 31 * 60
+
+    assert _compute_sla_deadline("unknown-priority") is None
+
+
+@pytest.mark.asyncio
+async def test_update_task_invalid_transition_returns_422(test_client):
+    """PATCH /api/tasks/{id} with invalid transition returns 422."""
+    error_dict = {"error": "Cannot transition from TODO to REVIEW. Allowed: DONE, IN_PROGRESS", "from": "TODO", "to": "REVIEW"}
+    with patch("routers.notes_tasks.update_task", return_value=error_dict):
+        r = await test_client.patch(
+            f"/api/tasks/{uuid.uuid4()}",
+            json={"status": "REVIEW"},
+        )
+    assert r.status_code == 422
+    data = r.json()
+    assert "error" in data
+    assert "TODO" in data["error"] or "from" in data
+
+
+@pytest.mark.asyncio
+async def test_update_task_with_subtask_warning(test_client):
+    """PATCH /api/tasks/{id} returns warning when subtasks incomplete."""
+    warning_dict = {"success": True, "warning": "2 of 3 subtasks are not DONE"}
+    with patch("routers.notes_tasks.update_task", return_value=warning_dict):
+        with patch("routers.notes_tasks.publish"):
+            r = await test_client.patch(
+                f"/api/tasks/{uuid.uuid4()}",
+                json={"status": "DONE"},
+            )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["success"] is True
+    assert "warning" in data
+
+
+@pytest.mark.asyncio
+async def test_get_task_history(test_client):
+    """GET /api/tasks/{id}/history returns transition history."""
+    mock_history = [
+        {"id": str(uuid.uuid4()), "taskId": str(uuid.uuid4()),
+         "fromStatus": "TODO", "toStatus": "IN_PROGRESS",
+         "changedBy": "email-classifier", "reason": "", "metadata": {},
+         "createdAt": "2026-02-23T12:00:00+00:00"},
+    ]
+    with patch("routers.notes_tasks.get_task_history", return_value=mock_history):
+        r = await test_client.get(f"/api/tasks/{uuid.uuid4()}/history")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["count"] == 1
+    assert data["history"][0]["fromStatus"] == "TODO"
+
+
+def test_history_to_dict():
+    """history_to_dict converts a row correctly."""
+    from robothor.crm.models import history_to_dict
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    row = {
+        "id": uuid.uuid4(),
+        "task_id": uuid.uuid4(),
+        "from_status": "TODO",
+        "to_status": "IN_PROGRESS",
+        "changed_by": "email-classifier",
+        "reason": "Starting work",
+        "metadata": {"key": "value"},
+        "created_at": now,
+    }
+    result = history_to_dict(row)
+    assert result["fromStatus"] == "TODO"
+    assert result["toStatus"] == "IN_PROGRESS"
+    assert result["changedBy"] == "email-classifier"
+    assert result["metadata"] == {"key": "value"}

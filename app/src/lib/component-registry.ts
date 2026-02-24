@@ -35,8 +35,11 @@ const Timeline = lazy(() => import("@/components/business/timeline").then(m => (
 const MemorySearch = lazy(() => import("@/components/business/memory-search").then(m => ({ default: m.MemorySearch })));
 const ServiceHealth = lazy(() => import("@/components/business/service-health").then(m => ({ default: m.ServiceHealth })));
 const TaskBoard = lazy(() => import("@/components/business/task-board").then(m => ({ default: m.TaskBoard })));
+const AgentStatus = lazy(() => import("@/components/business/agent-status").then(m => ({ default: m.AgentStatus })));
+const RoutinesManager = lazy(() => import("@/components/business/routines-manager").then(m => ({ default: m.RoutinesManager })));
 const MarkdownView = lazy(() => import("@/components/business/markdown-view").then(m => ({ default: m.MarkdownView })));
 const FormPanel = lazy(() => import("@/components/business/form-panel").then(m => ({ default: m.FormPanel })));
+const TenantSelector = lazy(() => import("@/components/business/tenant-selector").then(m => ({ default: m.TenantSelector })));
 
 // Register all business components
 register("render_contact_card", "Display a contact card", ContactCard);
@@ -54,8 +57,11 @@ register("render_timeline", "Display a timeline of events", Timeline);
 register("render_memory_search", "Display memory search results", MemorySearch);
 register("render_service_health", "Display service health status", ServiceHealth);
 register("render_task_board", "Display tasks in a kanban board", TaskBoard);
+register("render_agent_status", "Display agent health status", AgentStatus);
+register("render_routines", "Display recurring task routines", RoutinesManager);
 register("render_markdown", "Display markdown content", MarkdownView);
 register("render_form", "Display an input form", FormPanel);
+register("render_tenant_selector", "Display tenant selector dropdown", TenantSelector);
 
 export function getComponent(
   toolName: string

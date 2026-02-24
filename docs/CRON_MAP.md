@@ -14,17 +14,17 @@ Every 10 min   │ Continuous ingestion (crontab, Tier 1) — brain/memory_syste
                │ Vision Monitor (OpenClaw, 24/7, silent) — check motion events, write status file
 
 Every 15 min   │ Garmin health sync (crontab) — health/garmin_sync.py
-               │ Calendar Monitor (OpenClaw, 6-22h, silent) — detect conflicts, cancellations, changes
+               │ Calendar Monitor (OpenClaw, 6-22h, announce) — detect conflicts, cancellations, changes
 
 Hourly email cron safety net (hooks are primary, crons catch stragglers):
-:00            │ Email Classifier (OpenClaw, 6-22h, silent) — classify emails, route or escalate
+:00            │ Email Classifier (OpenClaw, 6-22h, announce) — classify emails, route or escalate
 :10            │ Triage cleanup (crontab) — brain/scripts/triage_cleanup.py
                │   Mark processed items in logs, update heartbeat
 :20            │ Email analysis cleanup (crontab) — clear stale response-analysis.json
 :25            │ Email response prep (crontab) — brain/scripts/email_response_prep.py
                │   Enrich queued emails with thread + contact + topic RAG + calendar + CRM history + depth tag
-:30            │ Email Analyst (OpenClaw, 6-22h, silent) — analyze analytical items, write response-analysis.json
-:45            │ Email Responder (OpenClaw, 6-22h, silent) — compose and send replies (substantive for analytical)
+:30            │ Email Analyst (OpenClaw, 6-22h, announce) — analyze analytical items, write response-analysis.json
+:45            │ Email Responder (OpenClaw, 6-22h, announce) — compose and send replies (substantive for analytical)
 :55            │ Triage prep (crontab) — brain/scripts/triage_prep.py
                │   Extract pending items + enrich with DB contact context (prepares for next hour)
 
@@ -146,15 +146,15 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 
 | ID | Name | Schedule | Session | Delivery |
 |----|------|----------|---------|----------|
-| email-classifier-0001 | Email Classifier | 0 6-22 * * * | isolated | none (silent) |
-| calendar-monitor-0001 | Calendar Monitor | */15 6-22 * * * | isolated | none (silent) |
-| email-analyst-0001 | Email Analyst | 30 6-22 * * * | isolated | none (silent) |
-| email-responder-0001 | Email Responder | 45 6-22 * * * | isolated | none (silent) |
+| email-classifier-0001 | Email Classifier | 0 6-22 * * * | isolated | announce → telegram |
+| calendar-monitor-0001 | Calendar Monitor | */15 6-22 * * * | isolated | announce → telegram |
+| email-analyst-0001 | Email Analyst | 30 6-22 * * * | isolated | announce → telegram |
+| email-responder-0001 | Email Responder | 45 6-22 * * * | isolated | announce → telegram |
 | b7e3...0001 | Supervisor Heartbeat | */17 6-22 * * * | isolated | announce → telegram |
 | vision...0001 | Vision Monitor | */10 * * * * | isolated | none (silent) |
 | conversation-inbox-monitor-0001 | Conversation Inbox Monitor | */30 6-22 * * * | isolated | none (silent) |
 | conversation-resolver-0001 | Conversation Resolver | 0 6-22/2 * * * | isolated | none (silent) |
-| crm-steward-0001 | CRM Steward | 0 10,18 * * * | isolated | none (silent) |
+| crm-steward-0001 | CRM Steward | 0 10,18 * * * | isolated | announce → telegram |
 | 282b...b829 | Morning Briefing | 30 6 * * * | isolated | announce → telegram |
 | 88db...dca0 | Evening Wind-Down | 0 21 * * * | isolated | announce → telegram |
 
@@ -175,7 +175,7 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 ## Notes
 
 - All OpenClaw crons use **Kimi K2.5** (via OpenRouter). Opus 4.6 is first fallback.
-- Sub-agent workers use `delivery.mode: "none"` (silent) — only the Supervisor delivers to Telegram
+- Pipeline agents use `delivery: announce` — output delivered to Telegram. Background agents (Vision, Conversation Inbox, Conversation Resolver) use `delivery: none` (agents still run, output just isn't delivered)
 - Supervisor runs every 17 min and reads all worker status files + worker-handoff.json
 - Workers output `HEARTBEAT_OK` when nothing to report (suppressed by framework)
 - Main session heartbeat has `activeHours: 06:00-22:00 AST` — no wakeups during quiet hours (10 PM - 6 AM)
@@ -188,4 +188,4 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 
 ---
 
-**Updated:** 2026-02-20
+**Updated:** 2026-02-23

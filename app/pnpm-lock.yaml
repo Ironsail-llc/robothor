@@ -20,12 +20,12 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
-      dockview-core:
-        specifier: ^5.0.0
-        version: 5.0.0
-      dockview-react:
-        specifier: ^5.0.0
-        version: 5.0.0(react@19.2.3)
+      cron-parser:
+        specifier: ^5.5.0
+        version: 5.5.0
+      cronstrue:
+        specifier: ^3.12.0
+        version: 3.12.0
       dompurify:
         specifier: ^3.2.4
         version: 3.3.1
@@ -2540,6 +2540,14 @@ packages:
       typescript:
         optional: true
 
+  cron-parser@5.5.0:
+    resolution: {integrity: sha512-oML4lKUXxizYswqmxuOCpgFS8BNUJpIu6k/2HVHyaL8Ynnf3wdf9tkns0yRdJLSIjkJ+b0DXHMZEHGpMwjnPww==}
+    engines: {node: '>=18'}
+
+  cronstrue@3.12.0:
+    resolution: {integrity: sha512-k9oiM4G7U1GEEktOGfZabldP0gtFWTsaRVqq9X06ifytr73mpSYYdt+zGZBeS5lRCsqMfq0y7oSHycWGIJSo6g==}
+    hasBin: true
+
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
@@ -2716,17 +2724,6 @@ packages:
   diff@8.0.3:
     resolution: {integrity: sha512-qejHi7bcSD4hQAZE0tNAawRK1ZtafHDmMTMkrrIGgSLl7hTnQHmKCeB45xAcbfTqK2zowkM3j3bHt/4b/ARbYQ==}
     engines: {node: '>=0.3.1'}
-
-  dockview-core@5.0.0:
-    resolution: {integrity: sha512-bUgH/e/PTVZ/5Y97QvF30eAs67HPzTQUbcVMojwsWX/RKys5bQCblGMvxPu+KVx+jes2JIhepFvjMepCyz1uNQ==}
-
-  dockview-react@5.0.0:
-    resolution: {integrity: sha512-OXRw5WcOMMbhpHqOwbqLHoZv7H36YzfvIunUE6AtmjaYX4djvvq+1UzGHQgKDTK1D38IwnSnuYbzSSsd+b3QIA==}
-
-  dockview@5.0.0:
-    resolution: {integrity: sha512-GPUMnhaZ7pH28Ai6HPEu4cecp9xNSp4tMtDn/In7sYCDhTztBbbLEK3BqbAwiJBEUXadnZ7j01BaZkz9ndJJ7A==}
-    peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   doctrine@2.1.0:
     resolution: {integrity: sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw==}
@@ -3735,6 +3732,10 @@ packages:
     resolution: {integrity: sha512-dJ8xb5juiZVIbdSn3HTyHsjjIwUwZ4FNwV0RtYDScOyySOeie1oXZTymST6YPJ4Qwt3Po8g4quhYl4OxtACiuQ==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  luxon@3.7.2:
+    resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
+    engines: {node: '>=12'}
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -7403,6 +7404,12 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
 
+  cron-parser@5.5.0:
+    dependencies:
+      luxon: 3.7.2
+
+  cronstrue@3.12.0: {}
+
   cross-spawn@7.0.6:
     dependencies:
       path-key: 3.1.1
@@ -7552,19 +7559,6 @@ snapshots:
       dequal: 2.0.3
 
   diff@8.0.3: {}
-
-  dockview-core@5.0.0: {}
-
-  dockview-react@5.0.0(react@19.2.3):
-    dependencies:
-      dockview: 5.0.0(react@19.2.3)
-    transitivePeerDependencies:
-      - react
-
-  dockview@5.0.0(react@19.2.3):
-    dependencies:
-      dockview-core: 5.0.0
-      react: 19.2.3
 
   doctrine@2.1.0:
     dependencies:
@@ -8745,6 +8739,8 @@ snapshots:
   lucide-react@0.574.0(react@19.2.3):
     dependencies:
       react: 19.2.3
+
+  luxon@3.7.2: {}
 
   lz-string@1.5.0: {}
 

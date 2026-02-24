@@ -92,25 +92,6 @@
   }
 }
 
-/* Dockview styling */
-.dv-react-app {
-  --dv-paneview-active-outline-color: oklch(0.65 0.2 265 / 50%);
-  --dv-tabs-and-actions-container-background-color: oklch(0.12 0.005 285.823);
-  --dv-tab-background-color: oklch(0.16 0.006 285.885);
-  --dv-activegroup-visiblepanel-tab-background-color: oklch(0.2 0.006 285.885);
-  --dv-separator-border: oklch(1 0 0 / 8%);
-  --dv-tabs-container-scrollbar-color: oklch(1 0 0 / 20%);
-  color: oklch(0.985 0 0);
-}
-
-.dv-react-app .tab {
-  color: oklch(0.65 0.015 286.067) !important;
-}
-
-.dv-react-app .tab.active-tab {
-  color: oklch(0.985 0 0) !important;
-}
-
 /* CopilotKit chat styling */
 .copilotKitChat {
   --copilot-kit-background-color: transparent;

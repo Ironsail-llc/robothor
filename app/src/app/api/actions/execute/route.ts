@@ -81,6 +81,78 @@ const TOOL_ROUTES: Record<string, { method: string; path: (p: Record<string, unk
     path: () => "/log-interaction",
     bodyKeys: ["contact_name", "channel", "direction", "content_summary", "channel_identifier"],
   },
+  list_tasks: {
+    method: "GET",
+    path: (p) => {
+      const params = new URLSearchParams();
+      if (p.status) params.set("status", String(p.status));
+      if (p.assignedToAgent) params.set("assignedToAgent", String(p.assignedToAgent));
+      if (p.priority) params.set("priority", String(p.priority));
+      if (p.tags) params.set("tags", String(p.tags));
+      if (p.excludeResolved) params.set("excludeResolved", String(p.excludeResolved));
+      params.set("limit", String(p.limit || 100));
+      return `/api/tasks?${params.toString()}`;
+    },
+  },
+  update_task: {
+    method: "PATCH",
+    path: (p) => `/api/tasks/${p.task_id}`,
+    bodyKeys: ["status", "priority", "resolution", "assignedToAgent", "tags"],
+  },
+  resolve_task: {
+    method: "POST",
+    path: (p) => `/api/tasks/${p.task_id}/resolve`,
+    bodyKeys: ["resolution"],
+  },
+  get_task_history: {
+    method: "GET",
+    path: (p) => `/api/tasks/${p.task_id}/history`,
+  },
+  agent_status: {
+    method: "GET",
+    path: () => "/api/agents/status",
+  },
+  list_routines: {
+    method: "GET",
+    path: (p) => `/api/routines?activeOnly=${p.activeOnly ?? true}&limit=${p.limit || 50}`,
+  },
+  create_routine: {
+    method: "POST",
+    path: () => "/api/routines",
+    bodyKeys: ["title", "cronExpr", "body", "timezone", "assignedToAgent", "priority", "tags"],
+  },
+  update_routine: {
+    method: "PATCH",
+    path: (p) => `/api/routines/${p.routine_id}`,
+    bodyKeys: ["title", "body", "cronExpr", "timezone", "assignedToAgent", "priority", "tags", "active"],
+  },
+  delete_routine: {
+    method: "DELETE",
+    path: (p) => `/api/routines/${p.routine_id}`,
+  },
+  approve_task: {
+    method: "POST",
+    path: (p) => `/api/tasks/${p.task_id}/approve`,
+    bodyKeys: ["resolution"],
+  },
+  reject_task: {
+    method: "POST",
+    path: (p) => `/api/tasks/${p.task_id}/reject`,
+    bodyKeys: ["reason", "changeRequests"],
+  },
+  list_tenants: {
+    method: "GET",
+    path: (p) => `/api/tenants?activeOnly=${p.activeOnly ?? true}`,
+  },
+  send_notification: {
+    method: "POST",
+    path: () => "/api/notifications/send",
+    bodyKeys: ["fromAgent", "toAgent", "notificationType", "subject", "body", "taskId"],
+  },
+  get_inbox: {
+    method: "GET",
+    path: (p) => `/api/notifications/inbox/${p.agent_id}?unreadOnly=${p.unreadOnly ?? true}&limit=${p.limit || 50}`,
+  },
 };
 
 export async function POST(request: NextRequest) {
@@ -94,7 +166,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { tool, params } = body as { tool?: string; params?: Record<string, unknown> };
+    const { tool, params, tenantId } = body as { tool?: string; params?: Record<string, unknown>; tenantId?: string };
 
     if (!tool || typeof tool !== "string") {
       return NextResponse.json({ error: "Missing 'tool' field" }, { status: 400 });
@@ -114,6 +186,9 @@ export async function POST(request: NextRequest) {
       "X-Agent-Id": HELM_AGENT_ID,
       "Content-Type": "application/json",
     };
+    if (tenantId) {
+      headers["X-Tenant-Id"] = tenantId;
+    }
 
     let response: Response;
     const fetchOpts = { headers, signal: AbortSignal.timeout(10_000) };

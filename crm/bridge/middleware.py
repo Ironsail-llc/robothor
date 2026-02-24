@@ -1,4 +1,4 @@
-"""Bridge middleware — RBAC, correlation IDs, error formatting."""
+"""Bridge middleware — RBAC, correlation IDs, tenant isolation, error formatting."""
 
 from __future__ import annotations
 
@@ -14,6 +14,20 @@ from robothor.events.capabilities import check_endpoint_access, load_capabilitie
 
 # Load the agent capabilities manifest once at import time
 load_capabilities()
+
+
+class TenantMiddleware(BaseHTTPMiddleware):
+    """Extract X-Tenant-Id header and set request.state.tenant_id.
+
+    Defaults to 'robothor-primary' when the header is absent.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        tenant_id = request.headers.get("x-tenant-id", "robothor-primary")
+        request.state.tenant_id = tenant_id
+        response = await call_next(request)
+        response.headers["X-Tenant-Id"] = tenant_id
+        return response
 
 
 class RBACMiddleware(BaseHTTPMiddleware):

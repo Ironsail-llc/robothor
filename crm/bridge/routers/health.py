@@ -39,7 +39,9 @@ async def health():
             services["impetus_one"] = f"error:{e}"
 
     all_ok = all(v == "ok" for v in services.values())
-    return {"status": "ok" if all_ok else "degraded", "services": services}
+    status = "ok" if all_ok else "degraded"
+    status_code = 200 if all_ok else 503
+    return JSONResponse({"status": status, "services": services}, status_code=status_code)
 
 
 # ─── Audit Endpoints ─────────────────────────────────────────────────────

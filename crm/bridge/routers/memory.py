@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from robothor.audit.logger import log_event
 from robothor.db.connection import get_connection
 
-from models import MemoryBlockWriteRequest, MemorySearchRequest, MemoryStoreRequest
+from models import MemoryBlockAppendRequest, MemoryBlockWriteRequest, MemorySearchRequest, MemoryStoreRequest
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
@@ -132,6 +132,19 @@ async def put_memory_block(block_name: str, body: MemoryBlockWriteRequest):
                 details={"block_name": block_name, "size": len(body.content)},
             )
             return {"success": True, "block_name": block_name}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/blocks/{block_name}/append")
+async def append_memory_block(block_name: str, body: MemoryBlockAppendRequest):
+    """Append a timestamped entry to a memory block, trimming oldest."""
+    try:
+        from robothor.crm.dal import append_to_block
+        ok = append_to_block(block_name, body.entry, max_entries=body.maxEntries)
+        if ok:
+            return {"success": True, "block_name": block_name}
+        return JSONResponse({"error": "failed to append"}, status_code=500)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
