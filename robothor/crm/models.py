@@ -44,6 +44,7 @@ def person_to_dict(row: dict) -> dict:
         }
         if row.get("company_id")
         else None,
+        "tenantId": row.get("tenant_id") or "robothor-primary",
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }
@@ -59,6 +60,7 @@ def company_to_dict(row: dict) -> dict:
         "address": row.get("address") or "",
         "linkedinUrl": row.get("linkedin_url") or "",
         "idealCustomerProfile": row.get("ideal_customer_profile", False),
+        "tenantId": row.get("tenant_id") or "robothor-primary",
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }
@@ -72,6 +74,7 @@ def note_to_dict(row: dict) -> dict:
         "body": row.get("body") or "",
         "personId": str(row["person_id"]) if row.get("person_id") else None,
         "companyId": str(row["company_id"]) if row.get("company_id") else None,
+        "tenantId": row.get("tenant_id") or "robothor-primary",
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }
@@ -94,8 +97,50 @@ def task_to_dict(row: dict) -> dict:
         "parentTaskId": str(row["parent_task_id"]) if row.get("parent_task_id") else None,
         "resolvedAt": row["resolved_at"].isoformat() if row.get("resolved_at") else None,
         "resolution": row.get("resolution") or "",
+        "slaDeadlineAt": row["sla_deadline_at"].isoformat() if row.get("sla_deadline_at") else None,
+        "escalationCount": row.get("escalation_count") or 0,
+        "startedAt": row["started_at"].isoformat() if row.get("started_at") else None,
+        "tenantId": row.get("tenant_id") or "robothor-primary",
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
+def history_to_dict(row: dict) -> dict:
+    """Convert a crm_task_history row to API response shape."""
+    return {
+        "id": str(row["id"]),
+        "taskId": str(row["task_id"]),
+        "fromStatus": row.get("from_status"),
+        "toStatus": row.get("to_status") or "",
+        "changedBy": row.get("changed_by") or "",
+        "reason": row.get("reason") or "",
+        "metadata": row.get("metadata") or {},
+        "tenantId": row.get("tenant_id") or "robothor-primary",
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
+def routine_to_dict(row: dict) -> dict:
+    """Convert a crm_routines row to API response shape."""
+    return {
+        "id": str(row["id"]),
+        "title": row.get("title") or "",
+        "body": row.get("body") or "",
+        "cronExpr": row.get("cron_expr") or "",
+        "timezone": row.get("timezone") or "America/New_York",
+        "assignedToAgent": row.get("assigned_to_agent") or "",
+        "priority": row.get("priority") or "normal",
+        "tags": row.get("tags") or [],
+        "personId": str(row["person_id"]) if row.get("person_id") else None,
+        "companyId": str(row["company_id"]) if row.get("company_id") else None,
+        "active": row.get("active", True),
+        "nextRunAt": row["next_run_at"].isoformat() if row.get("next_run_at") else None,
+        "lastRunAt": row["last_run_at"].isoformat() if row.get("last_run_at") else None,
+        "createdBy": row.get("created_by") or "",
+        "tenantId": row.get("tenant_id") or "robothor-primary",
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+        "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
 
 
@@ -109,9 +154,43 @@ def conversation_to_dict(row: dict) -> dict:
         "personId": str(row["person_id"]) if row.get("person_id") else None,
         "personName": row.get("person_name") or row.get("display_name") or "",
         "metadata": row.get("metadata") or {},
+        "tenantId": row.get("tenant_id") or "robothor-primary",
         "lastActivityAt": row["last_activity_at"].isoformat()
         if row.get("last_activity_at")
         else None,
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
+def tenant_to_dict(row: dict) -> dict:
+    """Convert a crm_tenants row to API response shape."""
+    return {
+        "id": row["id"],
+        "displayName": row.get("display_name") or "",
+        "parentTenantId": row.get("parent_tenant_id"),
+        "settings": row.get("settings") or {},
+        "active": row.get("active", True),
+        "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
+def notification_to_dict(row: dict) -> dict:
+    """Convert a crm_agent_notifications row to API response shape."""
+    return {
+        "id": str(row["id"]),
+        "tenantId": row.get("tenant_id") or "robothor-primary",
+        "fromAgent": row.get("from_agent") or "",
+        "toAgent": row.get("to_agent") or "",
+        "notificationType": row.get("notification_type") or "",
+        "subject": row.get("subject") or "",
+        "body": row.get("body") or "",
+        "metadata": row.get("metadata") or {},
+        "taskId": str(row["task_id"]) if row.get("task_id") else None,
+        "readAt": row["read_at"].isoformat() if row.get("read_at") else None,
+        "acknowledgedAt": row["acknowledged_at"].isoformat()
+        if row.get("acknowledged_at")
+        else None,
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }

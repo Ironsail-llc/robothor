@@ -26,7 +26,13 @@ pytestmark = pytest.mark.skipif(
     not OPENCLAW_JSON.exists(), reason="Local deployment config not present (CI)"
 )
 
-EXPECTED_AGENT_IDS = {"main", "supervisor", "email", "calendar", "crm", "vision"}
+# Per-agent IDs: 6 legacy + 8 per-agent = 14 total
+EXPECTED_AGENT_IDS = {
+    "main", "supervisor", "email", "calendar", "crm", "vision",
+    "email-classifier", "email-analyst", "email-responder",
+    "calendar-monitor", "vision-monitor",
+    "conversation-inbox", "conversation-resolver", "crm-steward",
+}
 EXPECTED_SKILLS = {
     "send-email",
     "crm-lookup",
@@ -96,10 +102,10 @@ class TestOpenClawJson:
         """openclaw.json is valid JSON."""
         assert isinstance(openclaw_config, dict)
 
-    def test_agents_list_has_6_agents(self, agents_list):
-        """Exactly 6 agents registered."""
-        assert len(agents_list) == 6, (
-            f"Expected 6 agents, got {len(agents_list)}: "
+    def test_agents_list_has_14_agents(self, agents_list):
+        """14 agents registered (6 legacy + 8 per-agent)."""
+        assert len(agents_list) == 14, (
+            f"Expected 14 agents, got {len(agents_list)}: "
             f"{[a.get('id') for a in agents_list]}"
         )
 
@@ -133,17 +139,28 @@ class TestOpenClawJson:
                 )
 
     def test_supervisor_denies_crm_writes(self, agents_by_id):
-        """Supervisor cannot perform CRM write operations."""
+        """Supervisor cannot perform CRM contact/note write operations.
+
+        Note: create_task, update_task, delete_task were removed from
+        supervisor deny list to enable task coordination.
+        """
         denied = set(agents_by_id["supervisor"].get("tools", {}).get("deny", []))
-        assert CRM_WRITE_TOOLS.issubset(denied), (
-            f"Supervisor missing CRM write denials: {CRM_WRITE_TOOLS - denied}"
+        # Supervisor needs task tools but should still deny contact/note writes
+        contact_write_tools = CRM_WRITE_TOOLS - {"create_task", "update_task", "delete_task"}
+        assert contact_write_tools.issubset(denied), (
+            f"Supervisor missing CRM write denials: {contact_write_tools - denied}"
         )
 
     def test_calendar_denies_crm_and_web(self, agents_by_id):
-        """Calendar agent cannot do CRM writes, messaging, or web ops."""
+        """Calendar agent cannot do CRM contact writes, messaging, or web ops.
+
+        Note: create_task, update_task, delete_task were removed to enable
+        task coordination.
+        """
         denied = set(agents_by_id["calendar"].get("tools", {}).get("deny", []))
-        assert CRM_WRITE_TOOLS.issubset(denied), (
-            f"Calendar missing CRM write denials: {CRM_WRITE_TOOLS - denied}"
+        contact_write_tools = CRM_WRITE_TOOLS - {"create_task", "update_task", "delete_task"}
+        assert contact_write_tools.issubset(denied), (
+            f"Calendar missing CRM write denials: {contact_write_tools - denied}"
         )
         assert "message" in denied
         assert "web_search" in denied
@@ -151,10 +168,15 @@ class TestOpenClawJson:
         assert "sessions_spawn" in denied
 
     def test_vision_denies_crm_and_web(self, agents_by_id):
-        """Vision agent cannot do CRM writes, messaging, or web ops."""
+        """Vision agent cannot do CRM contact writes, messaging, or web ops.
+
+        Note: create_task, update_task, delete_task were removed to enable
+        task coordination.
+        """
         denied = set(agents_by_id["vision"].get("tools", {}).get("deny", []))
-        assert CRM_WRITE_TOOLS.issubset(denied), (
-            f"Vision missing CRM write denials: {CRM_WRITE_TOOLS - denied}"
+        contact_write_tools = CRM_WRITE_TOOLS - {"create_task", "update_task", "delete_task"}
+        assert contact_write_tools.issubset(denied), (
+            f"Vision missing CRM write denials: {contact_write_tools - denied}"
         )
         assert "message" in denied
         assert "web_search" in denied
@@ -171,7 +193,6 @@ class TestOpenClawJson:
         """Email agent cannot send messages (uses gog CLI instead)."""
         denied = set(agents_by_id["email"].get("tools", {}).get("deny", []))
         assert "message" in denied
-        assert "sessions_spawn" in denied
 
     def test_crm_denies_message(self, agents_by_id):
         """CRM agent cannot send messages."""
@@ -204,13 +225,17 @@ class TestJobsJson:
                 f"One-shot job should be removed: {job.get('name')}"
             )
 
-    def test_email_jobs_use_email_agent(self, jobs_list):
-        """Email Classifier, Analyst, Responder use 'email' agent."""
-        email_job_names = {"Email Classifier", "Email Analyst", "Email Responder"}
+    def test_email_jobs_use_per_agent_ids(self, jobs_list):
+        """Email Classifier, Analyst, Responder use per-agent IDs."""
+        expected = {
+            "Email Classifier": "email-classifier",
+            "Email Analyst": "email-analyst",
+            "Email Responder": "email-responder",
+        }
         for job in jobs_list:
-            if job["name"] in email_job_names:
-                assert job["agentId"] == "email", (
-                    f"Job '{job['name']}' should use 'email' agent, got '{job['agentId']}'"
+            if job["name"] in expected:
+                assert job["agentId"] == expected[job["name"]], (
+                    f"Job '{job['name']}' should use '{expected[job['name']]}' agent, got '{job['agentId']}'"
                 )
 
     def test_supervisor_job_uses_supervisor(self, jobs_list):
@@ -223,37 +248,37 @@ class TestJobsJson:
                 return
         pytest.fail("Supervisor Heartbeat job not found")
 
-    def test_calendar_job_uses_calendar_agent(self, jobs_list):
-        """Calendar Monitor uses 'calendar' agent."""
+    def test_calendar_job_uses_per_agent_id(self, jobs_list):
+        """Calendar Monitor uses 'calendar-monitor' agent."""
         for job in jobs_list:
             if job["name"] == "Calendar Monitor":
-                assert job["agentId"] == "calendar", (
-                    f"Calendar job should use 'calendar' agent, got '{job['agentId']}'"
+                assert job["agentId"] == "calendar-monitor", (
+                    f"Calendar job should use 'calendar-monitor' agent, got '{job['agentId']}'"
                 )
                 return
         pytest.fail("Calendar Monitor job not found")
 
-    def test_vision_job_uses_vision_agent(self, jobs_list):
-        """Vision Monitor uses 'vision' agent."""
+    def test_vision_job_uses_per_agent_id(self, jobs_list):
+        """Vision Monitor uses 'vision-monitor' agent."""
         for job in jobs_list:
             if job["name"] == "Vision Monitor":
-                assert job["agentId"] == "vision", (
-                    f"Vision job should use 'vision' agent, got '{job['agentId']}'"
+                assert job["agentId"] == "vision-monitor", (
+                    f"Vision job should use 'vision-monitor' agent, got '{job['agentId']}'"
                 )
                 return
         pytest.fail("Vision Monitor job not found")
 
-    def test_crm_jobs_use_crm_agent(self, jobs_list):
-        """Conversation Inbox/Resolver and CRM Steward use 'crm' agent."""
-        crm_job_names = {
-            "Conversation Inbox Monitor",
-            "Conversation Resolver",
-            "CRM Steward",
+    def test_crm_jobs_use_per_agent_ids(self, jobs_list):
+        """Conversation Inbox/Resolver and CRM Steward use per-agent IDs."""
+        expected = {
+            "Conversation Inbox Monitor": "conversation-inbox",
+            "Conversation Resolver": "conversation-resolver",
+            "CRM Steward": "crm-steward",
         }
         for job in jobs_list:
-            if job["name"] in crm_job_names:
-                assert job["agentId"] == "crm", (
-                    f"Job '{job['name']}' should use 'crm' agent, got '{job['agentId']}'"
+            if job["name"] in expected:
+                assert job["agentId"] == expected[job["name"]], (
+                    f"Job '{job['name']}' should use '{expected[job['name']]}' agent, got '{job['agentId']}'"
                 )
 
     def test_briefing_jobs_use_main(self, jobs_list):

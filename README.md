@@ -6,7 +6,7 @@ Not another agent framework. An AI *brain* — persistent memory that decays and
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-441%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C150%2B%20passing-brightgreen.svg)]()
 
 ## What Makes This Different
 
@@ -18,8 +18,11 @@ Not another agent framework. An AI *brain* — persistent memory that decays and
 | Conflict Resolution | None | Newer facts supersede older ones with confidence scoring |
 | Vision | None | YOLO + face recognition + scene analysis (all local) |
 | CRM | None | Built-in contact management with cross-channel identity resolution |
+| Multi-Tenancy | None | Tenant-scoped data isolation across all CRM tables |
+| Task Workflows | Basic task lists | State machine (TODO → IN_PROGRESS → REVIEW → DONE) with SLA tracking |
 | Event Bus | None | Redis Streams with RBAC and consumer groups |
 | Agent RBAC | None | Per-agent capability manifests — tools, streams, endpoints |
+| Dashboard | None | The Helm — live control plane with chat, event streams, and agent status |
 | Self-Healing | None | Watchdogs, health-gated boot, auto-restart, structured audit trail |
 | Service Registry | None | Self-describing topology with dependency-ordered orchestration |
 | Cloud Dependency | Required (OpenAI, etc.) | Optional. Runs 100% local with Ollama |
@@ -52,6 +55,7 @@ robothor/
 ├── memory/
 │   ├── facts.py           # Fact storage with confidence, categories, lifecycle
 │   ├── entities.py        # Knowledge graph — entities with types and aliases
+│   ├── blocks.py          # Structured working memory — named, size-limited text blocks
 │   ├── conflicts.py       # Conflict resolution — supersession and confidence scoring
 │   ├── lifecycle.py       # Autonomous decay, strengthening, consolidation
 │   ├── tiers.py           # Three-tier memory management (working/short/long)
@@ -86,12 +90,13 @@ robothor/
 │   ├── alerts.py          # Pluggable alert backends (Telegram, webhook)
 │   └── service.py         # VisionService — camera loop, mode switching, HTTP API
 ├── crm/
-│   ├── dal.py             # Data access layer — CRUD for people, companies, notes, tasks
+│   ├── dal.py             # Data access layer — CRUD, merge, multi-tenancy, task state machine
 │   ├── models.py          # Pydantic models for all CRM entities
 │   └── validation.py      # Input validation, blocklists, email normalization
+├── setup.py               # Interactive setup wizard (DB, Redis, Ollama, Docker)
 └── api/
     ├── orchestrator.py    # FastAPI RAG orchestrator with vision endpoints
-    └── mcp.py             # MCP server — 35 tools for memory, CRM, vision
+    └── mcp.py             # MCP server — 42 tools for memory, CRM, vision
 ```
 
 ## Architecture
@@ -253,7 +258,7 @@ await service.process_frame_basic(frame)
 
 ### CRM
 
-Built-in contact management with cross-channel identity resolution:
+Built-in contact management with cross-channel identity resolution, multi-tenancy, and task workflows:
 
 ```python
 from robothor.crm.dal import create_person, list_people, merge_people
@@ -267,6 +272,62 @@ results = list_people(search="Jane")
 # Merge duplicates (keeper absorbs loser's data)
 merge_people(keeper_id=person_id, loser_id=duplicate_id)
 ```
+
+### Task State Machine
+
+Tasks follow a strict state machine with SLA tracking and review workflow:
+
+```
+TODO → IN_PROGRESS → REVIEW → DONE
+                  ↗ (reject)
+```
+
+```python
+from robothor.crm.dal import create_task, transition_task, approve_task
+
+# Create a task assigned to an agent
+task_id = create_task(
+    title="Analyze Q4 report",
+    assigned_to_agent="email-analyst",
+    priority="high",
+    tags=["analytical", "email"],
+)
+
+# State transitions are validated — can't skip steps
+transition_task(task_id, new_status="IN_PROGRESS", actor="email-analyst")
+transition_task(task_id, new_status="REVIEW", actor="email-analyst")
+
+# Approve or reject (reviewer can't be the assignee)
+approve_task(task_id, reviewer="supervisor", resolution="Analysis complete")
+```
+
+Every transition is recorded in `crm_task_history` with actor, reason, and metadata.
+
+### Multi-Tenancy
+
+All CRM data is tenant-scoped. A single deployment can serve multiple isolated tenants:
+
+```python
+from robothor.crm.dal import list_people, create_person
+
+# Each call is scoped to a tenant (default: "robothor-primary")
+people = list_people(tenant_id="client-a")
+person_id = create_person("Alice", "Chen", tenant_id="client-a")
+
+# The Bridge propagates tenant context via X-Tenant-Id header
+```
+
+### The Helm
+
+A live control plane dashboard (Next.js + Dockview) for monitoring and interacting with the system:
+
+- **Chat** — Direct conversation with agents via OpenClaw gateway
+- **Event Streams** — Real-time SSE feed from all Redis Streams
+- **Task Board** — Kanban view of agent tasks with approve/reject workflow
+- **Agent Status** — Live health and run status for all cron agents
+- **CRM Views** — Contacts, companies, conversations
+- **Service Health** — System topology and service status
+- **Tenant Switching** — Switch between tenants for multi-tenant deployments
 
 ## Requirements
 
@@ -335,7 +396,11 @@ ruff check robothor/ tests/
 mypy robothor/ --ignore-missing-imports
 ```
 
-**441 tests** across 25 test modules covering config, database, memory, events, consumers, audit, services, contact matching, LLM client, RAG pipeline, CRM, vision, and API layers.
+**1,150+ tests** across Python and TypeScript:
+- **483** package unit tests (29 modules — config, memory, events, consumers, audit, services, CRM, RAG, vision, API)
+- **199** Bridge integration tests (RBAC, multi-tenancy, task coordination, routines, merge)
+- **143** memory system tests (ingestion, analysis, vision)
+- **331** Helm vitest tests (32 suites — components, hooks, API routes, event bus)
 
 ## Development
 
@@ -355,11 +420,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards, PR process, and arc
 Robothor started as a personal AI system — an autonomous entity that manages email, calendar, CRM, vision security, and voice calls for its creator. After months of battle-testing in production (handling real emails, real meetings, real security alerts), the core intelligence layer is being extracted into this open-source package.
 
 The production system runs 24/7 on a single machine (NVIDIA Grace Blackwell GB10, 128 GB unified memory) with:
-- 1,100+ tests across Python and TypeScript
-- 23 services managed by a self-healing boot orchestrator
+- 1,150+ tests across Python and TypeScript
+- 25+ services managed by a self-healing boot orchestrator
+- 11 autonomous agent cron jobs with task-based coordination
 - Three-tier intelligence pipeline processing data every 10 minutes
 - Event-driven email pipeline with ~60-second end-to-end response time
 - Always-on vision system with face recognition and instant alerts
+- Live Helm dashboard with chat, task board, and event streams
 
 This package is the brain. Bring your own body.
 
@@ -369,24 +436,29 @@ MIT License. See [LICENSE](LICENSE).
 
 ## Status
 
-**v0.1.0** — Alpha. Full intelligence layer extracted and tested.
+**v0.1.0** — Alpha. Full intelligence layer extracted and tested. Production-validated.
 
 **Implemented:**
-- Config system with validation
+- Config system with validation and interactive setup wizard
 - Database connection factory with pooling
 - Service registry with topology sort and health checks
 - Event bus (Redis Streams) with RBAC and consumer groups
 - Event consumers (email, calendar, health, vision) with graceful shutdown
 - Audit logging with typed events
-- Memory system (facts, entities, lifecycle, conflicts, tiers, ingestion, dedup)
+- Memory system (facts, entities, blocks, lifecycle, conflicts, tiers, ingestion, dedup)
 - Contact matching with fuzzy name resolution
 - RAG pipeline (search, rerank, context assembly, web search, profiles)
 - LLM client (Ollama — chat, embeddings, model management)
-- CRM module (people, companies, notes, tasks, validation, blocklists)
+- CRM module (people, companies, notes, tasks, validation, blocklists, merge)
+- Task state machine (TODO → IN_PROGRESS → REVIEW → DONE) with SLA tracking
+- Review workflow with approve/reject, history tracking, and agent notifications
+- Multi-tenancy with tenant-scoped data isolation across all CRM tables
+- Routines — recurring task templates with cron expressions
 - Vision module (YOLO detection, InsightFace recognition, pluggable alerts, service loop)
-- API layer (FastAPI orchestrator, MCP server with 35 tools)
-- CLI tool (`robothor init`, `robothor status`, `robothor serve`, `robothor migrate`; `pipeline` coming in v0.2)
-- Agent templates (6 agents, 7 skills, 11 cron jobs, plugin template)
+- API layer (FastAPI orchestrator, MCP server with 42 tools)
+- The Helm — live dashboard with chat, task board, event streams, agent status
+- CLI tool (`robothor init`, `robothor status`, `robothor serve`, `robothor migrate`)
+- Agent templates (8 agents, 7 skills, 11 cron jobs, plugin template)
 - Infrastructure templates (Docker Compose, systemd services, env config)
 - 4 usage examples (basic-memory, rag-chatbot, vision-sentry, full-stack)
 

@@ -4,6 +4,8 @@ CRM Data Access Layer — PostgreSQL CRUD for all CRM entities.
 All operations use soft deletes (deleted_at). All mutations are audit-logged.
 Response shapes are defined in robothor.crm.models.
 
+Multi-tenant: every function accepts ``tenant_id`` (default ``"robothor-primary"``).
+
 Usage:
     from robothor.crm.dal import create_person, search_people, get_person
 
@@ -16,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from psycopg2.extras import RealDictCursor
@@ -23,9 +26,13 @@ from psycopg2.extras import RealDictCursor
 from robothor.crm.models import (
     company_to_dict,
     conversation_to_dict,
+    history_to_dict,
     note_to_dict,
+    notification_to_dict,
     person_to_dict,
+    routine_to_dict,
     task_to_dict,
+    tenant_to_dict,
 )
 from robothor.crm.validation import (
     COMPANY_BLOCKLIST,
@@ -36,6 +43,8 @@ from robothor.crm.validation import (
 from robothor.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TENANT = "robothor-primary"
 
 
 def _safe_audit(operation: str, entity_type: str, entity_id: str | None, **kwargs: Any) -> None:
@@ -51,7 +60,7 @@ def _safe_audit(operation: str, entity_type: str, entity_id: str | None, **kwarg
 # ─── People ──────────────────────────────────────────────────────────────
 
 
-def search_people(name: str) -> list[dict]:
+def search_people(name: str, tenant_id: str = DEFAULT_TENANT) -> list[dict]:
     """Search people by name (ILIKE on first_name/last_name)."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -61,12 +70,12 @@ def search_people(name: str) -> list[dict]:
             SELECT p.*, c.name AS company_name
             FROM crm_people p
             LEFT JOIN crm_companies c ON c.id = p.company_id
-            WHERE p.deleted_at IS NULL
+            WHERE p.deleted_at IS NULL AND p.tenant_id = %s
               AND (p.first_name ILIKE %s OR p.last_name ILIKE %s)
             ORDER BY p.updated_at DESC
             LIMIT 50
         """,
-            (pattern, pattern),
+            (tenant_id, pattern, pattern),
         )
         return [person_to_dict(r) for r in cur.fetchall()]
 
@@ -76,6 +85,7 @@ def create_person(
     last_name: str = "",
     email: str | None = None,
     phone: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> str | None:
     """Create a person. Returns person UUID, or None if blocked/invalid."""
     valid, reason = validate_person_input(first_name, last_name, email)
@@ -93,10 +103,10 @@ def create_person(
         try:
             cur.execute(
                 """
-                INSERT INTO crm_people (id, first_name, last_name, email, phone)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO crm_people (id, first_name, last_name, email, phone, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """,
-                (person_id, first_name, last_name, email, phone),
+                (person_id, first_name, last_name, email, phone, tenant_id),
             )
             conn.commit()
             _safe_audit(
@@ -108,6 +118,7 @@ def create_person(
                     "last_name": last_name,
                     "email": email,
                     "phone": phone,
+                    "tenant_id": tenant_id,
                 },
             )
             return person_id
@@ -117,7 +128,7 @@ def create_person(
             return None
 
 
-def get_person(person_id: str) -> dict | None:
+def get_person(person_id: str, tenant_id: str = DEFAULT_TENANT) -> dict | None:
     """Get a person by ID, with company JOIN."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -126,15 +137,15 @@ def get_person(person_id: str) -> dict | None:
             SELECT p.*, c.name AS company_name
             FROM crm_people p
             LEFT JOIN crm_companies c ON c.id = p.company_id
-            WHERE p.id = %s AND p.deleted_at IS NULL
+            WHERE p.id = %s AND p.deleted_at IS NULL AND p.tenant_id = %s
         """,
-            (person_id,),
+            (person_id, tenant_id),
         )
         row = cur.fetchone()
         return person_to_dict(row) if row else None
 
 
-def update_person(person_id: str, **fields: Any) -> bool:
+def update_person(person_id: str, tenant_id: str = DEFAULT_TENANT, **fields: Any) -> bool:
     """Update a person's fields. Only sets non-None fields."""
     for key in ("job_title", "city", "first_name", "last_name"):
         if key in fields and fields[key] is not None:
@@ -167,13 +178,13 @@ def update_person(person_id: str, **fields: Any) -> bool:
         return False
 
     sets.append("updated_at = NOW()")
-    vals.append(person_id)
+    vals.extend([person_id, tenant_id])
 
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
-                f"UPDATE crm_people SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL",
+                f"UPDATE crm_people SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
                 vals,
             )
             ok: bool = cur.rowcount > 0
@@ -187,15 +198,15 @@ def update_person(person_id: str, **fields: Any) -> bool:
             return False
 
 
-def delete_person(person_id: str) -> bool:
+def delete_person(person_id: str, tenant_id: str = DEFAULT_TENANT) -> bool:
     """Soft-delete a person."""
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
                 "UPDATE crm_people SET deleted_at = NOW(), updated_at = NOW() "
-                "WHERE id = %s AND deleted_at IS NULL",
-                (person_id,),
+                "WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (person_id, tenant_id),
             )
             ok: bool = cur.rowcount > 0
             conn.commit()
@@ -208,7 +219,7 @@ def delete_person(person_id: str) -> bool:
             return False
 
 
-def merge_people(keeper_id: str, loser_id: str) -> dict | None:
+def merge_people(keeper_id: str, loser_id: str, tenant_id: str = DEFAULT_TENANT) -> dict | None:
     """Merge loser into keeper in a single transaction.
 
     1. Fill keeper's empty fields from loser
@@ -221,11 +232,13 @@ def merge_people(keeper_id: str, loser_id: str) -> dict | None:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             cur.execute(
-                "SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL", (keeper_id,)
+                "SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (keeper_id, tenant_id),
             )
             keeper = cur.fetchone()
             cur.execute(
-                "SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL", (loser_id,)
+                "SELECT * FROM crm_people WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (loser_id, tenant_id),
             )
             loser = cur.fetchone()
 
@@ -321,12 +334,13 @@ def merge_people(keeper_id: str, loser_id: str) -> dict | None:
             loser_name = f"{loser.get('first_name', '')} {loser.get('last_name', '')}".strip()
             note_id = str(uuid.uuid4())
             cur.execute(
-                "INSERT INTO crm_notes (id, title, body, person_id) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO crm_notes (id, title, body, person_id, tenant_id) VALUES (%s, %s, %s, %s, %s)",
                 (
                     note_id,
                     "Duplicate Merged",
                     f"Merged duplicate: {loser_name} (id: {loser_id})",
                     keeper_id,
+                    tenant_id,
                 ),
             )
 
@@ -337,7 +351,7 @@ def merge_people(keeper_id: str, loser_id: str) -> dict | None:
                 keeper_id,
                 details={"loser_id": loser_id, "loser_name": loser_name},
             )
-            return get_person(keeper_id)
+            return get_person(keeper_id, tenant_id)
 
         except Exception as e:
             conn.rollback()
@@ -345,7 +359,7 @@ def merge_people(keeper_id: str, loser_id: str) -> dict | None:
             return None
 
 
-def merge_companies(keeper_id: str, loser_id: str) -> dict | None:
+def merge_companies(keeper_id: str, loser_id: str, tenant_id: str = DEFAULT_TENANT) -> dict | None:
     """Merge loser company into keeper.
 
     1. Fill keeper's empty fields from loser
@@ -356,11 +370,13 @@ def merge_companies(keeper_id: str, loser_id: str) -> dict | None:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             cur.execute(
-                "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL", (keeper_id,)
+                "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (keeper_id, tenant_id),
             )
             keeper = cur.fetchone()
             cur.execute(
-                "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL", (loser_id,)
+                "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (loser_id, tenant_id),
             )
             loser = cur.fetchone()
 
@@ -410,7 +426,7 @@ def merge_companies(keeper_id: str, loser_id: str) -> dict | None:
                 keeper_id,
                 details={"loser_id": loser_id, "loser_name": loser.get("name", "")},
             )
-            return get_company(keeper_id)
+            return get_company(keeper_id, tenant_id)
 
         except Exception as e:
             conn.rollback()
@@ -418,10 +434,12 @@ def merge_companies(keeper_id: str, loser_id: str) -> dict | None:
             return None
 
 
-def list_people(search: str | None = None, limit: int = 20) -> list[dict]:
+def list_people(
+    search: str | None = None, limit: int = 20, tenant_id: str = DEFAULT_TENANT
+) -> list[dict]:
     """List people, optionally filtered by search term."""
     if search:
-        return search_people(search)
+        return search_people(search, tenant_id)
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
@@ -429,10 +447,10 @@ def list_people(search: str | None = None, limit: int = 20) -> list[dict]:
             SELECT p.*, c.name AS company_name
             FROM crm_people p
             LEFT JOIN crm_companies c ON c.id = p.company_id
-            WHERE p.deleted_at IS NULL
+            WHERE p.deleted_at IS NULL AND p.tenant_id = %s
             ORDER BY p.updated_at DESC LIMIT %s
         """,
-            (limit,),
+            (tenant_id, limit),
         )
         return [person_to_dict(r) for r in cur.fetchall()]
 
@@ -440,7 +458,7 @@ def list_people(search: str | None = None, limit: int = 20) -> list[dict]:
 # ─── Companies ───────────────────────────────────────────────────────────
 
 
-def find_or_create_company(name: str) -> str | None:
+def find_or_create_company(name: str, tenant_id: str = DEFAULT_TENANT) -> str | None:
     """Find a company by name (ILIKE), or create it. Returns company UUID."""
     if name.strip().lower() in COMPANY_BLOCKLIST:
         logger.info("Blocked find_or_create_company(%s): in blocklist", name)
@@ -449,8 +467,8 @@ def find_or_create_company(name: str) -> str | None:
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT id FROM crm_companies WHERE name ILIKE %s AND deleted_at IS NULL LIMIT 1",
-            (f"%{name}%",),
+            "SELECT id FROM crm_companies WHERE name ILIKE %s AND deleted_at IS NULL AND tenant_id = %s LIMIT 1",
+            (f"%{name}%", tenant_id),
         )
         row = cur.fetchone()
         if row:
@@ -459,7 +477,10 @@ def find_or_create_company(name: str) -> str | None:
 
         company_id = str(uuid.uuid4())
         try:
-            cur.execute("INSERT INTO crm_companies (id, name) VALUES (%s, %s)", (company_id, name))
+            cur.execute(
+                "INSERT INTO crm_companies (id, name, tenant_id) VALUES (%s, %s, %s)",
+                (company_id, name, tenant_id),
+            )
             conn.commit()
             _safe_audit(
                 "create", "company", company_id, details={"name": name, "via": "find_or_create"}
@@ -478,6 +499,7 @@ def create_company(
     address: str | None = None,
     linkedin_url: str | None = None,
     ideal_customer_profile: bool = False,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> str | None:
     """Create a company. Returns company UUID."""
     company_id = str(uuid.uuid4())
@@ -487,8 +509,8 @@ def create_company(
             cur.execute(
                 """
                 INSERT INTO crm_companies (id, name, domain_name, employees,
-                    address, linkedin_url, ideal_customer_profile)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    address, linkedin_url, ideal_customer_profile, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     company_id,
@@ -498,6 +520,7 @@ def create_company(
                     address,
                     linkedin_url,
                     ideal_customer_profile,
+                    tenant_id,
                 ),
             )
             conn.commit()
@@ -509,19 +532,19 @@ def create_company(
             return None
 
 
-def get_company(company_id: str) -> dict | None:
+def get_company(company_id: str, tenant_id: str = DEFAULT_TENANT) -> dict | None:
     """Get a company by ID."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL",
-            (company_id,),
+            "SELECT * FROM crm_companies WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+            (company_id, tenant_id),
         )
         row = cur.fetchone()
         return company_to_dict(row) if row else None
 
 
-def update_company(company_id: str, **fields: Any) -> bool:
+def update_company(company_id: str, tenant_id: str = DEFAULT_TENANT, **fields: Any) -> bool:
     """Update a company's fields. Only sets non-None fields."""
     col_map = {
         "domain_name": "domain_name",
@@ -542,13 +565,13 @@ def update_company(company_id: str, **fields: Any) -> bool:
         return False
 
     sets.append("updated_at = NOW()")
-    vals.append(company_id)
+    vals.extend([company_id, tenant_id])
 
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
-                f"UPDATE crm_companies SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL",
+                f"UPDATE crm_companies SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
                 vals,
             )
             ok: bool = cur.rowcount > 0
@@ -564,15 +587,15 @@ def update_company(company_id: str, **fields: Any) -> bool:
             return False
 
 
-def delete_company(company_id: str) -> bool:
+def delete_company(company_id: str, tenant_id: str = DEFAULT_TENANT) -> bool:
     """Soft-delete a company."""
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
                 "UPDATE crm_companies SET deleted_at = NOW(), updated_at = NOW() "
-                "WHERE id = %s AND deleted_at IS NULL",
-                (company_id,),
+                "WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (company_id, tenant_id),
             )
             ok: bool = cur.rowcount > 0
             conn.commit()
@@ -585,7 +608,9 @@ def delete_company(company_id: str) -> bool:
             return False
 
 
-def list_companies(search: str | None = None, limit: int = 50) -> list[dict]:
+def list_companies(
+    search: str | None = None, limit: int = 50, tenant_id: str = DEFAULT_TENANT
+) -> list[dict]:
     """List companies, optionally filtered by name search."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -593,19 +618,19 @@ def list_companies(search: str | None = None, limit: int = 50) -> list[dict]:
             cur.execute(
                 """
                 SELECT * FROM crm_companies
-                WHERE deleted_at IS NULL AND name ILIKE %s
+                WHERE deleted_at IS NULL AND tenant_id = %s AND name ILIKE %s
                 ORDER BY updated_at DESC LIMIT %s
             """,
-                (f"%{search}%", limit),
+                (tenant_id, f"%{search}%", limit),
             )
         else:
             cur.execute(
                 """
                 SELECT * FROM crm_companies
-                WHERE deleted_at IS NULL
+                WHERE deleted_at IS NULL AND tenant_id = %s
                 ORDER BY updated_at DESC LIMIT %s
             """,
-                (limit,),
+                (tenant_id, limit),
             )
         return [company_to_dict(r) for r in cur.fetchall()]
 
@@ -618,6 +643,7 @@ def create_note(
     body: str,
     person_id: str | None = None,
     company_id: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> str | None:
     """Create a note. Returns note UUID."""
     note_id = str(uuid.uuid4())
@@ -626,10 +652,10 @@ def create_note(
         try:
             cur.execute(
                 """
-                INSERT INTO crm_notes (id, title, body, person_id, company_id)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO crm_notes (id, title, body, person_id, company_id, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """,
-                (note_id, title, body, person_id, company_id),
+                (note_id, title, body, person_id, company_id, tenant_id),
             )
             conn.commit()
             _safe_audit("create", "note", note_id, details={"title": title})
@@ -640,13 +666,13 @@ def create_note(
             return None
 
 
-def get_note(note_id: str) -> dict | None:
+def get_note(note_id: str, tenant_id: str = DEFAULT_TENANT) -> dict | None:
     """Get a note by ID."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT * FROM crm_notes WHERE id = %s AND deleted_at IS NULL",
-            (note_id,),
+            "SELECT * FROM crm_notes WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+            (note_id, tenant_id),
         )
         row = cur.fetchone()
         return note_to_dict(row) if row else None
@@ -656,12 +682,13 @@ def list_notes(
     person_id: str | None = None,
     company_id: str | None = None,
     limit: int = 50,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> list[dict]:
     """List notes with optional person/company filter."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        conditions = ["deleted_at IS NULL"]
-        params: list[Any] = []
+        conditions = ["deleted_at IS NULL", "tenant_id = %s"]
+        params: list[Any] = [tenant_id]
         if person_id:
             conditions.append("person_id = %s")
             params.append(person_id)
@@ -677,7 +704,7 @@ def list_notes(
         return [note_to_dict(r) for r in cur.fetchall()]
 
 
-def update_note(note_id: str, **fields: Any) -> bool:
+def update_note(note_id: str, tenant_id: str = DEFAULT_TENANT, **fields: Any) -> bool:
     """Update a note. Accepted: title, body, person_id, company_id."""
     col_map = {
         "title": "title",
@@ -694,12 +721,12 @@ def update_note(note_id: str, **fields: Any) -> bool:
     if not sets:
         return False
     sets.append("updated_at = NOW()")
-    vals.append(note_id)
+    vals.extend([note_id, tenant_id])
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
-                f"UPDATE crm_notes SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL",
+                f"UPDATE crm_notes SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
                 vals,
             )
             ok: bool = cur.rowcount > 0
@@ -713,15 +740,15 @@ def update_note(note_id: str, **fields: Any) -> bool:
             return False
 
 
-def delete_note(note_id: str) -> bool:
+def delete_note(note_id: str, tenant_id: str = DEFAULT_TENANT) -> bool:
     """Soft-delete a note."""
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
                 "UPDATE crm_notes SET deleted_at = NOW(), updated_at = NOW() "
-                "WHERE id = %s AND deleted_at IS NULL",
-                (note_id,),
+                "WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (note_id, tenant_id),
             )
             ok: bool = cur.rowcount > 0
             conn.commit()
@@ -736,6 +763,89 @@ def delete_note(note_id: str) -> bool:
 
 # ─── Tasks ───────────────────────────────────────────────────────────────
 
+# Valid status transitions (from -> set of allowed targets)
+VALID_TRANSITIONS: dict[str, set[str]] = {
+    "TODO": {"IN_PROGRESS", "DONE"},
+    "IN_PROGRESS": {"REVIEW", "TODO", "DONE"},
+    "REVIEW": {"DONE", "IN_PROGRESS", "TODO"},
+    "DONE": {"TODO"},
+}
+
+# SLA deadlines by priority
+SLA_DEADLINES: dict[str, timedelta] = {
+    "urgent": timedelta(minutes=30),
+    "high": timedelta(hours=2),
+    "normal": timedelta(hours=8),
+    "low": timedelta(hours=24),
+}
+
+
+def _validate_transition(
+    current: str, target: str, resolution: str | None = None
+) -> tuple[bool, str]:
+    """Validate a status transition. Returns (ok, reason)."""
+    allowed = VALID_TRANSITIONS.get(current)
+    if allowed is None:
+        return False, f"Unknown current status '{current}'"
+    if target not in allowed:
+        return (
+            False,
+            f"Cannot transition from {current} to {target}. Allowed: {', '.join(sorted(allowed))}",
+        )
+    if target == "DONE" and current == "REVIEW" and not resolution:
+        return False, "REVIEW -> DONE requires a resolution"
+    return True, ""
+
+
+def _compute_sla_deadline(priority: str) -> datetime | None:
+    """Compute SLA deadline from priority."""
+    delta = SLA_DEADLINES.get(priority)
+    if delta is None:
+        return None
+    return datetime.now(UTC) + delta
+
+
+def _record_transition(
+    cur: Any,
+    task_id: str,
+    from_status: str | None,
+    to_status: str,
+    changed_by: str | None = None,
+    reason: str | None = None,
+    metadata: dict | None = None,
+    tenant_id: str = DEFAULT_TENANT,
+) -> None:
+    """Append a row to crm_task_history."""
+    cur.execute(
+        """INSERT INTO crm_task_history (id, task_id, from_status, to_status, changed_by, reason, metadata, tenant_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+        (
+            str(uuid.uuid4()),
+            task_id,
+            from_status,
+            to_status,
+            changed_by,
+            reason,
+            json.dumps(metadata) if metadata else None,
+            tenant_id,
+        ),
+    )
+
+
+def _check_subtask_completion(cur: Any, task_id: str) -> str | None:
+    """Check if child tasks are incomplete. Returns warning message or None."""
+    cur.execute(
+        """SELECT COUNT(*) AS total,
+                  COUNT(*) FILTER (WHERE status != 'DONE') AS incomplete
+           FROM crm_tasks
+           WHERE parent_task_id = %s AND deleted_at IS NULL""",
+        (task_id,),
+    )
+    row = cur.fetchone()
+    if row and row["total"] > 0 and row["incomplete"] > 0:
+        return f"{row['incomplete']} of {row['total']} subtasks are not DONE"
+    return None
+
 
 def create_task(
     title: str,
@@ -749,17 +859,21 @@ def create_task(
     priority: str = "normal",
     tags: list[str] | None = None,
     parent_task_id: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> str | None:
     """Create a task. Returns task UUID."""
     task_id = str(uuid.uuid4())
+    sla_deadline = _compute_sla_deadline(priority)
+    started = datetime.now(UTC) if status == "IN_PROGRESS" else None
     with get_connection() as conn:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             cur.execute(
                 """
                 INSERT INTO crm_tasks (id, title, body, status, due_at, person_id, company_id,
-                                       created_by_agent, assigned_to_agent, priority, tags, parent_task_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                       created_by_agent, assigned_to_agent, priority, tags,
+                                       parent_task_id, sla_deadline_at, started_at, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     task_id,
@@ -774,7 +888,19 @@ def create_task(
                     priority,
                     tags or [],
                     parent_task_id,
+                    sla_deadline,
+                    started,
+                    tenant_id,
                 ),
+            )
+            _record_transition(
+                cur,
+                task_id,
+                None,
+                status,
+                changed_by=created_by_agent or "system",
+                reason="Task created",
+                tenant_id=tenant_id,
             )
             conn.commit()
             _safe_audit(
@@ -795,13 +921,13 @@ def create_task(
             return None
 
 
-def get_task(task_id: str) -> dict | None:
+def get_task(task_id: str, tenant_id: str = DEFAULT_TENANT) -> dict | None:
     """Get a task by ID."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT * FROM crm_tasks WHERE id = %s AND deleted_at IS NULL",
-            (task_id,),
+            "SELECT * FROM crm_tasks WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+            (task_id, tenant_id),
         )
         row = cur.fetchone()
         return task_to_dict(row) if row else None
@@ -817,12 +943,13 @@ def list_tasks(
     priority: str | None = None,
     parent_task_id: str | None = None,
     exclude_resolved: bool = False,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> list[dict]:
     """List tasks with optional filters."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        conditions = ["deleted_at IS NULL"]
-        params: list[Any] = []
+        conditions = ["deleted_at IS NULL", "tenant_id = %s"]
+        params: list[Any] = [tenant_id]
         if status:
             conditions.append("status = %s")
             params.append(status)
@@ -855,13 +982,25 @@ def list_tasks(
         return [task_to_dict(r) for r in cur.fetchall()]
 
 
-def update_task(task_id: str, **fields: Any) -> bool:
+def update_task(
+    task_id: str, changed_by: str | None = None, tenant_id: str = DEFAULT_TENANT, **fields: Any
+) -> bool | dict:
     """Update a task.
 
     Accepted: title, body, status, due_at, person_id, company_id,
               created_by_agent, assigned_to_agent, priority, tags,
               parent_task_id, resolved_at, resolution.
+
+    When a status transition is requested:
+    - Validates against VALID_TRANSITIONS
+    - Records history in crm_task_history
+    - Returns dict with warning if subtasks are incomplete
+    - Returns ``{"error": reason, "from": ..., "to": ...}`` on invalid transition
+
+    Returns True on success, dict on transition with details, False if not found.
     """
+    new_status = fields.get("status")
+
     col_map = {
         "title": "title",
         "body": "body",
@@ -889,34 +1028,73 @@ def update_task(task_id: str, **fields: Any) -> bool:
     if not sets:
         return False
     sets.append("updated_at = NOW()")
-    vals.append(task_id)
+    vals.extend([task_id, tenant_id])
     with get_connection() as conn:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
+            # If status is changing, validate the transition
+            current_status = None
+            subtask_warning = None
+            if new_status:
+                cur.execute(
+                    "SELECT status FROM crm_tasks WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                    (task_id, tenant_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return False
+                current_status = row["status"]
+                if current_status != new_status:
+                    ok, reason = _validate_transition(
+                        current_status, new_status, fields.get("resolution")
+                    )
+                    if not ok:
+                        return {"error": reason, "from": current_status, "to": new_status}
+                    # Auto-set started_at on first move to IN_PROGRESS
+                    if new_status == "IN_PROGRESS":
+                        sets.insert(-1, "started_at = COALESCE(started_at, NOW())")
+                    # Check subtask completion (soft gate)
+                    if new_status in ("REVIEW", "DONE"):
+                        subtask_warning = _check_subtask_completion(cur, task_id)
+
             cur.execute(
-                f"UPDATE crm_tasks SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL",
+                f"UPDATE crm_tasks SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
                 vals,
             )
-            ok: bool = cur.rowcount > 0
+            ok_bool: bool = cur.rowcount > 0
+            # Record transition history
+            if ok_bool and new_status and current_status and current_status != new_status:
+                _record_transition(
+                    cur,
+                    task_id,
+                    current_status,
+                    new_status,
+                    changed_by=changed_by,
+                    reason=fields.get("resolution"),
+                    metadata={"subtask_warning": subtask_warning} if subtask_warning else None,
+                    tenant_id=tenant_id,
+                )
             conn.commit()
-            if ok:
+            if ok_bool:
                 _safe_audit("update", "task", task_id, details={"fields": list(fields.keys())})
-            return ok
+                if subtask_warning:
+                    return {"success": True, "warning": subtask_warning}
+            return ok_bool
         except Exception as e:
             conn.rollback()
             logger.error("Failed to update task %s: %s", task_id, e)
             return False
 
 
-def delete_task(task_id: str) -> bool:
+def delete_task(task_id: str, tenant_id: str = DEFAULT_TENANT) -> bool:
     """Soft-delete a task."""
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
                 "UPDATE crm_tasks SET deleted_at = NOW(), updated_at = NOW() "
-                "WHERE id = %s AND deleted_at IS NULL",
-                (task_id,),
+                "WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (task_id, tenant_id),
             )
             ok: bool = cur.rowcount > 0
             conn.commit()
@@ -934,16 +1112,13 @@ def list_agent_tasks(
     include_unassigned: bool = False,
     status: str | None = None,
     limit: int = 50,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> list[dict]:
-    """Get an agent's task inbox, priority-ordered.
-
-    Returns tasks assigned to this agent (and optionally unassigned tasks),
-    ordered by priority (urgent > high > normal > low), then due_at, then created_at.
-    """
+    """Get an agent's task inbox, priority-ordered."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        conditions = ["deleted_at IS NULL"]
-        params: list[Any] = []
+        conditions = ["deleted_at IS NULL", "tenant_id = %s"]
+        params: list[Any] = [tenant_id]
         if include_unassigned:
             conditions.append("(assigned_to_agent = %s OR assigned_to_agent IS NULL)")
             params.append(agent_id)
@@ -977,21 +1152,36 @@ def resolve_task(
     task_id: str,
     resolution: str,
     agent_id: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> bool:
-    """Mark a task as DONE with a resolution summary.
-
-    Sets status=DONE, resolved_at=NOW(), and the resolution text.
-    """
+    """Mark a task as DONE with a resolution summary."""
     with get_connection() as conn:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
+            cur.execute(
+                "SELECT status FROM crm_tasks WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (task_id, tenant_id),
+            )
+            row = cur.fetchone()
+            from_status = row["status"] if row else None
+
             cur.execute(
                 """UPDATE crm_tasks
                    SET status = 'DONE', resolved_at = NOW(), resolution = %s, updated_at = NOW()
-                   WHERE id = %s AND deleted_at IS NULL""",
-                (resolution, task_id),
+                   WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s""",
+                (resolution, task_id, tenant_id),
             )
             ok: bool = cur.rowcount > 0
+            if ok and from_status:
+                _record_transition(
+                    cur,
+                    task_id,
+                    from_status,
+                    "DONE",
+                    changed_by=agent_id or "system",
+                    reason=resolution,
+                    tenant_id=tenant_id,
+                )
             conn.commit()
             if ok:
                 _safe_audit(
@@ -1010,6 +1200,160 @@ def resolve_task(
             return False
 
 
+def approve_task(
+    task_id: str,
+    resolution: str,
+    reviewer: str,
+    tenant_id: str = DEFAULT_TENANT,
+) -> bool | dict:
+    """Approve a task in REVIEW status. Reviewer must differ from assignee."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT status, assigned_to_agent FROM crm_tasks WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (task_id, tenant_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            if row["status"] != "REVIEW":
+                return {"error": f"Task is in '{row['status']}', expected REVIEW"}
+            if reviewer == row.get("assigned_to_agent"):
+                return {"error": "Reviewer cannot be the same as the assignee"}
+            if not resolution:
+                return {"error": "Resolution is required for approval"}
+
+            cur.execute(
+                """UPDATE crm_tasks
+                   SET status = 'DONE', resolved_at = NOW(), resolution = %s, updated_at = NOW()
+                   WHERE id = %s AND tenant_id = %s""",
+                (resolution, task_id, tenant_id),
+            )
+            _record_transition(
+                cur,
+                task_id,
+                "REVIEW",
+                "DONE",
+                changed_by=reviewer,
+                reason=resolution,
+                tenant_id=tenant_id,
+            )
+            conn.commit()
+            _safe_audit("approve", "task", task_id, details={"reviewer": reviewer})
+
+            # Send review_approved notification
+            send_notification(
+                from_agent=reviewer,
+                to_agent=row.get("assigned_to_agent") or "",
+                notification_type="review_approved",
+                subject=f"Task approved: {task_id}",
+                body=resolution,
+                task_id=task_id,
+                tenant_id=tenant_id,
+            )
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to approve task %s: %s", task_id, e)
+            return False
+
+
+def reject_task(
+    task_id: str,
+    reason: str,
+    reviewer: str,
+    change_requests: list[str] | None = None,
+    tenant_id: str = DEFAULT_TENANT,
+) -> bool | dict:
+    """Reject a task in REVIEW status. Reverts to IN_PROGRESS."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT status, assigned_to_agent FROM crm_tasks WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (task_id, tenant_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            if row["status"] != "REVIEW":
+                return {"error": f"Task is in '{row['status']}', expected REVIEW"}
+            if not reason:
+                return {"error": "Reason is required for rejection"}
+
+            cur.execute(
+                """UPDATE crm_tasks
+                   SET status = 'IN_PROGRESS', updated_at = NOW()
+                   WHERE id = %s AND tenant_id = %s""",
+                (task_id, tenant_id),
+            )
+            _record_transition(
+                cur,
+                task_id,
+                "REVIEW",
+                "IN_PROGRESS",
+                changed_by=reviewer,
+                reason=reason,
+                metadata={"change_requests": change_requests} if change_requests else None,
+                tenant_id=tenant_id,
+            )
+
+            # Create subtasks from change_requests
+            if change_requests:
+                for cr in change_requests:
+                    subtask_id = str(uuid.uuid4())
+                    cur.execute(
+                        """INSERT INTO crm_tasks (id, title, body, status, parent_task_id,
+                                                   assigned_to_agent, created_by_agent,
+                                                   priority, tenant_id)
+                           VALUES (%s, %s, %s, 'TODO', %s, %s, %s, 'high', %s)""",
+                        (
+                            subtask_id,
+                            cr,
+                            f"Change requested by {reviewer}",
+                            task_id,
+                            row.get("assigned_to_agent"),
+                            reviewer,
+                            tenant_id,
+                        ),
+                    )
+
+            conn.commit()
+            _safe_audit("reject", "task", task_id, details={"reviewer": reviewer, "reason": reason})
+
+            # Send review_rejected notification
+            send_notification(
+                from_agent=reviewer,
+                to_agent=row.get("assigned_to_agent") or "",
+                notification_type="review_rejected",
+                subject=f"Task rejected: {task_id}",
+                body=reason,
+                task_id=task_id,
+                metadata={"change_requests": change_requests} if change_requests else {},
+                tenant_id=tenant_id,
+            )
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to reject task %s: %s", task_id, e)
+            return False
+
+
+def get_task_history(task_id: str, limit: int = 50, tenant_id: str = DEFAULT_TENANT) -> list[dict]:
+    """Get transition history for a task, most recent first."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            """SELECT * FROM crm_task_history
+               WHERE task_id = %s AND tenant_id = %s
+               ORDER BY created_at DESC
+               LIMIT %s""",
+            (task_id, tenant_id, limit),
+        )
+        return [history_to_dict(r) for r in cur.fetchall()]
+
+
 # ─── Conversations ───────────────────────────────────────────────────────
 
 
@@ -1017,6 +1361,7 @@ def list_conversations(
     status: str = "open",
     page: int = 1,
     page_size: int = 25,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> list[dict]:
     """List conversations by status with pagination."""
     offset = (page - 1) * page_size
@@ -1028,16 +1373,16 @@ def list_conversations(
                    COALESCE(p.first_name || ' ' || p.last_name, '') AS person_name
             FROM crm_conversations c
             LEFT JOIN crm_people p ON p.id = c.person_id
-            WHERE c.status = %s
+            WHERE c.status = %s AND c.tenant_id = %s
             ORDER BY c.last_activity_at DESC NULLS LAST
             LIMIT %s OFFSET %s
         """,
-            (status, page_size, offset),
+            (status, tenant_id, page_size, offset),
         )
         return [conversation_to_dict(r) for r in cur.fetchall()]
 
 
-def get_conversation(conversation_id: int) -> dict | None:
+def get_conversation(conversation_id: int, tenant_id: str = DEFAULT_TENANT) -> dict | None:
     """Get a conversation by ID."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -1047,25 +1392,25 @@ def get_conversation(conversation_id: int) -> dict | None:
                    COALESCE(p.first_name || ' ' || p.last_name, '') AS person_name
             FROM crm_conversations c
             LEFT JOIN crm_people p ON p.id = c.person_id
-            WHERE c.id = %s
+            WHERE c.id = %s AND c.tenant_id = %s
         """,
-            (conversation_id,),
+            (conversation_id, tenant_id),
         )
         row = cur.fetchone()
         return conversation_to_dict(row) if row else None
 
 
-def list_messages(conversation_id: int) -> list[dict]:
+def list_messages(conversation_id: int, tenant_id: str = DEFAULT_TENANT) -> list[dict]:
     """List all messages in a conversation."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
             SELECT * FROM crm_messages
-            WHERE conversation_id = %s
+            WHERE conversation_id = %s AND tenant_id = %s
             ORDER BY created_at ASC
         """,
-            (conversation_id,),
+            (conversation_id, tenant_id),
         )
         return [dict(r) for r in cur.fetchall()]
 
@@ -1075,6 +1420,7 @@ def send_message(
     content: str,
     message_type: str = "outgoing",
     private: bool = False,
+    tenant_id: str = DEFAULT_TENANT,
 ) -> dict | None:
     """Create a message in a conversation."""
     with get_connection() as conn:
@@ -1083,10 +1429,10 @@ def send_message(
             msg_id = str(uuid.uuid4())
             cur.execute(
                 """
-                INSERT INTO crm_messages (id, conversation_id, content, message_type, private)
-                VALUES (%s, %s, %s, %s, %s) RETURNING *
+                INSERT INTO crm_messages (id, conversation_id, content, message_type, private, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING *
             """,
-                (msg_id, conversation_id, content, message_type, private),
+                (msg_id, conversation_id, content, message_type, private, tenant_id),
             )
             msg = cur.fetchone()
 
@@ -1109,14 +1455,16 @@ def send_message(
             return None
 
 
-def toggle_conversation_status(conversation_id: int, status: str) -> bool:
+def toggle_conversation_status(
+    conversation_id: int, status: str, tenant_id: str = DEFAULT_TENANT
+) -> bool:
     """Update conversation status (open/resolved/pending/snoozed)."""
     with get_connection() as conn:
         cur = conn.cursor()
         try:
             cur.execute(
-                "UPDATE crm_conversations SET status = %s, updated_at = NOW() WHERE id = %s",
-                (status, conversation_id),
+                "UPDATE crm_conversations SET status = %s, updated_at = NOW() WHERE id = %s AND tenant_id = %s",
+                (status, conversation_id, tenant_id),
             )
             ok: bool = cur.rowcount > 0
             conn.commit()
@@ -1124,6 +1472,494 @@ def toggle_conversation_status(conversation_id: int, status: str) -> bool:
         except Exception as e:
             conn.rollback()
             logger.error("Failed to toggle conversation %s: %s", conversation_id, e)
+            return False
+
+
+# ─── Routines ────────────────────────────────────────────────────────────
+
+
+def _compute_next_run(cron_expr: str, tz_name: str = "America/New_York") -> datetime | None:
+    """Compute next run time from a cron expression."""
+    try:
+        import pytz  # type: ignore[import-untyped]
+        from croniter import croniter  # type: ignore[import-untyped]
+
+        tz = pytz.timezone(tz_name)
+        now = datetime.now(tz)
+        cron = croniter(cron_expr, now)
+        next_dt: datetime = cron.get_next(datetime)
+        return next_dt.astimezone(UTC)
+    except Exception as e:
+        logger.warning("Failed to compute next_run for '%s': %s", cron_expr, e)
+        return None
+
+
+def create_routine(
+    title: str,
+    cron_expr: str,
+    body: str | None = None,
+    tz: str = "America/New_York",
+    assigned_to_agent: str | None = None,
+    priority: str = "normal",
+    tags: list[str] | None = None,
+    person_id: str | None = None,
+    company_id: str | None = None,
+    created_by: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
+) -> str | None:
+    """Create a routine. Returns routine UUID."""
+    routine_id = str(uuid.uuid4())
+    next_run = _compute_next_run(cron_expr, tz)
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """INSERT INTO crm_routines
+                   (id, title, body, cron_expr, timezone, assigned_to_agent,
+                    priority, tags, person_id, company_id, created_by, next_run_at, tenant_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    routine_id,
+                    title,
+                    body,
+                    cron_expr,
+                    tz,
+                    assigned_to_agent,
+                    priority,
+                    tags or [],
+                    person_id,
+                    company_id,
+                    created_by,
+                    next_run,
+                    tenant_id,
+                ),
+            )
+            conn.commit()
+            _safe_audit(
+                "create", "routine", routine_id, details={"title": title, "cron": cron_expr}
+            )
+            return routine_id
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to create routine: %s", e)
+            return None
+
+
+def list_routines(
+    active_only: bool = True, limit: int = 50, tenant_id: str = DEFAULT_TENANT
+) -> list[dict]:
+    """List routines, optionally filtered to active only."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conditions = ["deleted_at IS NULL", "tenant_id = %s"]
+        params: list[Any] = [tenant_id]
+        if active_only:
+            conditions.append("active = TRUE")
+        params.append(limit)
+        cur.execute(
+            f"SELECT * FROM crm_routines WHERE {' AND '.join(conditions)} "
+            f"ORDER BY next_run_at ASC NULLS LAST LIMIT %s",
+            params,
+        )
+        return [routine_to_dict(r) for r in cur.fetchall()]
+
+
+def update_routine(routine_id: str, tenant_id: str = DEFAULT_TENANT, **fields: Any) -> bool:
+    """Update a routine's fields."""
+    col_map = {
+        "title": "title",
+        "body": "body",
+        "cron_expr": "cron_expr",
+        "timezone": "timezone",
+        "assigned_to_agent": "assigned_to_agent",
+        "priority": "priority",
+        "active": "active",
+        "person_id": "person_id",
+        "company_id": "company_id",
+    }
+    sets: list[str] = []
+    vals: list[Any] = []
+    for key, col in col_map.items():
+        if key in fields and fields[key] is not None:
+            sets.append(f"{col} = %s")
+            vals.append(fields[key])
+    if "tags" in fields and fields["tags"] is not None:
+        sets.append("tags = %s")
+        vals.append(fields["tags"])
+    if not sets:
+        return False
+    # Recompute next_run_at if cron_expr or timezone changed
+    if "cron_expr" in fields or "timezone" in fields:
+        cron = fields.get("cron_expr")
+        tz = fields.get("timezone", "America/New_York")
+        if cron:
+            next_run = _compute_next_run(cron, tz)
+            sets.append("next_run_at = %s")
+            vals.append(next_run)
+    sets.append("updated_at = NOW()")
+    vals.extend([routine_id, tenant_id])
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"UPDATE crm_routines SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                vals,
+            )
+            ok: bool = cur.rowcount > 0
+            conn.commit()
+            return ok
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to update routine %s: %s", routine_id, e)
+            return False
+
+
+def delete_routine(routine_id: str, tenant_id: str = DEFAULT_TENANT) -> bool:
+    """Soft-delete a routine."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE crm_routines SET deleted_at = NOW(), updated_at = NOW() "
+                "WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s",
+                (routine_id, tenant_id),
+            )
+            ok: bool = cur.rowcount > 0
+            conn.commit()
+            return ok
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to delete routine %s: %s", routine_id, e)
+            return False
+
+
+def get_due_routines(tenant_id: str = DEFAULT_TENANT) -> list[dict]:
+    """Get routines due for triggering (next_run_at <= NOW(), active, not deleted)."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            """SELECT r.* FROM crm_routines r
+               WHERE r.active = TRUE
+                 AND r.deleted_at IS NULL
+                 AND r.tenant_id = %s
+                 AND r.next_run_at <= NOW()
+                 AND NOT EXISTS (
+                     SELECT 1 FROM crm_tasks t
+                     WHERE t.title = r.title
+                       AND t.created_by_agent = 'routine-trigger'
+                       AND t.status IN ('TODO', 'IN_PROGRESS', 'REVIEW')
+                       AND t.deleted_at IS NULL
+                 )
+               ORDER BY r.next_run_at ASC""",
+            (tenant_id,),
+        )
+        return [routine_to_dict(r) for r in cur.fetchall()]
+
+
+def advance_routine(routine_id: str) -> bool:
+    """Advance a routine's next_run_at after triggering."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT cron_expr, timezone FROM crm_routines WHERE id = %s",
+                (routine_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            next_run = _compute_next_run(row["cron_expr"], row["timezone"] or "America/New_York")
+            cur.execute(
+                """UPDATE crm_routines
+                   SET next_run_at = %s, last_run_at = NOW(), updated_at = NOW()
+                   WHERE id = %s""",
+                (next_run, routine_id),
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to advance routine %s: %s", routine_id, e)
+            return False
+
+
+# ─── Notifications ───────────────────────────────────────────────────────
+
+
+def send_notification(
+    from_agent: str,
+    to_agent: str,
+    notification_type: str,
+    subject: str,
+    body: str | None = None,
+    metadata: dict | None = None,
+    task_id: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
+) -> str | None:
+    """Send an agent-to-agent notification. Returns notification UUID."""
+    notif_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """INSERT INTO crm_agent_notifications
+                   (id, tenant_id, from_agent, to_agent, notification_type,
+                    subject, body, metadata, task_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    notif_id,
+                    tenant_id,
+                    from_agent,
+                    to_agent,
+                    notification_type,
+                    subject,
+                    body,
+                    json.dumps(metadata) if metadata else None,
+                    task_id,
+                ),
+            )
+            conn.commit()
+            _safe_audit(
+                "create",
+                "notification",
+                notif_id,
+                details={"from": from_agent, "to": to_agent, "type": notification_type},
+            )
+            return notif_id
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to send notification: %s", e)
+            return None
+
+
+def get_agent_inbox(
+    agent_id: str,
+    unread_only: bool = True,
+    type_filter: str | None = None,
+    limit: int = 50,
+    tenant_id: str = DEFAULT_TENANT,
+) -> list[dict]:
+    """Get notifications for an agent, ordered by newest first."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conditions = ["to_agent = %s", "tenant_id = %s"]
+        params: list[Any] = [agent_id, tenant_id]
+        if unread_only:
+            conditions.append("read_at IS NULL")
+        if type_filter:
+            conditions.append("notification_type = %s")
+            params.append(type_filter)
+        params.append(limit)
+        cur.execute(
+            f"""SELECT * FROM crm_agent_notifications
+                WHERE {" AND ".join(conditions)}
+                ORDER BY created_at DESC
+                LIMIT %s""",
+            params,
+        )
+        return [notification_to_dict(r) for r in cur.fetchall()]
+
+
+def mark_notification_read(notification_id: str, tenant_id: str = DEFAULT_TENANT) -> bool:
+    """Mark a notification as read."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE crm_agent_notifications SET read_at = NOW() WHERE id = %s AND tenant_id = %s AND read_at IS NULL",
+                (notification_id, tenant_id),
+            )
+            ok: bool = cur.rowcount > 0
+            conn.commit()
+            return ok
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to mark notification %s read: %s", notification_id, e)
+            return False
+
+
+def acknowledge_notification(notification_id: str, tenant_id: str = DEFAULT_TENANT) -> bool:
+    """Acknowledge a notification (marks as both read and acknowledged)."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """UPDATE crm_agent_notifications
+                   SET read_at = COALESCE(read_at, NOW()), acknowledged_at = NOW()
+                   WHERE id = %s AND tenant_id = %s AND acknowledged_at IS NULL""",
+                (notification_id, tenant_id),
+            )
+            ok: bool = cur.rowcount > 0
+            conn.commit()
+            return ok
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to ack notification %s: %s", notification_id, e)
+            return False
+
+
+def list_notifications(
+    from_agent: str | None = None,
+    to_agent: str | None = None,
+    task_id: str | None = None,
+    limit: int = 50,
+    tenant_id: str = DEFAULT_TENANT,
+) -> list[dict]:
+    """List notifications with optional filters."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conditions = ["tenant_id = %s"]
+        params: list[Any] = [tenant_id]
+        if from_agent:
+            conditions.append("from_agent = %s")
+            params.append(from_agent)
+        if to_agent:
+            conditions.append("to_agent = %s")
+            params.append(to_agent)
+        if task_id:
+            conditions.append("task_id = %s")
+            params.append(task_id)
+        params.append(limit)
+        cur.execute(
+            f"""SELECT * FROM crm_agent_notifications
+                WHERE {" AND ".join(conditions)}
+                ORDER BY created_at DESC
+                LIMIT %s""",
+            params,
+        )
+        return [notification_to_dict(r) for r in cur.fetchall()]
+
+
+# ─── Tenants ─────────────────────────────────────────────────────────────
+
+
+def create_tenant(
+    tenant_id: str,
+    display_name: str,
+    parent_tenant_id: str | None = None,
+    settings: dict | None = None,
+) -> str | None:
+    """Create a tenant. Returns tenant ID."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """INSERT INTO crm_tenants (id, display_name, parent_tenant_id, settings)
+                   VALUES (%s, %s, %s, %s)""",
+                (tenant_id, display_name, parent_tenant_id, json.dumps(settings or {})),
+            )
+            conn.commit()
+            _safe_audit("create", "tenant", tenant_id, details={"display_name": display_name})
+            return tenant_id
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to create tenant: %s", e)
+            return None
+
+
+def get_tenant(tenant_id: str) -> dict | None:
+    """Get a tenant by ID."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM crm_tenants WHERE id = %s", (tenant_id,))
+        row = cur.fetchone()
+        return tenant_to_dict(row) if row else None
+
+
+def list_tenants(parent_id: str | None = None, active_only: bool = True) -> list[dict]:
+    """List tenants, optionally filtered by parent."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conditions: list[str] = []
+        params: list[Any] = []
+        if active_only:
+            conditions.append("active = TRUE")
+        if parent_id:
+            conditions.append("parent_tenant_id = %s")
+            params.append(parent_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        cur.execute(
+            f"SELECT * FROM crm_tenants {where} ORDER BY display_name",
+            params,
+        )
+        return [tenant_to_dict(r) for r in cur.fetchall()]
+
+
+def update_tenant(tenant_id: str, **fields: Any) -> bool:
+    """Update a tenant's fields."""
+    col_map = {
+        "display_name": "display_name",
+        "parent_tenant_id": "parent_tenant_id",
+        "active": "active",
+    }
+    sets: list[str] = []
+    vals: list[Any] = []
+    for key, col in col_map.items():
+        if key in fields and fields[key] is not None:
+            sets.append(f"{col} = %s")
+            vals.append(fields[key])
+    if "settings" in fields and fields["settings"] is not None:
+        sets.append("settings = %s::jsonb")
+        vals.append(json.dumps(fields["settings"]))
+    if not sets:
+        return False
+    sets.append("updated_at = NOW()")
+    vals.append(tenant_id)
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"UPDATE crm_tenants SET {', '.join(sets)} WHERE id = %s",
+                vals,
+            )
+            ok: bool = cur.rowcount > 0
+            conn.commit()
+            return ok
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to update tenant %s: %s", tenant_id, e)
+            return False
+
+
+# ─── Shared Working State ────────────────────────────────────────────────
+
+
+def append_to_block(block_name: str, entry: str, max_entries: int = 20) -> bool:
+    """Append a timestamped line to a memory block, trimming oldest entries."""
+    timestamp = datetime.now(UTC).strftime("%H:%M")
+    line = f"[{timestamp}] {entry}"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT content FROM agent_memory_blocks WHERE block_name = %s",
+                (block_name,),
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                lines = row[0].strip().split("\n")
+            else:
+                lines = []
+
+            lines.append(line)
+            # Trim to max_entries
+            if len(lines) > max_entries:
+                lines = lines[-max_entries:]
+
+            new_content = "\n".join(lines)
+            cur.execute(
+                """INSERT INTO agent_memory_blocks (block_name, content, last_written_at, write_count)
+                   VALUES (%s, %s, NOW(), 1)
+                   ON CONFLICT (block_name) DO UPDATE
+                   SET content = EXCLUDED.content, last_written_at = NOW(),
+                       write_count = agent_memory_blocks.write_count + 1""",
+                (block_name, new_content),
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to append to block %s: %s", block_name, e)
             return False
 
 
@@ -1139,6 +1975,8 @@ def get_metadata_objects() -> list[dict]:
         {"name": "crm_tasks", "label": "Tasks"},
         {"name": "crm_conversations", "label": "Conversations"},
         {"name": "crm_messages", "label": "Messages"},
+        {"name": "crm_tenants", "label": "Tenants"},
+        {"name": "crm_agent_notifications", "label": "Notifications"},
     ]
 
 
@@ -1151,6 +1989,8 @@ def get_object_metadata(object_name: str) -> dict | None:
         "crm_tasks",
         "crm_conversations",
         "crm_messages",
+        "crm_tenants",
+        "crm_agent_notifications",
     }
     if object_name not in valid:
         return None
@@ -1170,7 +2010,9 @@ def get_object_metadata(object_name: str) -> dict | None:
         return {"name": object_name, "columns": [dict(c) for c in cols]}
 
 
-def search_records(query: str, object_name: str | None = None, limit: int = 20) -> list[dict]:
+def search_records(
+    query: str, object_name: str | None = None, limit: int = 20, tenant_id: str = DEFAULT_TENANT
+) -> list[dict]:
     """Cross-table keyword search on CRM entities."""
     results: list[dict] = []
     pattern = f"%{query}%"
@@ -1192,9 +2034,9 @@ def search_records(query: str, object_name: str | None = None, limit: int = 20) 
             params = [pattern] * len(cols)
             cur.execute(
                 f"SELECT *, '{table}' as _table FROM {table} "
-                f"WHERE deleted_at IS NULL AND ({conditions}) "
+                f"WHERE deleted_at IS NULL AND tenant_id = %s AND ({conditions}) "
                 f"ORDER BY updated_at DESC LIMIT %s",
-                [*params, limit],
+                [tenant_id, *params, limit],
             )
             results.extend(dict(r) for r in cur.fetchall())
 

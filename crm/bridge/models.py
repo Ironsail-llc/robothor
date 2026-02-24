@@ -2,7 +2,22 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def _check_uuid(v: str | None, field_name: str) -> str | None:
+    """Validate that a value is a valid UUID or None."""
+    if v is None:
+        return v
+    if not _UUID_RE.match(v):
+        raise ValueError(f"{field_name} must be a valid UUID, got: {v[:60]!r}")
+    return v
 
 
 # ─── People ──────────────────────────────────────────────────────────────
@@ -60,6 +75,11 @@ class CreateNoteRequest(BaseModel):
     personId: str | None = None
     companyId: str | None = None
 
+    @field_validator("personId", "companyId", mode="before")
+    @classmethod
+    def validate_uuids(cls, v: str | None, info: object) -> str | None:
+        return _check_uuid(v, info.field_name)
+
 
 # ─── Tasks ──────────────────────────────────────────────────────────────
 
@@ -76,6 +96,11 @@ class CreateTaskRequest(BaseModel):
     tags: list[str] | None = None
     parentTaskId: str | None = None
 
+    @field_validator("personId", "companyId", "parentTaskId", mode="before")
+    @classmethod
+    def validate_uuids(cls, v: str | None, info: object) -> str | None:
+        return _check_uuid(v, info.field_name)
+
 
 class UpdateTaskRequest(BaseModel):
     title: str | None = None
@@ -89,6 +114,44 @@ class UpdateTaskRequest(BaseModel):
     tags: list[str] | None = None
     parentTaskId: str | None = None
     resolution: str | None = None
+
+    @field_validator("personId", "companyId", "parentTaskId", mode="before")
+    @classmethod
+    def validate_uuids(cls, v: str | None, info: object) -> str | None:
+        return _check_uuid(v, info.field_name)
+
+
+# ─── Routines ────────────────────────────────────────────────────────────
+
+
+class CreateRoutineRequest(BaseModel):
+    title: str
+    cronExpr: str
+    body: str | None = None
+    timezone: str = "America/New_York"
+    assignedToAgent: str | None = None
+    priority: str = "normal"
+    tags: list[str] | None = None
+    personId: str | None = None
+    companyId: str | None = None
+
+    @field_validator("personId", "companyId", mode="before")
+    @classmethod
+    def validate_uuids(cls, v: str | None, info: object) -> str | None:
+        return _check_uuid(v, info.field_name)
+
+
+class UpdateRoutineRequest(BaseModel):
+    title: str | None = None
+    body: str | None = None
+    cronExpr: str | None = None
+    timezone: str | None = None
+    assignedToAgent: str | None = None
+    priority: str | None = None
+    tags: list[str] | None = None
+    active: bool | None = None
+    personId: str | None = None
+    companyId: str | None = None
 
 
 # ─── Messages ────────────────────────────────────────────────────────────
@@ -169,6 +232,64 @@ class VaultCreateCardRequest(BaseModel):
 
 
 # ─── Impetus ─────────────────────────────────────────────────────────────
+
+
+# ─── Tasks (Review Workflow) ────────────────────────────────────────────
+
+
+class ApproveTaskRequest(BaseModel):
+    resolution: str = ""
+
+
+class RejectTaskRequest(BaseModel):
+    reason: str
+    changeRequests: list[str] | None = None
+
+
+# ─── Notifications ──────────────────────────────────────────────────────
+
+
+class SendNotificationRequest(BaseModel):
+    fromAgent: str
+    toAgent: str
+    notificationType: str = "info"
+    subject: str
+    body: str | None = None
+    metadata: dict | None = None
+    taskId: str | None = None
+
+    @field_validator("taskId", mode="before")
+    @classmethod
+    def validate_uuids(cls, v: str | None, info: object) -> str | None:
+        return _check_uuid(v, info.field_name)
+
+
+# ─── Tenants ────────────────────────────────────────────────────────────
+
+
+class CreateTenantRequest(BaseModel):
+    id: str
+    displayName: str
+    parentTenantId: str | None = None
+    settings: dict | None = None
+
+
+class UpdateTenantRequest(BaseModel):
+    displayName: str | None = None
+    parentTenantId: str | None = None
+    settings: dict | None = None
+    active: bool | None = None
+
+
+# ─── Memory (Append) ───────────────────────────────────────────────────
+
+
+class MemoryBlockAppendRequest(BaseModel):
+    entry: str
+    maxEntries: int = Field(default=20, ge=1, le=100)
+
+
+# ─── Impetus ─────────────────────────────────────────────────────────
 
 
 class ImpetusTransmitRequest(BaseModel):

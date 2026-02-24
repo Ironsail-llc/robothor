@@ -20,6 +20,18 @@ export const ACTION_ALLOWLIST = new Set([
   "create_message",
   "toggle_conversation_status",
   "log_interaction",
+  // Task coordination
+  "list_tasks",
+  "update_task",
+  "resolve_task",
+  "get_task_history",
+  // Agent monitoring
+  "agent_status",
+  // Routines
+  "list_routines",
+  "create_routine",
+  "update_routine",
+  "delete_routine",
 ]);
 
 interface SrcdocRendererProps {

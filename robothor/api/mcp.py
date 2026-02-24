@@ -8,15 +8,17 @@ with stdio transport.
 Architecture:
     MCP Client -> stdio -> this server -> robothor.* modules -> PostgreSQL
 
-Tools (35):
+Tools (44):
     - Memory: search_memory, store_memory, get_stats, get_entity
     - Vision: look, who_is_here, enroll_face, set_vision_mode
-    - Memory blocks: memory_block_read, memory_block_write, memory_block_list
+    - Memory blocks: memory_block_read, memory_block_write, memory_block_list, append_to_block
     - CRM interaction: log_interaction
     - CRM People: create_person, get_person, update_person, list_people, delete_person
     - CRM Companies: create_company, get_company, update_company, list_companies, delete_company
     - CRM Notes: create_note, get_note, list_notes, update_note, delete_note
-    - CRM Tasks: create_task, get_task, list_tasks, update_task, delete_task
+    - CRM Tasks: create_task, get_task, list_tasks, update_task, delete_task,
+      resolve_task, list_agent_tasks, approve_task, reject_task
+    - CRM Notifications: send_notification, get_inbox, ack_notification
     - CRM Metadata: get_metadata_objects, get_object_metadata, search_records
     - CRM Conversations: list_conversations, get_conversation,
       list_messages, create_message, toggle_conversation_status
@@ -422,7 +424,7 @@ def get_tool_definitions() -> list[dict]:
         # CRM Tasks
         {
             "name": "create_task",
-            "description": "Create a task in the CRM, optionally linked to a person or company.",
+            "description": "Create a task in the CRM, optionally linked to a person or company. Use assignedToAgent for agent-to-agent coordination.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -430,12 +432,34 @@ def get_tool_definitions() -> list[dict]:
                     "body": {"type": "string", "description": "Task description"},
                     "status": {
                         "type": "string",
-                        "description": "Status: TODO, IN_PROGRESS, DONE",
+                        "description": "Status: TODO, IN_PROGRESS, REVIEW, DONE",
                         "default": "TODO",
                     },
                     "dueAt": {"type": "string", "description": "Due date (ISO 8601)"},
                     "personId": {"type": "string", "description": "Person UUID to link"},
                     "companyId": {"type": "string", "description": "Company UUID to link"},
+                    "assignedToAgent": {
+                        "type": "string",
+                        "description": "Agent ID to assign (e.g. email-responder, supervisor)",
+                    },
+                    "createdByAgent": {
+                        "type": "string",
+                        "description": "Agent ID that created this task",
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "Priority: low, normal, high, urgent",
+                        "default": "normal",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags for categorization",
+                    },
+                    "parentTaskId": {
+                        "type": "string",
+                        "description": "Parent task UUID for subtask chains",
+                    },
                 },
                 "required": ["title"],
             },
@@ -451,12 +475,24 @@ def get_tool_definitions() -> list[dict]:
         },
         {
             "name": "list_tasks",
-            "description": "List tasks, optionally filtered by status or person.",
+            "description": "List tasks, optionally filtered by status, person, agent, tags, or priority.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "status": {"type": "string", "description": "Filter by status"},
                     "personId": {"type": "string", "description": "Filter by person UUID"},
+                    "assignedToAgent": {
+                        "type": "string",
+                        "description": "Filter by assigned agent",
+                    },
+                    "createdByAgent": {"type": "string", "description": "Filter by creating agent"},
+                    "priority": {"type": "string", "description": "Filter by priority"},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by tags (containment)",
+                    },
+                    "excludeResolved": {"type": "boolean", "description": "Exclude resolved tasks"},
                     "limit": {
                         "type": "integer",
                         "description": "Max results (default 50)",
@@ -478,6 +514,14 @@ def get_tool_definitions() -> list[dict]:
                     "dueAt": {"type": "string"},
                     "personId": {"type": "string"},
                     "companyId": {"type": "string"},
+                    "assignedToAgent": {"type": "string", "description": "Reassign to agent"},
+                    "priority": {"type": "string", "description": "New priority"},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "New tags",
+                    },
+                    "resolution": {"type": "string", "description": "Resolution summary"},
                 },
                 "required": ["id"],
             },
@@ -489,6 +533,164 @@ def get_tool_definitions() -> list[dict]:
                 "type": "object",
                 "properties": {"id": {"type": "string", "description": "Task UUID"}},
                 "required": ["id"],
+            },
+        },
+        # CRM Task Coordination
+        {
+            "name": "resolve_task",
+            "description": "Mark a task as DONE with a resolution summary.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Task UUID"},
+                    "resolution": {
+                        "type": "string",
+                        "description": "What was done to complete the task",
+                    },
+                },
+                "required": ["id", "resolution"],
+            },
+        },
+        {
+            "name": "list_agent_tasks",
+            "description": "List tasks assigned to a specific agent, ordered by priority.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "agentId": {
+                        "type": "string",
+                        "description": "Agent ID to get tasks for",
+                    },
+                    "includeUnassigned": {
+                        "type": "boolean",
+                        "description": "Include unassigned tasks",
+                        "default": False,
+                    },
+                    "status": {"type": "string", "description": "Filter by status"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 50)",
+                        "default": 50,
+                    },
+                },
+                "required": ["agentId"],
+            },
+        },
+        # CRM Task Review Workflow
+        {
+            "name": "approve_task",
+            "description": "Approve a task in REVIEW status. Sends review_approved notification to assignee.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Task UUID"},
+                    "resolution": {
+                        "type": "string",
+                        "description": "Approval resolution (e.g. 'Approved: reply looks good')",
+                    },
+                },
+                "required": ["id", "resolution"],
+            },
+        },
+        {
+            "name": "reject_task",
+            "description": "Reject a task in REVIEW status. Reverts to IN_PROGRESS, sends review_rejected notification.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Task UUID"},
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the task was rejected",
+                    },
+                    "changeRequests": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Specific changes requested (creates subtasks)",
+                    },
+                },
+                "required": ["id", "reason"],
+            },
+        },
+        # CRM Notifications
+        {
+            "name": "send_notification",
+            "description": "Send a notification to another agent.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "fromAgent": {"type": "string", "description": "Sending agent ID"},
+                    "toAgent": {"type": "string", "description": "Receiving agent ID"},
+                    "notificationType": {
+                        "type": "string",
+                        "description": "Type: task_assigned, review_requested, review_approved, review_rejected, blocked, unblocked, agent_error, info, custom",
+                    },
+                    "subject": {"type": "string", "description": "Notification subject"},
+                    "body": {"type": "string", "description": "Notification body"},
+                    "metadata": {"type": "object", "description": "Additional metadata"},
+                    "taskId": {"type": "string", "description": "Linked task UUID"},
+                },
+                "required": ["fromAgent", "toAgent", "notificationType", "subject"],
+            },
+        },
+        {
+            "name": "get_inbox",
+            "description": "Get notification inbox for an agent.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "agentId": {"type": "string", "description": "Agent ID"},
+                    "unreadOnly": {
+                        "type": "boolean",
+                        "description": "Only unread notifications (default: true)",
+                        "default": True,
+                    },
+                    "typeFilter": {
+                        "type": "string",
+                        "description": "Filter by notification type",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 50)",
+                        "default": 50,
+                    },
+                },
+                "required": ["agentId"],
+            },
+        },
+        {
+            "name": "ack_notification",
+            "description": "Acknowledge a notification (mark as read + acknowledged).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "notificationId": {"type": "string", "description": "Notification UUID"},
+                },
+                "required": ["notificationId"],
+            },
+        },
+        # Memory Block Append
+        {
+            "name": "append_to_block",
+            "description": "Append a line to a memory block (atomic, auto-trims oldest entries). Used for shared working state.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "block_name": {
+                        "type": "string",
+                        "description": "Name of the memory block",
+                    },
+                    "entry": {
+                        "type": "string",
+                        "description": "Line to append (auto-prepends timestamp)",
+                    },
+                    "maxEntries": {
+                        "type": "integer",
+                        "description": "Max entries to keep (default 20)",
+                        "default": 20,
+                    },
+                },
+                "required": ["block_name", "entry"],
             },
         },
         # CRM Metadata
@@ -931,6 +1133,11 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, An
             due_at=arguments.get("dueAt"),
             person_id=arguments.get("personId"),
             company_id=arguments.get("companyId"),
+            assigned_to_agent=arguments.get("assignedToAgent"),
+            created_by_agent=arguments.get("createdByAgent"),
+            priority=arguments.get("priority", "normal"),
+            tags=arguments.get("tags"),
+            parent_task_id=arguments.get("parentTaskId"),
         )
         return (
             {"id": task_id, "title": arguments.get("title", "")}
@@ -949,6 +1156,11 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, An
         results = list_tasks(
             status=arguments.get("status"),
             person_id=arguments.get("personId"),
+            assigned_to_agent=arguments.get("assignedToAgent"),
+            created_by_agent=arguments.get("createdByAgent"),
+            priority=arguments.get("priority"),
+            tags=arguments.get("tags"),
+            exclude_resolved=arguments.get("excludeResolved", False),
             limit=arguments.get("limit", 50),
         )
         return {"tasks": results, "count": len(results)}
@@ -964,6 +1176,10 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, An
             "dueAt": "due_at",
             "personId": "person_id",
             "companyId": "company_id",
+            "assignedToAgent": "assigned_to_agent",
+            "priority": "priority",
+            "tags": "tags",
+            "resolution": "resolution",
         }
         kwargs = {
             dal_key: arguments[arg_key]
@@ -976,6 +1192,104 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, An
         from robothor.crm.dal import delete_task
 
         return {"success": delete_task(arguments["id"]), "id": arguments["id"]}
+
+    # ── Task Coordination ──
+
+    elif name == "resolve_task":
+        from robothor.crm.dal import resolve_task
+
+        ok = resolve_task(
+            task_id=arguments["id"],
+            resolution=arguments.get("resolution", ""),
+        )
+        return {"success": ok, "id": arguments["id"]}
+
+    elif name == "list_agent_tasks":
+        from robothor.crm.dal import list_agent_tasks
+
+        results = list_agent_tasks(
+            agent_id=arguments.get("agentId", ""),
+            include_unassigned=arguments.get("includeUnassigned", False),
+            status=arguments.get("status"),
+            limit=arguments.get("limit", 50),
+        )
+        return {"tasks": results, "count": len(results)}
+
+    # ── Task Review Workflow ──
+
+    elif name == "approve_task":
+        from robothor.crm.dal import approve_task
+
+        approve_result: bool | dict = approve_task(
+            task_id=arguments["id"],
+            resolution=arguments.get("resolution", "Approved"),
+            reviewer="mcp-user",
+        )
+        if isinstance(approve_result, dict) and "error" in approve_result:
+            return approve_result
+        return {"success": True, "id": arguments["id"]}
+
+    elif name == "reject_task":
+        from robothor.crm.dal import reject_task
+
+        reject_result: bool | dict = reject_task(
+            task_id=arguments["id"],
+            reason=arguments.get("reason", ""),
+            reviewer="mcp-user",
+            change_requests=arguments.get("changeRequests"),
+        )
+        if isinstance(reject_result, dict) and "error" in reject_result:
+            return reject_result
+        return {"success": True, "id": arguments["id"]}
+
+    # ── Notifications ──
+
+    elif name == "send_notification":
+        from robothor.crm.dal import send_notification
+
+        nid = send_notification(
+            from_agent=arguments.get("fromAgent", ""),
+            to_agent=arguments.get("toAgent", ""),
+            notification_type=arguments.get("notificationType", ""),
+            subject=arguments.get("subject", ""),
+            body=arguments.get("body"),
+            metadata=arguments.get("metadata"),
+            task_id=arguments.get("taskId"),
+        )
+        return (
+            {"id": nid, "subject": arguments.get("subject", "")}
+            if nid
+            else {"error": "Failed to send notification"}
+        )
+
+    elif name == "get_inbox":
+        from robothor.crm.dal import get_agent_inbox
+
+        results = get_agent_inbox(
+            agent_id=arguments.get("agentId", ""),
+            unread_only=arguments.get("unreadOnly", True),
+            type_filter=arguments.get("typeFilter"),
+            limit=arguments.get("limit", 50),
+        )
+        return {"notifications": results, "count": len(results)}
+
+    elif name == "ack_notification":
+        from robothor.crm.dal import acknowledge_notification
+
+        ok = acknowledge_notification(arguments.get("notificationId", ""))
+        return {"success": ok, "id": arguments.get("notificationId", "")}
+
+    # ── Memory Block Append ──
+
+    elif name == "append_to_block":
+        from robothor.crm.dal import append_to_block
+
+        ok = append_to_block(
+            block_name=arguments.get("block_name", ""),
+            entry=arguments.get("entry", ""),
+            max_entries=arguments.get("maxEntries", 20),
+        )
+        return {"success": ok, "block_name": arguments.get("block_name", "")}
 
     # ── CRM Metadata ──
 

@@ -39,8 +39,23 @@ describe("ACTION_ALLOWLIST", () => {
     expect(ACTION_ALLOWLIST.has("update_company")).toBe(false);
   });
 
-  it("has exactly 9 tools", () => {
-    expect(ACTION_ALLOWLIST.size).toBe(9);
+  it("contains task coordination tools", () => {
+    expect(ACTION_ALLOWLIST.has("list_tasks")).toBe(true);
+    expect(ACTION_ALLOWLIST.has("update_task")).toBe(true);
+    expect(ACTION_ALLOWLIST.has("resolve_task")).toBe(true);
+    expect(ACTION_ALLOWLIST.has("get_task_history")).toBe(true);
+    expect(ACTION_ALLOWLIST.has("agent_status")).toBe(true);
+  });
+
+  it("contains routine management tools", () => {
+    expect(ACTION_ALLOWLIST.has("list_routines")).toBe(true);
+    expect(ACTION_ALLOWLIST.has("create_routine")).toBe(true);
+    expect(ACTION_ALLOWLIST.has("update_routine")).toBe(true);
+    expect(ACTION_ALLOWLIST.has("delete_routine")).toBe(true);
+  });
+
+  it("has exactly 18 tools", () => {
+    expect(ACTION_ALLOWLIST.size).toBe(18);
   });
 });
 

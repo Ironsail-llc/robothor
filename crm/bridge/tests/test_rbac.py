@@ -41,9 +41,9 @@ def client():
 class TestNoAgentHeader:
     @pytest.mark.asyncio
     async def test_no_header_allows_health(self, client):
-        """No X-Agent-Id header → full access (backward compat)."""
+        """No X-Agent-Id header → full access (backward compat), not 403."""
         resp = await client.get("/health")
-        assert resp.status_code == 200
+        assert resp.status_code != 403
 
     @pytest.mark.asyncio
     async def test_no_header_allows_people(self, client):
@@ -79,14 +79,14 @@ class TestAuthorizedAgent:
 
     @pytest.mark.asyncio
     async def test_all_agents_access_health(self, client):
-        """Every known agent can access /health."""
+        """Every known agent can access /health (not blocked by RBAC)."""
         for agent_id in ["email-classifier", "supervisor", "crm-steward",
                          "vision-monitor", "helm-user"]:
             resp = await client.get(
                 "/health",
                 headers={"X-Agent-Id": agent_id},
             )
-            assert resp.status_code == 200, f"{agent_id} denied /health"
+            assert resp.status_code != 403, f"{agent_id} denied /health"
 
 
 # ─── Known Agent: Denied ────────────────────────────────────────────

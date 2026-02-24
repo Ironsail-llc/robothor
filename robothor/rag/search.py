@@ -21,23 +21,27 @@ from robothor.rag.context import SYSTEM_PROMPT, format_context
 
 async def rag_query(
     question: str,
-    memory_limit: int = 10,
+    memory_limit: int = 20,
     temperature: float = 0.7,
     max_tokens: int = 4096,
     include_short: bool = True,
     include_long: bool = True,
     system_prompt: str | None = None,
+    use_reranker: bool = True,
+    rerank_top_k: int = 10,
 ) -> dict:
-    """Full RAG pipeline: search memory → inject context → generate.
+    """Full RAG pipeline: search memory → rerank → inject context → generate.
 
     Args:
         question: The user's question.
-        memory_limit: How many memory results to retrieve.
+        memory_limit: How many memory results to retrieve (over-retrieves for reranking).
         temperature: Generation temperature.
         max_tokens: Max tokens to generate.
         include_short: Search short-term memory.
         include_long: Search long-term memory.
         system_prompt: Override the default system prompt.
+        use_reranker: Whether to rerank results with cross-encoder.
+        rerank_top_k: Number of results to keep after reranking.
 
     Returns:
         Dict with 'answer', 'context_used', 'memories_found', 'timing'.
@@ -47,7 +51,7 @@ async def rag_query(
 
     t0 = time.time()
 
-    # Step 1: Search memory
+    # Step 1: Search memory (over-retrieve for reranking)
     results = search_all_memory(
         question,
         limit=memory_limit,
@@ -55,6 +59,15 @@ async def rag_query(
         include_long=include_long,
     )
     t_search = time.time() - t0
+
+    # Step 1.5: Rerank with cross-encoder
+    t_rerank = 0.0
+    if use_reranker and len(results) > rerank_top_k:
+        from robothor.rag.reranker import rerank_with_fallback
+
+        t_r0 = time.time()
+        results = await rerank_with_fallback(question, results, top_k=rerank_top_k)
+        t_rerank = time.time() - t_r0
 
     # Step 2: Format context
     context = format_context(results)
@@ -85,6 +98,7 @@ async def rag_query(
         "context_used": context,
         "timing": {
             "search_ms": round(t_search * 1000),
+            "rerank_ms": round(t_rerank * 1000),
             "generation_ms": round(t_gen * 1000),
             "total_ms": round((time.time() - t0) * 1000),
         },
@@ -93,6 +107,7 @@ async def rag_query(
                 "tier": r.get("tier"),
                 "type": r.get("content_type"),
                 "similarity": round(r.get("similarity", 0), 4),
+                "rerank_relevant": r.get("rerank_relevant"),
                 "preview": r.get("content", "")[:100],
             }
             for r in results
@@ -102,9 +117,11 @@ async def rag_query(
 
 async def rag_chat(
     messages: list[dict[str, str]],
-    memory_limit: int = 10,
+    memory_limit: int = 20,
     temperature: float = 0.7,
     max_tokens: int = 4096,
+    use_reranker: bool = True,
+    rerank_top_k: int = 10,
 ) -> dict:
     """Multi-turn RAG chat — searches memory based on the latest user message.
 
@@ -113,6 +130,8 @@ async def rag_chat(
         memory_limit: How many memory results to retrieve.
         temperature: Generation temperature.
         max_tokens: Max tokens to generate.
+        use_reranker: Whether to rerank results with cross-encoder.
+        rerank_top_k: Number of results to keep after reranking.
 
     Returns:
         Dict with 'answer', 'memories_found', 'timing'.
@@ -134,6 +153,11 @@ async def rag_chat(
 
     results = search_all_memory(last_user_msg, limit=memory_limit)
     t_search = time.time() - t0
+
+    if use_reranker and len(results) > rerank_top_k:
+        from robothor.rag.reranker import rerank_with_fallback
+
+        results = await rerank_with_fallback(last_user_msg, results, top_k=rerank_top_k)
 
     context = format_context(results)
     system_msg = f"{SYSTEM_PROMPT}\n\n## Retrieved Context from Memory\n{context}"

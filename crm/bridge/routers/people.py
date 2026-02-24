@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
 from robothor.crm.dal import (
@@ -20,6 +20,7 @@ from robothor.crm.dal import (
     update_person,
 )
 
+from deps import get_tenant_id
 from models import (
     CreatePersonRequest,
     MergeRequest,
@@ -37,32 +38,43 @@ router = APIRouter(prefix="/api", tags=["people", "companies"])
 async def api_list_people(
     search: str | None = Query(None),
     limit: int = Query(20),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = list_people(search, limit)
+    result = list_people(search, limit, tenant_id=tenant_id)
     return {"people": result}
 
 
 @router.post("/people")
-async def api_create_person(body: CreatePersonRequest):
+async def api_create_person(
+    body: CreatePersonRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
     if not body.firstName:
         return JSONResponse({"error": "firstName required"}, status_code=400)
 
-    person_id = create_person(body.firstName, body.lastName, body.email, body.phone)
+    person_id = create_person(body.firstName, body.lastName, body.email, body.phone, tenant_id=tenant_id)
     if person_id:
         return {"id": person_id, "firstName": body.firstName, "lastName": body.lastName}
     return JSONResponse({"error": "failed to create person (may be blocked)"}, status_code=500)
 
 
 @router.get("/people/{person_id}")
-async def api_get_person(person_id: str):
-    result = get_person(person_id)
+async def api_get_person(
+    person_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    result = get_person(person_id, tenant_id=tenant_id)
     if not result:
         return JSONResponse({"error": "person not found"}, status_code=404)
     return result
 
 
 @router.patch("/people/{person_id}")
-async def api_update_person(person_id: str, body: UpdatePersonRequest):
+async def api_update_person(
+    person_id: str,
+    body: UpdatePersonRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
     fields = {}
     if body.jobTitle is not None:
         fields["job_title"] = body.jobTitle
@@ -83,25 +95,31 @@ async def api_update_person(person_id: str, body: UpdatePersonRequest):
     if body.email is not None:
         fields["email"] = body.email
 
-    result = update_person(person_id, **fields)
+    result = update_person(person_id, tenant_id=tenant_id, **fields)
     if result:
         return {"success": True, "id": person_id}
     return JSONResponse({"error": "failed to update person"}, status_code=500)
 
 
 @router.delete("/people/{person_id}")
-async def api_delete_person(person_id: str):
-    if delete_person(person_id):
+async def api_delete_person(
+    person_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    if delete_person(person_id, tenant_id=tenant_id):
         return {"success": True, "id": person_id}
     return JSONResponse({"error": "person not found"}, status_code=404)
 
 
 @router.post("/people/merge")
-async def api_merge_people(body: MergeRequest):
+async def api_merge_people(
+    body: MergeRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
     keeper_id, loser_id = body.get_ids()
     if not keeper_id or not loser_id:
         return JSONResponse({"error": "primaryId and secondaryId required"}, status_code=400)
-    result = merge_people(keeper_id, loser_id)
+    result = merge_people(keeper_id, loser_id, tenant_id=tenant_id)
     if result:
         return {"success": True, "merged": result}
     return JSONResponse({"error": "merge failed"}, status_code=500)
@@ -114,21 +132,29 @@ async def api_merge_people(body: MergeRequest):
 async def api_list_companies(
     search: str | None = Query(None),
     limit: int = Query(50),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    result = list_companies(search, limit)
+    result = list_companies(search, limit, tenant_id=tenant_id)
     return {"companies": result}
 
 
 @router.get("/companies/{company_id}")
-async def api_get_company(company_id: str):
-    result = get_company(company_id)
+async def api_get_company(
+    company_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    result = get_company(company_id, tenant_id=tenant_id)
     if not result:
         return JSONResponse({"error": "company not found"}, status_code=404)
     return result
 
 
 @router.patch("/companies/{company_id}")
-async def api_update_company(company_id: str, body: UpdateCompanyRequest):
+async def api_update_company(
+    company_id: str,
+    body: UpdateCompanyRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
     fields = {}
     if body.domainName is not None:
         fields["domain_name"] = body.domainName
@@ -143,25 +169,31 @@ async def api_update_company(company_id: str, body: UpdateCompanyRequest):
     if body.name is not None:
         fields["name"] = body.name
 
-    result = update_company(company_id, **fields)
+    result = update_company(company_id, tenant_id=tenant_id, **fields)
     if result:
         return {"success": True, "id": company_id}
     return JSONResponse({"error": "failed to update company"}, status_code=500)
 
 
 @router.delete("/companies/{company_id}")
-async def api_delete_company(company_id: str):
-    if delete_company(company_id):
+async def api_delete_company(
+    company_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    if delete_company(company_id, tenant_id=tenant_id):
         return {"success": True, "id": company_id}
     return JSONResponse({"error": "company not found"}, status_code=404)
 
 
 @router.post("/companies/merge")
-async def api_merge_companies(body: MergeRequest):
+async def api_merge_companies(
+    body: MergeRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
     keeper_id, loser_id = body.get_ids()
     if not keeper_id or not loser_id:
         return JSONResponse({"error": "primaryId and secondaryId required"}, status_code=400)
-    result = merge_companies(keeper_id, loser_id)
+    result = merge_companies(keeper_id, loser_id, tenant_id=tenant_id)
     if result:
         return {"success": True, "merged": result}
     return JSONResponse({"error": "merge failed"}, status_code=500)

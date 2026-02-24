@@ -149,6 +149,61 @@ contact_identifiers (bridge table)
          └─ memory facts + transcripts → job title, city (LLM)
 ```
 
+## Task Coordination Flow
+
+```
+Agent (e.g. Email Classifier)
+    │
+    create_task(title, assignedToAgent="email-responder", tags=["email","reply-needed"])
+    │
+    ├─ crm_tasks table (status: TODO, SLA deadline computed from priority)
+    ├─ crm_agent_notifications table (type: task_assigned, to: email-responder)
+    └─ Redis Stream: agent (event: task.created)
+    │
+    ▼
+Assigned Agent (e.g. Email Responder)
+    │
+    list_my_tasks() → processes task → update_task(status="REVIEW")
+    │
+    ├─ crm_task_history (IN_PROGRESS → REVIEW, actor: email-responder)
+    ├─ crm_agent_notifications (type: review_requested, to: supervisor/helm-user)
+    └─ Redis Stream: agent (event: task.updated)
+    │
+    ▼
+Reviewer (Supervisor or Helm UI)
+    │
+    ├─ approve_task(id, resolution) → status: DONE + review_approved notification
+    │   (validates reviewer ≠ assignee)
+    │
+    └─ reject_task(id, reason, changeRequests) → status: IN_PROGRESS + review_rejected notification
+        (optional subtask creation from changeRequests)
+```
+
+## Multi-Tenancy Scoping
+
+```
+Request (any channel)
+    │
+    X-Tenant-Id header (default: robothor-primary)
+    │
+    TenantMiddleware (Bridge) → request.state.tenant_id
+    │
+    └─ All DAL queries include: AND tenant_id = %s
+       All INSERTs include: tenant_id column
+       All events include: tenant_id in envelope
+```
+
+## Shared Working State
+
+```
+Agent runs (any cron job)
+    │
+    Start: read shared_working_state block → cross-agent awareness
+    End: append_to_block("shared_working_state", "agent-name: summary", maxEntries=20)
+    │
+    └─ Supervisor periodically compacts the block
+```
+
 ---
 
-**Updated:** 2026-02-15
+**Updated:** 2026-02-23

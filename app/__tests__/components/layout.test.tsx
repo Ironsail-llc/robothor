@@ -1,89 +1,93 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-// Mock dockview-react since it requires browser APIs
-vi.mock("dockview-react", () => {
-  const DockviewReact = ({
-    onReady,
-  }: {
-    onReady: (event: unknown) => void;
-    components: Record<string, React.FC>;
-    className: string;
-  }) => {
-    const mockGroups = [
-      { id: "group-1", api: { setSize: vi.fn() } },
-      { id: "group-2", api: { setSize: vi.fn() } },
-    ];
+// Mock hooks
+vi.mock("@/hooks/use-tasks", () => ({
+  useTasks: () => ({
+    tasks: [],
+    isLoading: false,
+    refetch: vi.fn(),
+    updateTaskStatus: vi.fn(),
+    approveTask: vi.fn(),
+    rejectTask: vi.fn(),
+  }),
+}));
 
-    const panels: { id: string; component: string; title: string }[] = [];
+vi.mock("@/hooks/use-agents", () => ({
+  useAgents: () => ({
+    agents: [],
+    summary: { healthy: 0, degraded: 0, failed: 0, total: 0 },
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
 
-    const mockApi = {
-      addPanel: vi.fn((config: { id: string; component: string; title: string }) => {
-        panels.push(config);
-        return config;
-      }),
-      groups: mockGroups,
-      getGroup: (id: string) => mockGroups.find((g) => g.id === id),
-    };
-
-    if (onReady && panels.length === 0) {
-      onReady({ api: mockApi });
-    }
-
-    return (
-      <div data-testid="dockview-mock">
-        {panels.map((p) => (
-          <div key={p.id} data-testid={`panel-${p.id}`} data-title={p.title}>
-            {p.component}
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  return { DockviewReact };
-});
-
-vi.mock("dockview-core/dist/styles/dockview.css", () => ({}));
-
-// Mock child components
-vi.mock("@/components/visual-panel", () => ({
-  VisualPanel: () => <div data-testid="visual-panel">Visual Panel</div>,
+vi.mock("@/components/canvas/live-canvas", () => ({
+  LiveCanvas: () => <div data-testid="live-canvas">LiveCanvas</div>,
 }));
 
 vi.mock("@/components/chat-panel", () => ({
-  ChatPanel: () => <div data-testid="chat-panel">Chat Panel</div>,
+  ChatPanel: () => <div data-testid="chat-panel">ChatPanel</div>,
 }));
 
-import { DockviewLayout } from "@/components/layout/dockview-layout";
+vi.mock("@/components/business/task-board", () => ({
+  TaskBoard: () => <div data-testid="task-board">TaskBoard</div>,
+}));
 
-describe("DockviewLayout", () => {
-  it("renders dockview container", () => {
-    render(<DockviewLayout />);
-    expect(screen.getByTestId("dockview-container")).toBeInTheDocument();
+vi.mock("@/components/business/agent-status", () => ({
+  AgentStatus: () => <div data-testid="agent-status">AgentStatus</div>,
+}));
+
+vi.mock("@/components/business/metric-grid", () => ({
+  MetricGrid: () => <div data-testid="metric-grid">Metrics</div>,
+}));
+
+vi.mock("@/hooks/use-visual-state", () => ({
+  useVisualState: () => ({
+    currentView: null,
+    viewStack: [],
+    popView: vi.fn(),
+    clearViews: vi.fn(),
+    canvasMode: "idle",
+    setCanvasMode: vi.fn(),
+    dashboardCode: null,
+    dashboardCodeType: null,
+    setDashboardCode: vi.fn(),
+    clearDashboard: vi.fn(),
+    isUpdating: false,
+    submitAction: vi.fn(),
+    resolveAction: vi.fn(),
+  }),
+  VisualStateProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("@/hooks/use-dashboard-agent", () => ({
+  useDashboardAgent: vi.fn(),
+}));
+
+vi.mock("@/lib/event-bus/use-event-stream", () => ({
+  useEventStream: () => ({ events: [] }),
+}));
+
+import { AppShell } from "@/components/layout/app-shell";
+
+describe("Layout (AppShell)", () => {
+  it("renders the app shell container", () => {
+    render(<AppShell />);
+    expect(screen.getByTestId("app-shell")).toBeInTheDocument();
   });
 
-  it("creates visual and chat panels", () => {
-    render(<DockviewLayout />);
-    expect(screen.getByTestId("panel-visual")).toBeInTheDocument();
-    expect(screen.getByTestId("panel-chat")).toBeInTheDocument();
+  it("contains sidebar, dashboard view, and chat panel", () => {
+    render(<AppShell />);
+    expect(screen.getByTestId("sidebar")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-view")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
   });
 
-  it("creates exactly 2 panels", () => {
-    render(<DockviewLayout />);
-    const panels = screen.getAllByTestId(/^panel-/);
-    expect(panels).toHaveLength(2);
-  });
-
-  it("visual panel has Dashboard title", () => {
-    render(<DockviewLayout />);
-    const visual = screen.getByTestId("panel-visual");
-    expect(visual).toHaveAttribute("data-title", "Dashboard");
-  });
-
-  it("chat panel has Robothor title", () => {
-    render(<DockviewLayout />);
-    const chat = screen.getByTestId("panel-chat");
-    expect(chat).toHaveAttribute("data-title", "Robothor");
+  it("renders all three views (display:none pattern)", () => {
+    render(<AppShell />);
+    expect(screen.getByTestId("dashboard-view")).toBeInTheDocument();
+    expect(screen.getByTestId("tasks-view")).toBeInTheDocument();
+    expect(screen.getByTestId("agents-view")).toBeInTheDocument();
   });
 });

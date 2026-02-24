@@ -17,11 +17,16 @@ const BRIDGE_URL = process.env.BRIDGE_URL || "http://localhost:9100";
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function bridgeCall(
   method: string,
   path: string,
   body?: Record<string, unknown>,
   agentId?: string,
+  _retries: number = 0,
 ): Promise<unknown> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (agentId) headers["X-Agent-Id"] = agentId;
@@ -34,6 +39,19 @@ async function bridgeCall(
 
   if (!res.ok) {
     const text = await res.text();
+
+    // Retry once on 5xx (transient server errors)
+    if (res.status >= 500 && _retries < 1) {
+      console.error(`[crm-tools] ${method} ${path} returned ${res.status}, retrying in 2s`);
+      await sleep(2000);
+      return bridgeCall(method, path, body, agentId, _retries + 1);
+    }
+
+    // Return structured error for 4xx so agents see clear failure messages
+    if (res.status >= 400 && res.status < 500) {
+      return { error: true, status: res.status, message: text.slice(0, 500) };
+    }
+
     throw new Error(`Bridge ${method} ${path} failed (${res.status}): ${text}`);
   }
 
@@ -99,8 +117,15 @@ export async function list_notes({ personId, companyId }: { personId?: string; c
   return bridgeCall("GET", `/api/notes${qs ? `?${qs}` : ""}`);
 }
 
-export async function create_task(data: { title: string; body?: string; dueAt?: string; personId?: string }) {
-  return bridgeCall("POST", "/api/tasks", data);
+export async function create_task(data: { title: string; body?: string; dueAt?: string; personId?: string; [key: string]: unknown }) {
+  const result = await bridgeCall("POST", "/api/tasks", data) as Record<string, unknown>;
+  if (result && typeof result === "object" && "error" in result) {
+    return result; // Pass structured error through to agent
+  }
+  if (!result || typeof result !== "object" || !("id" in result)) {
+    return { error: true, status: 0, message: "create_task: response missing 'id' field" };
+  }
+  return result;
 }
 
 export async function list_tasks({ status, personId }: { status?: string; personId?: string } = {}) {
@@ -192,6 +217,107 @@ export async function pipeline_status() {
 
 export async function pipeline_trigger({ tier }: { tier: number }) {
   return bridgeCall("POST", `/api/pipeline/trigger/${tier}`);
+}
+
+// ── Task Coordination: Resolve + Agent Inbox ────────────────────────────────
+
+export async function resolve_task(data: { taskId: string; resolution: string }) {
+  return bridgeCall("POST", `/api/tasks/${data.taskId}/resolve`, { resolution: data.resolution });
+}
+
+export async function list_my_tasks({
+  agentId,
+  status,
+  includeUnassigned,
+  limit,
+}: {
+  agentId: string;
+  status?: string;
+  includeUnassigned?: boolean;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (includeUnassigned) params.set("includeUnassigned", "true");
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  return bridgeCall("GET", `/api/tasks/agent/${agentId}${qs ? `?${qs}` : ""}`);
+}
+
+// ── Task Review Workflow ────────────────────────────────────────────────────
+
+export async function approve_task(
+  data: { taskId: string; resolution?: string },
+  agentId?: string,
+) {
+  return bridgeCall(
+    "POST",
+    `/api/tasks/${data.taskId}/approve`,
+    { resolution: data.resolution || "Approved" },
+    agentId,
+  );
+}
+
+export async function reject_task(
+  data: { taskId: string; reason: string; changeRequests?: string[] },
+  agentId?: string,
+) {
+  return bridgeCall(
+    "POST",
+    `/api/tasks/${data.taskId}/reject`,
+    { reason: data.reason, changeRequests: data.changeRequests },
+    agentId,
+  );
+}
+
+// ── Agent Notifications ─────────────────────────────────────────────────────
+
+export async function send_notification(data: {
+  fromAgent: string;
+  toAgent: string;
+  notificationType: string;
+  subject: string;
+  body?: string;
+  metadata?: Record<string, unknown>;
+  taskId?: string;
+}) {
+  return bridgeCall("POST", "/api/notifications/send", data);
+}
+
+export async function get_inbox({
+  agentId,
+  unreadOnly,
+  typeFilter,
+  limit,
+}: {
+  agentId: string;
+  unreadOnly?: boolean;
+  typeFilter?: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (unreadOnly !== undefined) params.set("unreadOnly", String(unreadOnly));
+  if (typeFilter) params.set("typeFilter", typeFilter);
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  return bridgeCall("GET", `/api/notifications/inbox/${agentId}${qs ? `?${qs}` : ""}`);
+}
+
+export async function ack_notification({ notificationId }: { notificationId: string }) {
+  return bridgeCall("POST", `/api/notifications/${notificationId}/ack`);
+}
+
+// ── Shared Working State ────────────────────────────────────────────────────
+
+export async function append_to_block(data: {
+  block_name: string;
+  entry: string;
+  maxEntries?: number;
+}) {
+  return bridgeCall("POST", `/api/memory/blocks/${encodeURIComponent(data.block_name)}/append`, {
+    entry: data.entry,
+    maxEntries: data.maxEntries,
+  });
 }
 
 // ── Health ──────────────────────────────────────────────────────────────────
