@@ -1,0 +1,84 @@
+id: calendar-monitor
+name: Calendar Monitor
+description: Detects calendar conflicts, cancellations, and changes
+version: "2026-02-24"
+department: calendar
+
+reports_to: supervisor
+creates_tasks_for: []
+receives_tasks_from: []
+escalates_to: supervisor
+
+model:
+  primary: openrouter/moonshotai/kimi-k2.5
+  fallbacks:
+    - openrouter/minimax/minimax-m2.5
+    - google/gemini-2.5-pro
+  payload_alias: kimi
+
+schedule:
+  cron: "0 6-22/2 * * *"
+  timezone: America/Grenada
+  timeout_seconds: 300
+  session_target: isolated
+
+delivery:
+  mode: announce
+  channel: telegram
+  to: "7636850023"
+
+tools_allowed:
+  - log_interaction
+  - create_task
+  - list_my_tasks
+  - resolve_task
+  - append_to_block
+tools_denied:
+  - create_person
+  - update_person
+  - delete_person
+  - merge_contacts
+  - merge_companies
+  - create_note
+  - update_note
+  - delete_note
+  - message
+  - web_search
+  - web_fetch
+  - sessions_spawn
+bridge_endpoints:
+  - "GET /health"
+  - "POST /log-interaction"
+  - "POST /api/tasks"
+  - "GET /api/tasks/agent/*"
+  - "POST /api/tasks/*/resolve"
+  - "POST /api/memory/blocks/*/append"
+streams:
+  read: [calendar]
+  write: []
+
+sla:
+  urgent: 30m
+  high: 2h
+  normal: 8h
+  low: 24h
+
+task_protocol: true
+review_workflow: false
+notification_inbox: false
+status_file: brain/memory/calendar-monitor-status.md
+shared_working_state: true
+
+instruction_file: brain/CALENDAR_MONITOR.md
+bootstrap_files:
+  - brain/AGENTS.md
+  - brain/TOOLS.md
+
+tags_produced: [calendar, conflict, cancellation]
+tags_consumed: []
+
+changelog:
+  - date: "2026-02-24"
+    change: "Initial manifest creation; payload model fixed from qwen3-14b to kimi"
+  - date: "2026-02-23"
+    change: Per-agent ID created, separated from generic 'calendar' agent

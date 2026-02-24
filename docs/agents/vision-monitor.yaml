@@ -1,0 +1,79 @@
+id: vision-monitor
+name: Vision Monitor
+description: Monitors vision events, escalates anomalies and unknown persons
+version: "2026-02-24"
+department: security
+
+reports_to: supervisor
+creates_tasks_for: []
+receives_tasks_from: []
+escalates_to: supervisor
+
+model:
+  primary: openrouter/moonshotai/kimi-k2.5
+  fallbacks:
+    - openrouter/minimax/minimax-m2.5
+    - google/gemini-2.5-pro
+  payload_alias: kimi
+
+schedule:
+  cron: "0 * * * *"
+  timezone: America/Grenada
+  timeout_seconds: 300
+  session_target: isolated
+  stagger_ms: 300000
+
+delivery:
+  mode: none
+
+tools_allowed:
+  - create_task
+  - list_my_tasks
+  - resolve_task
+  - append_to_block
+tools_denied:
+  - create_person
+  - update_person
+  - delete_person
+  - merge_contacts
+  - merge_companies
+  - create_note
+  - update_note
+  - delete_note
+  - message
+  - web_search
+  - web_fetch
+  - sessions_spawn
+bridge_endpoints:
+  - "GET /health"
+  - "POST /api/tasks"
+  - "GET /api/tasks/agent/*"
+  - "POST /api/tasks/*/resolve"
+  - "POST /api/memory/blocks/*/append"
+streams:
+  read: [vision]
+  write: []
+
+sla:
+  urgent: 30m
+  high: 2h
+  normal: 8h
+  low: 24h
+
+task_protocol: true
+review_workflow: false
+notification_inbox: false
+status_file: brain/memory/vision-monitor-status.md
+shared_working_state: false
+
+instruction_file: null
+bootstrap_files:
+  - brain/AGENTS.md
+  - brain/TOOLS.md
+
+tags_produced: [vision, unknown-person]
+tags_consumed: []
+
+changelog:
+  - date: "2026-02-24"
+    change: "Initial manifest creation; payload model fixed from qwen3-14b to kimi"

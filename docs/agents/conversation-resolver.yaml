@@ -1,0 +1,73 @@
+id: conversation-resolver
+name: Conversation Resolver
+description: Auto-resolves stale conversations older than 7 days
+version: "2026-02-24"
+department: communications
+
+reports_to: supervisor
+creates_tasks_for: []
+receives_tasks_from: []
+escalates_to: supervisor
+
+model:
+  primary: openrouter/moonshotai/kimi-k2.5
+  fallbacks:
+    - openrouter/minimax/minimax-m2.5
+    - google/gemini-2.5-pro
+  payload_alias: kimi
+
+schedule:
+  cron: "0 8,14,20 * * *"
+  timezone: America/Grenada
+  timeout_seconds: 300
+  session_target: isolated
+
+delivery:
+  mode: none
+
+tools_allowed:
+  - list_conversations
+  - list_messages
+  - toggle_conversation_status
+  - list_tasks
+  - get_inbox
+  - ack_notification
+  - append_to_block
+tools_denied:
+  - message
+bridge_endpoints:
+  - "GET /health"
+  - "GET /api/conversations"
+  - "GET /api/conversations/*/messages"
+  - "POST /api/conversations/*/toggle_status"
+  - "GET /api/tasks"
+  - "GET /api/notifications/inbox/*"
+  - "POST /api/notifications/*/ack"
+  - "POST /api/memory/blocks/*/append"
+streams:
+  read: [crm]
+  write: []
+
+sla:
+  urgent: 30m
+  high: 2h
+  normal: 8h
+  low: 24h
+
+task_protocol: false
+review_workflow: false
+notification_inbox: true
+status_file: brain/memory/conversation-resolver-status.md
+shared_working_state: true
+
+instruction_file: brain/CONVERSATION_RESOLVER.md
+bootstrap_files:
+  - brain/AGENTS.md
+  - brain/TOOLS.md
+
+tags_produced: []
+tags_consumed: [conversation]
+
+changelog:
+  - date: "2026-02-24"
+    change: "Initial manifest creation; payload model fixed from qwen3-14b to kimi; added notification inbox RBAC"
