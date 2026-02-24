@@ -1,0 +1,77 @@
+id: email-analyst
+name: Email Analyst
+description: Analyzes complex emails for structured response preparation
+version: "2026-02-24"
+department: email
+
+reports_to: supervisor
+creates_tasks_for: []
+receives_tasks_from: [email-classifier]
+escalates_to: supervisor
+
+model:
+  primary: openrouter/moonshotai/kimi-k2.5
+  fallbacks:
+    - openrouter/anthropic/claude-sonnet-4.6
+    - google/gemini-2.5-pro
+  payload_alias: kimi
+
+schedule:
+  cron: "30 8-20/2 * * *"
+  timezone: America/Grenada
+  timeout_seconds: 240
+  session_target: isolated
+
+delivery:
+  mode: announce
+  channel: telegram
+  to: "7636850023"
+
+tools_allowed:
+  - create_task
+  - list_my_tasks
+  - resolve_task
+  - update_task
+  - get_inbox
+  - ack_notification
+  - append_to_block
+tools_denied:
+  - message
+bridge_endpoints:
+  - "GET /health"
+  - "POST /api/tasks"
+  - "PATCH /api/tasks/*"
+  - "GET /api/tasks/agent/*"
+  - "POST /api/tasks/*/resolve"
+  - "GET /api/notifications/inbox/*"
+  - "POST /api/notifications/*/ack"
+  - "POST /api/memory/blocks/*/append"
+streams:
+  read: [email]
+  write: []
+
+sla:
+  urgent: 30m
+  high: 2h
+  normal: 8h
+  low: 24h
+
+task_protocol: true
+review_workflow: false
+notification_inbox: true
+status_file: brain/memory/email-analyst-status.md
+shared_working_state: true
+
+instruction_file: brain/EMAIL_ANALYST.md
+bootstrap_files:
+  - brain/AGENTS.md
+  - brain/TOOLS.md
+
+tags_produced: []
+tags_consumed: [email, analytical]
+
+changelog:
+  - date: "2026-02-24"
+    change: Initial manifest creation from existing config
+  - date: "2026-02-23"
+    change: Per-agent ID created, rewritten for task-based pipeline

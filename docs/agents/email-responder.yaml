@@ -1,0 +1,83 @@
+id: email-responder
+name: Email Responder
+description: Composes and sends email replies via gog gmail
+version: "2026-02-24"
+department: email
+
+reports_to: supervisor
+creates_tasks_for: []
+receives_tasks_from: [email-classifier]
+escalates_to: supervisor
+
+model:
+  primary: openrouter/anthropic/claude-sonnet-4.6
+  fallbacks:
+    - openrouter/moonshotai/kimi-k2.5
+    - google/gemini-2.5-pro
+  payload_alias: sonnet
+
+schedule:
+  cron: "0 8-20/4 * * *"
+  timezone: America/Grenada
+  timeout_seconds: 300
+  session_target: isolated
+
+delivery:
+  mode: announce
+  channel: telegram
+  to: "7636850023"
+
+tools_allowed:
+  - log_interaction
+  - create_person
+  - list_people
+  - create_task
+  - list_my_tasks
+  - resolve_task
+  - update_task
+  - get_inbox
+  - ack_notification
+  - append_to_block
+tools_denied:
+  - message
+bridge_endpoints:
+  - "GET /health"
+  - "POST /log-interaction"
+  - "POST /api/people"
+  - "GET /api/people"
+  - "POST /api/tasks"
+  - "PATCH /api/tasks/*"
+  - "GET /api/tasks/agent/*"
+  - "POST /api/tasks/*/resolve"
+  - "GET /api/notifications/inbox/*"
+  - "POST /api/notifications/*/ack"
+  - "POST /api/memory/blocks/*/append"
+streams:
+  read: [email]
+  write: []
+
+sla:
+  urgent: 30m
+  high: 2h
+  normal: 8h
+  low: 24h
+
+task_protocol: true
+review_workflow: true
+notification_inbox: true
+status_file: brain/memory/response-status.md
+shared_working_state: true
+
+instruction_file: brain/RESPONDER.md
+bootstrap_files:
+  - brain/AGENTS.md
+  - brain/TOOLS.md
+
+tags_produced: []
+tags_consumed: [email, reply-needed]
+
+changelog:
+  - date: "2026-02-24"
+    change: Initial manifest creation from existing config
+  - date: "2026-02-23"
+    change: Per-agent ID created, self-enriches from tasks

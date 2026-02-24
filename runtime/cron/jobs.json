@@ -1,0 +1,396 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "282b1c2f-664e-4efa-bcfa-fdab3febb829",
+      "agentId": "morning-briefing",
+      "name": "Morning Briefing",
+      "enabled": true,
+      "createdAtMs": 1770380238748,
+      "updatedAtMs": 1771929051309,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 6 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "\ud83c\udf05 MORNING BRIEFING: Generate Philip's daily briefing. Check calendar (memory/calendar-log.json), email-log.json for urgent items.\n\n\ud83c\udf24\ufe0f WEATHER (ALWAYS INCLUDE BOTH):\n1. St. George, Grenada (where Philip is) \u2014 use Open-Meteo: latitude=12.05, longitude=-61.75\n2. Broad Channel, NY (home base) \u2014 use Open-Meteo: latitude=40.59, longitude=-73.82\nUse fahrenheit and mph. If wttr.in times out, fall back to Open-Meteo API.\n\n\ud83d\udcf0 NEWS (ALWAYS INCLUDE \u2014 3-4 items):\n- Use web_search to find today's top stories in: (1) technology/AI, (2) technology in medicine/healthtech/digital health\n- Search queries: \"AI technology news today\" and \"healthtech medical technology news today\"\n- Format each as: \u2022 [Headline] \u2014 one-sentence summary\n\n\ud83d\udcca CRM ACTIVITY (ALWAYS INCLUDE):\n- Use list_conversations (status=open) to list open conversations\n- Count conversations with unread messages\n- Summarize: \"X open conversations, Y with unread messages\"\n- If notable contacts have open threads, mention by name\n\nFormat a concise briefing and deliver to Philip via Telegram.",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "nextRunAtMs": 1772015400000,
+        "lastRunAtMs": 1771929000007,
+        "lastStatus": "ok",
+        "lastDurationMs": 51302,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDelivered": true,
+        "lastDeliveryStatus": "delivered"
+      }
+    },
+    {
+      "id": "88db3403-15ca-4edd-abd4-3add4b55dca0",
+      "agentId": "evening-winddown",
+      "name": "Evening Wind-Down",
+      "enabled": true,
+      "createdAtMs": 1770380238753,
+      "updatedAtMs": 1771808401280,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 21 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "\ud83c\udf19 EVENING WIND-DOWN: Generate Philip's evening summary. Check tomorrow's calendar (memory/calendar-log.json), any open tasks.\n\n\ud83c\udf24\ufe0f WEATHER (ALWAYS INCLUDE BOTH):\n1. St. George, Grenada (where Philip is) \u2014 use Open-Meteo: latitude=12.05, longitude=-61.75\n2. Broad Channel, NY (home base) \u2014 use Open-Meteo: latitude=40.59, longitude=-73.82\nUse fahrenheit and mph. If wttr.in times out, fall back to Open-Meteo API.\n\n\ud83d\udcf0 NEWS (ALWAYS INCLUDE \u2014 3-4 items):\n- Use web_search to find today's top stories in: (1) technology/AI, (2) technology in medicine/healthtech/digital health\n- Search queries: \"AI technology news today\" and \"healthtech medical technology news today\"\n- Format each as: \u2022 [Headline] \u2014 one-sentence summary\n\n\ud83d\udcca CRM DAY SUMMARY (ALWAYS INCLUDE):\n- Use list_conversations (status=all) to count resolved today\n- Summarize: \"X interactions logged, Y conversations resolved\"\n\nFormat a concise summary and deliver to Philip via Telegram.",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "nextRunAtMs": 1771981200000,
+        "lastRunAtMs": 1771808400027,
+        "lastStatus": "ok",
+        "lastDurationMs": 1253,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDelivered": true,
+        "lastDeliveryStatus": "delivered"
+      }
+    },
+    {
+      "id": "email-classifier-0001",
+      "agentId": "email-classifier",
+      "name": "Email Classifier",
+      "enabled": true,
+      "createdAtMs": 1771347600000,
+      "updatedAtMs": 1771935364400,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6-22/2 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "EMAIL CLASSIFIER \u2014 Read EMAIL_CLASSIFIER.md for full instructions.\n\nYou ARE Robothor. Process ONLY email items from memory/triage-inbox.json.\n\n1. list_my_tasks \u2014 check for tasks assigned to you first\n2. Read memory/triage-inbox.json\n3. If counts.emails is 0: write status file, output HEARTBEAT_OK, stop\n4. Check activeEscalationIds \u2014 do NOT re-escalate items already listed\n5. For each email: dismiss junk, route reply-worthy via create_task(assignedToAgent=\"email-responder\"), escalate unknowns/complex via create_task(assignedToAgent=\"supervisor\")\n6. Use CRM tools (log_interaction, create_person) as needed\n7. REQUIRED: call create_task for every non-dismissed email. Include task ID in output.\n8. REQUIRED: Before finishing, write memory/email-classifier-status.md via exec. The Supervisor reads it \u2014 if stale, it thinks you're dead.\n\nDo NOT use the write tool \u2014 use exec for file operations.\nDo NOT process calendar or jira items.\nDo NOT reply to emails \u2014 route via create_task to email-responder.\nDo NOT write to response-queue.json or worker-handoff.json \u2014 use create_task instead.\n\n\u26a0\ufe0f OUTPUT: ZERO emails \u2192 HEARTBEAT_OK\nOtherwise \u2192 \ud83d\udce7/\u2753/\ud83d\uddd1\ufe0f format per EMAIL_CLASSIFIER.md. Include [task:<id>] for each routed/escalated email.\n\u26a0\ufe0f ALWAYS write email-classifier-status.md before finishing \u2014 the Supervisor reads it.\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"email-classifier: <summary>\")",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "nextRunAtMs": 1771941600000,
+        "lastRunAtMs": 1771935302953,
+        "lastStatus": "ok",
+        "lastDurationMs": 61447,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDeliveryStatus": "delivered",
+        "lastDelivered": true
+      }
+    },
+    {
+      "id": "calendar-monitor-0001",
+      "agentId": "calendar-monitor",
+      "name": "Calendar Monitor",
+      "enabled": true,
+      "createdAtMs": 1771347600000,
+      "updatedAtMs": 1771934706900,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6-22/2 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "CALENDAR MONITOR \u2014 Read CALENDAR_MONITOR.md for full instructions.\n\nYou ARE Robothor. Process ONLY calendar items from memory/triage-inbox.json.\n\n1. list_my_tasks \u2014 check for tasks assigned to you first\n2. Read memory/triage-inbox.json\n3. If counts.calendar is 0: write status file, output HEARTBEAT_OK, stop\n4. Check activeEscalationIds \u2014 do NOT re-escalate items already listed\n5. For each calendar item: note routine additions, detect conflicts/cancellations\n6. For conflicts or urgent changes: create_task(assignedToAgent=\"supervisor\", tags=[\"calendar\",\"conflict\"], priority=\"high\")\n7. REQUIRED: Before finishing, write memory/calendar-monitor-status.md via exec.\n\nDo NOT use the write tool \u2014 use exec for file operations.\nDo NOT process email or jira items.\nDo NOT write to worker-handoff.json \u2014 use create_task instead.\n\n\u26a0\ufe0f OUTPUT: ZERO calendar items \u2192 HEARTBEAT_OK\nOtherwise \u2192 \ud83d\udcc5 format per CALENDAR_MONITOR.md.\n\u26a0\ufe0f ALWAYS write calendar-monitor-status.md before finishing \u2014 the Supervisor reads it.\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"calendar-monitor: <summary>\")",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "nextRunAtMs": 1771941600000,
+        "lastRunAtMs": 1771934564103,
+        "lastStatus": "ok",
+        "lastDurationMs": 142797,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDeliveryStatus": "delivered",
+        "lastDelivered": true
+      }
+    },
+    {
+      "id": "b7e3f1a0-supervisor-heartbeat-0001",
+      "agentId": "supervisor",
+      "name": "Supervisor Heartbeat",
+      "enabled": true,
+      "createdAtMs": 1770466800000,
+      "updatedAtMs": 1771934850589,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6-22/2 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "SUPERVISOR HEARTBEAT \u2014 Read HEARTBEAT.md for full instructions.\n\nYou are Robothor checking in with Philip on Telegram. Report what you handled (\u2705), ask for help on what's stuck (\u2753), remind about stale asks (\ud83d\udd04).\n\n\u26a0\ufe0f CRITICAL: Do NOT call the message tool. Your text output IS the Telegram message \u2014 the cron framework delivers it automatically.\n\nStep 0: Check get_inbox(agentId=\"supervisor\", unreadOnly=true) for notifications. Handle review_requested notifications. ack_notification for each.\n\nRead these worker status files:\n- memory/email-classifier-status.md, memory/calendar-monitor-status.md\n- memory/response-status.md, memory/conversation-resolver-status.md\n- memory/crm-steward-status.md, memory/vision-monitor-status.md\n- memory/conversation-inbox-status.md\n\nCheck agent task activity:\n- list_my_tasks \u2014 check for escalation tasks assigned to you\n- list_tasks(status=\"TODO\") \u2014 find stale tasks (>2h old = agent may have failed)\n- list_tasks(status=\"REVIEW\") \u2014 find tasks awaiting approval. Use approve_task or reject_task.\n- Surface escalation tasks to Philip, then resolve_task when done\n\nSLA deadlines: urgent=30m, high=2h, normal=8h, low=24h. Flag overdue tasks.\n\nAlso read memory/worker-handoff.json for INFRASTRUCTURE alerts only.\nApply surfacing rules from HEARTBEAT.md.\n\nAfter checks: append_to_block(block_name=\"shared_working_state\", entry=\"supervisor: <summary>\")\n\nNEVER re-surface items Philip already knows about. HEARTBEAT_OK only when truly nothing happened.\nKeep total output under 500 chars.",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "lastRunAtMs": 1771934706900,
+        "lastStatus": "ok",
+        "lastDurationMs": 143689,
+        "nextRunAtMs": 1771941600000,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDeliveryStatus": "delivered",
+        "lastDelivered": true
+      }
+    },
+    {
+      "id": "vision-monitor-0001-000000000001",
+      "agentId": "vision-monitor",
+      "name": "Vision Monitor",
+      "enabled": true,
+      "createdAtMs": 1770485000000,
+      "updatedAtMs": 1771935219122,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 * * * *",
+        "tz": "America/Grenada",
+        "staggerMs": 300000
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "VISION MONITOR \u2014 Check /home/philip/.openclaw/memory/vision-events.jsonl for new motion events.\n\nIf events exist:\n1. Read the latest snapshot image from the event\n2. Use llama3.2-vision (via Ollama) to analyze what triggered the motion\n3. Categorize: routine (Philip moving around), visitor (unknown person), pet, delivery, or anomaly\n4. If visitor/delivery/anomaly: create_task(title=\"[VISION] ...\", assignedToAgent=\"supervisor\", tags=[\"vision\",\"unknown-person\"], priority=\"urgent\")\n5. Clear processed events from the log\n\nIf NO events: respond with just HEARTBEAT_OK\n\nAfter processing, write status to memory/vision-monitor-status.md:\n# Vision Monitor Status\nLast run: <ISO timestamp>\nEvents processed: <N>\nEscalations: <N> (visitor/delivery/anomaly)\n\nKeep responses minimal. Do NOT message Philip directly \u2014 the supervisor handles that.",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "nextRunAtMs": 1771938179528,
+        "lastRunAtMs": 1771935139713,
+        "lastStatus": "ok",
+        "lastDurationMs": 79409,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDeliveryStatus": "not-delivered",
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "conversation-inbox-monitor-0001",
+      "agentId": "conversation-inbox",
+      "name": "Conversation Inbox Monitor",
+      "enabled": true,
+      "createdAtMs": 1770825600000,
+      "updatedAtMs": 1771934932009,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6-22 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "CONVERSATION INBOX MONITOR \u2014 Check for NEW urgent messages only.\n\n1. Use list_conversations (status=open)\n2. If ZERO open conversations: output HEARTBEAT_OK, stop\n3. For each OPEN conversation: check for unread incoming messages from the LAST 2 HOURS only\n4. If urgent (key contacts: Samantha, Caroline, Joshua, Craig OR keywords: urgent/asap/emergency/cancellation/payment due): create_task(title=\"[URGENT MSG] ...\", assignedToAgent=\"supervisor\", tags=[\"conversation\",\"escalation\"], priority=\"high\")\n5. After escalating, mark conversation resolved to prevent re-alert\n6. If no new urgent messages in last 2h: HEARTBEAT_OK\n\n\u26a0\ufe0f IMPORTANT: Do NOT count total unread messages. Only alert on NEW messages (last 2h) in OPEN conversations. Historical unread counts in resolved conversations should be ignored.\n\nAfter processing, write status to memory/conversation-inbox-status.md:\n# Conversation Inbox Status\nLast run: <ISO timestamp>\nOpen conversations checked: <N>\nUrgent escalations: <N>",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "lastRunAtMs": 1771934850589,
+        "lastStatus": "ok",
+        "lastDurationMs": 81420,
+        "nextRunAtMs": 1771938000000,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDeliveryStatus": "not-delivered",
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "email-analyst-0001",
+      "agentId": "email-analyst",
+      "name": "Email Analyst",
+      "enabled": true,
+      "createdAtMs": 1771670400000,
+      "updatedAtMs": 1771889548793,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 8-20/2 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "EMAIL ANALYST \u2014 Read EMAIL_ANALYST.md for full instructions.\n\nYou ARE Robothor. Your work comes from tasks tagged 'analytical' created by the Email Classifier.\n\n1. list_my_tasks(status=\"TODO\") \u2014 find tasks assigned to you\n2. If ZERO tasks: write email-analyst-status.md, output HEARTBEAT_OK, stop\n3. For each task: update_task(status=\"IN_PROGRESS\")\n4. Read the threadId from the task body\n5. Fetch the email thread: gog gmail thread get <threadId> --account robothor@ironsail.ai --format full\n6. Produce structured analysis (content summary, relationship context, action items, suggested approach)\n7. Write findings to memory/response-analysis.json keyed by threadId\n8. resolve_task(resolution=\"Analyzed: <brief summary>\")\n\nZERO tasks \u2192 write email-analyst-status.md, then HEARTBEAT_OK\nOtherwise \u2192 \ud83d\udd2c N emails analyzed\n\u26a0\ufe0f ALWAYS write email-analyst-status.md before finishing \u2014 the Supervisor reads it.\n0. First: get_inbox(agentId=\"email-analyst\", unreadOnly=true) \u2014 check for review_rejected notifications. ack_notification for each.\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"email-analyst: <summary>\")",
+        "timeoutSeconds": 240
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "nextRunAtMs": 1771936200000,
+        "lastRunAtMs": 1771889509102,
+        "lastStatus": "ok",
+        "lastDurationMs": 39691,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDelivered": true,
+        "lastDeliveryStatus": "delivered"
+      }
+    },
+    {
+      "id": "email-responder-0001",
+      "agentId": "email-responder",
+      "name": "Email Responder",
+      "enabled": true,
+      "createdAtMs": 1771257600000,
+      "updatedAtMs": 1771935068770,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8-20/4 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "sonnet",
+        "message": "EMAIL RESPONDER \u2014 Read RESPONDER.md for full instructions.\n\nYou ARE Robothor. Your work comes from tasks created by the Email Classifier.\n\n0. Check get_inbox(agentId=\"email-responder\", unreadOnly=true) for notifications. If review_rejected: re-read task, apply changeRequests. ack_notification for each.\n1. list_my_tasks(status=\"TODO\") \u2014 fetch your task inbox\n2. For each task: update_task(status=\"IN_PROGRESS\")\n3. Read the threadId from the task body\n4. Fetch the email thread: gog gmail thread get <threadId> --account robothor@ironsail.ai --format full\n5. Look up the sender in CRM: list_people(search=\"<sender>\")\n6. Compose and send reply via gog gmail send --reply-all --thread-id <threadId> --cc philip@ironsail.ai\n7. For high-priority, analytical, or key-contact replies: update_task(status=\"REVIEW\") \u2014 supervisor reviews. Otherwise: resolve_task(resolution=\"Sent reply: ...\")\n8. Log via log_interaction\n9. append_to_block(block_name=\"shared_working_state\", entry=\"email-responder: <summary>\")\n\nIf you can't handle an item, escalate via create_task(assignedToAgent=\"supervisor\").\n\nZERO tasks \u2192 write response-status.md (\"Inbox empty\"), then HEARTBEAT_OK\nOtherwise \u2192 \u2705/\u2753 format per RESPONDER.md\n\u26a0\ufe0f ALWAYS write response-status.md before finishing \u2014 the Supervisor reads it.",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "nextRunAtMs": 1771948800000,
+        "lastRunAtMs": 1771934932009,
+        "lastStatus": "ok",
+        "lastDurationMs": 136761,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDeliveryStatus": "delivered",
+        "lastDelivered": true
+      }
+    },
+    {
+      "id": "conversation-resolver-0001",
+      "agentId": "conversation-resolver",
+      "name": "Conversation Resolver",
+      "enabled": true,
+      "createdAtMs": 1771536000000,
+      "updatedAtMs": 1771935139619,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8,14,20 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "CONVERSATION RESOLVER \u2014 Read CONVERSATION_RESOLVER.md for full instructions.\n\nYou ARE Robothor. Auto-resolve stale conversations.\n\n1. list_conversations(status=open) \u2014 paginate all pages\n2. For each: check last message timestamp via list_messages\n3. Resolve if last message >7 days ago AND no unread incoming <48h\n4. Check list_tasks(status=\"DONE\", tags=[\"conversation\"]) for resolved conversation escalations\n5. Write memory/conversation-resolver-status.md\n\nNEVER resolve conversations with recent unread incoming messages.\nNEVER resolve key contacts (Samantha, Caroline, Joshua, Craig) unless >14d old.\n\n\u26a0\ufe0f OUTPUT: ZERO resolved \u2192 HEARTBEAT_OK\nOtherwise \u2192 \ud83e\uddf9 Resolved N stale conversations\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"conversation-resolver: <summary>\")",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "nextRunAtMs": 1771956000000,
+        "lastRunAtMs": 1771935068770,
+        "lastStatus": "ok",
+        "lastDurationMs": 70849,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDelivered": false,
+        "lastDeliveryStatus": "not-delivered"
+      }
+    },
+    {
+      "id": "crm-steward-0001",
+      "agentId": "crm-steward",
+      "name": "CRM Steward",
+      "enabled": true,
+      "createdAtMs": 1771536000000,
+      "updatedAtMs": 1771884408983,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10 * * *",
+        "tz": "America/Grenada"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "model": "kimi",
+        "message": "CRM STEWARD \u2014 Read CRM_STEWARD.md for full instructions.\n\nYou ARE Robothor. Check notifications and tasks first, then two phases: hygiene + enrichment.\n\n0. Check get_inbox(agentId=\"crm-steward\", unreadOnly=true) for notifications. If review_rejected: re-read task, apply changeRequests. ack_notification for each.\n1. list_my_tasks \u2014 check for tasks assigned to you first. Process before normal work.\n2. crm_health() \u2014 if degraded, output HEARTBEAT_OK and stop\n\nPhase 1 \u2014 Hygiene:\n3. list_people(limit=200) \u2014 duplicate detection\n4. Auto-merge high-confidence matches (>0.95). For uncertain matches (0.85-0.95): merge, then update_task(status=\"REVIEW\") for supervisor approval.\n5. Orphan detection \u2014 delete orphan identifiers, fix broken links\n\nPhase 2 \u2014 Enrichment (SKIP if already running >3 min):\n6. Pick exactly 1 contact with incomplete data\n7. Spawn research sub-agent with 30-second timeout\n8. Update CRM records with findings\n\n9. append_to_block(block_name=\"shared_working_state\", entry=\"crm-steward: <summary>\")\n\nDo NOT write to worker-handoff.json \u2014 use create_task for escalations.\n\u26a0\ufe0f OUTPUT: Per CRM_STEWARD.md format. Track merge/enrichment counts.",
+        "timeoutSeconds": 480
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "7636850023"
+      },
+      "state": {
+        "nextRunAtMs": 1771941600000,
+        "lastRunAtMs": 1771884405064,
+        "lastStatus": "ok",
+        "lastDurationMs": 3919,
+        "consecutiveErrors": 0,
+        "lastRunStatus": "ok",
+        "lastDelivered": false,
+        "lastDeliveryStatus": "not-delivered"
+      }
+    }
+  ]
+}

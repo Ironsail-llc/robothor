@@ -1,0 +1,63 @@
+id: morning-briefing
+name: Morning Briefing
+description: Daily morning briefing with weather, news, calendar, and CRM activity
+version: "2026-02-24"
+department: briefings
+
+reports_to: null
+creates_tasks_for: []
+receives_tasks_from: []
+escalates_to: null
+
+model:
+  primary: openrouter/moonshotai/kimi-k2.5
+  fallbacks:
+    - openrouter/minimax/minimax-m2.5
+    - google/gemini-2.5-pro
+  payload_alias: kimi
+
+schedule:
+  cron: "30 6 * * *"
+  timezone: America/Grenada
+  timeout_seconds: 300
+  session_target: isolated
+
+delivery:
+  mode: announce
+  channel: telegram
+  to: "7636850023"
+
+tools_allowed:
+  - list_conversations
+tools_denied:
+  - message
+bridge_endpoints:
+  - "GET /health"
+  - "GET /api/conversations"
+streams:
+  read: [email, calendar, health]
+  write: []
+
+sla:
+  urgent: 30m
+  high: 2h
+  normal: 8h
+  low: 24h
+
+task_protocol: false
+review_workflow: false
+notification_inbox: false
+status_file: null
+shared_working_state: false
+
+instruction_file: null
+bootstrap_files:
+  - brain/AGENTS.md
+  - brain/TOOLS.md
+
+tags_produced: []
+tags_consumed: []
+
+changelog:
+  - date: "2026-02-24"
+    change: "Initial manifest creation; agentId changed from 'main' to 'morning-briefing'"
