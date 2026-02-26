@@ -277,7 +277,7 @@
           "timezone": "America/New_York"
         }
       },
-      "maxConcurrent": 4,
+      "maxConcurrent": 6,
       "bootstrapMaxChars": 12000,
       "bootstrapTotalMaxChars": 30000,
       "subagents": {
