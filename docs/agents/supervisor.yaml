@@ -1,7 +1,7 @@
 id: supervisor
 name: Supervisor
 description: Audits pipeline health, surfaces escalations to Philip, approves/rejects REVIEW tasks
-version: "2026-02-24"
+version: "2026-02-26"
 department: operations
 
 reports_to: null
@@ -89,6 +89,8 @@ tags_produced: [escalation, needs-philip]
 tags_consumed: [escalation, needs-philip, calendar, conflict, cancellation, vision, unknown-person, conversation]
 
 changelog:
+  - date: "2026-02-26"
+    change: "Added cron-health-status.md as primary health signal; reduces false pipeline-down alerts"
   - date: "2026-02-24"
     change: "Initial manifest creation; SLA deadlines fixed to 30m/2h/8h/24h"
   - date: "2026-02-23"
