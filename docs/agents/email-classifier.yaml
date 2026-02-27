@@ -13,7 +13,7 @@ model:
   primary: openrouter/moonshotai/kimi-k2.5
   fallbacks:
     - openrouter/anthropic/claude-sonnet-4.6
-    - google/gemini-2.5-pro
+    - gemini/gemini-2.5-pro
   payload_alias: kimi
 
 schedule:
@@ -66,10 +66,18 @@ notification_inbox: false
 status_file: brain/memory/email-classifier-status.md
 shared_working_state: true
 
+warmup:
+  context_files:
+    - brain/memory/email-classifier-status.md
+
 instruction_file: brain/EMAIL_CLASSIFIER.md
 bootstrap_files:
   - brain/AGENTS.md
   - brain/TOOLS.md
+
+downstream_agents:
+  - email-analyst
+  - email-responder
 
 tags_produced: [email, reply-needed, analytical, escalation, needs-philip]
 tags_consumed: []

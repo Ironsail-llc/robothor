@@ -13,7 +13,7 @@ model:
   primary: openrouter/moonshotai/kimi-k2.5
   fallbacks:
     - openrouter/minimax/minimax-m2.5
-    - google/gemini-2.5-pro
+    - gemini/gemini-2.5-pro
   payload_alias: kimi
 
 schedule:
@@ -59,6 +59,10 @@ review_workflow: false
 notification_inbox: true
 status_file: brain/memory/conversation-inbox-status.md
 shared_working_state: false
+
+warmup:
+  context_files:
+    - brain/memory/conversation-inbox-status.md
 
 instruction_file: null
 bootstrap_files:

@@ -13,13 +13,13 @@ model:
   primary: openrouter/moonshotai/kimi-k2.5
   fallbacks:
     - openrouter/minimax/minimax-m2.5
-    - google/gemini-2.5-pro
+    - gemini/gemini-2.5-pro
   payload_alias: kimi
 
 schedule:
   cron: "0 * * * *"
   timezone: America/Grenada
-  timeout_seconds: 300
+  timeout_seconds: 480
   session_target: isolated
   stagger_ms: 300000
 
@@ -27,6 +27,9 @@ delivery:
   mode: none
 
 tools_allowed:
+  - look
+  - who_is_here
+  - set_vision_mode
   - create_task
   - list_my_tasks
   - resolve_task
@@ -65,6 +68,10 @@ review_workflow: false
 notification_inbox: false
 status_file: brain/memory/vision-monitor-status.md
 shared_working_state: false
+
+warmup:
+  context_files:
+    - brain/memory/vision-monitor-status.md
 
 instruction_file: null
 bootstrap_files:
