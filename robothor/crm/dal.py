@@ -847,6 +847,36 @@ def _check_subtask_completion(cur: Any, task_id: str) -> str | None:
     return None
 
 
+def find_task_by_thread_id(
+    thread_id: str,
+    assigned_to_agent: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
+) -> dict | None:
+    """Find an unresolved task containing a threadId in its body.
+
+    Used for server-side dedup — prevents duplicate tasks for the same email thread.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        query = """
+            SELECT id, title, status FROM crm_tasks
+            WHERE body LIKE %s
+              AND resolved_at IS NULL
+              AND deleted_at IS NULL
+              AND tenant_id = %s
+        """
+        params: list[Any] = [f"%threadId: {thread_id}%", tenant_id]
+        if assigned_to_agent:
+            query += " AND assigned_to_agent = %s"
+            params.append(assigned_to_agent)
+        query += " LIMIT 1"
+        cur.execute(query, params)
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+        return None
+
+
 def create_task(
     title: str,
     body: str | None = None,

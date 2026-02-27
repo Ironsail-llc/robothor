@@ -5,12 +5,15 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 
+import re
+
 from robothor.crm.dal import (
     approve_task,
     create_note,
     create_task,
     delete_note,
     delete_task,
+    find_task_by_thread_id,
     get_note,
     get_task,
     get_task_history,
@@ -122,6 +125,15 @@ async def api_create_task(
 ):
     if not body.title:
         return JSONResponse({"error": "title required"}, status_code=400)
+    # Server-side dedup: check for existing task with same threadId
+    if body.body and body.assignedToAgent:
+        m = re.search(r"threadId:\s*([a-zA-Z0-9]+)", body.body)
+        if m:
+            existing = find_task_by_thread_id(
+                m.group(1), assigned_to_agent=body.assignedToAgent, tenant_id=tenant_id
+            )
+            if existing:
+                return {"id": existing["id"], "title": existing["title"], "deduplicated": True}
     # Auto-populate created_by_agent from X-Agent-Id header
     agent_id = x_agent_id
     task_id = create_task(
