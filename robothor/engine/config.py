@@ -1,0 +1,208 @@
+"""
+Engine configuration — loads agent configs from YAML manifests and env vars.
+
+Reuses robothor.gateway.config_gen.load_manifests() for YAML parsing.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+from robothor.engine.models import AgentConfig, DeliveryMode
+
+logger = logging.getLogger(__name__)
+
+# Bootstrap file limits (matching OpenClaw behavior)
+BOOTSTRAP_MAX_CHARS_PER_FILE = 12_000
+BOOTSTRAP_TOTAL_MAX_CHARS = 30_000
+
+
+@dataclass(frozen=True)
+class EngineConfig:
+    """Top-level engine configuration from environment variables."""
+
+    # Telegram
+    bot_token: str = ""
+    default_chat_id: str = ""
+
+    # Engine
+    port: int = 18800
+    tenant_id: str = "robothor-primary"
+
+    # Paths
+    workspace: Path = field(default_factory=lambda: Path.home() / "robothor")
+    manifest_dir: Path = field(
+        default_factory=lambda: Path.home() / "robothor" / "docs" / "agents"
+    )
+
+    # Scheduler
+    max_concurrent_agents: int = 3
+    default_timezone: str = "America/Grenada"
+
+    # LLM
+    max_iterations: int = 20
+
+    @classmethod
+    def from_env(cls) -> EngineConfig:
+        workspace = Path(os.environ.get("ROBOTHOR_WORKSPACE", Path.home() / "robothor"))
+        return cls(
+            bot_token=os.environ.get("ROBOTHOR_TELEGRAM_BOT_TOKEN", "")
+            or os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+            default_chat_id=os.environ.get("ROBOTHOR_TELEGRAM_CHAT_ID", "")
+            or os.environ.get("TELEGRAM_CHAT_ID", "7636850023"),
+            port=int(os.environ.get("ROBOTHOR_ENGINE_PORT", "18800")),
+            tenant_id=os.environ.get("ROBOTHOR_TENANT_ID", "robothor-primary"),
+            workspace=workspace,
+            manifest_dir=Path(
+                os.environ.get("ROBOTHOR_MANIFEST_DIR", workspace / "docs" / "agents")
+            ),
+            max_concurrent_agents=int(
+                os.environ.get("ROBOTHOR_MAX_CONCURRENT_AGENTS", "3")
+            ),
+            default_timezone=os.environ.get("ROBOTHOR_TIMEZONE", "America/Grenada"),
+            max_iterations=int(os.environ.get("ROBOTHOR_MAX_ITERATIONS", "20")),
+        )
+
+
+def load_manifest(manifest_path: Path) -> dict | None:
+    """Load a single YAML manifest file."""
+    try:
+        with open(manifest_path) as f:
+            data = yaml.safe_load(f)
+        if data and isinstance(data, dict) and "id" in data:
+            return data
+        return None
+    except Exception as e:
+        logger.error("Failed to load manifest %s: %s", manifest_path, e)
+        return None
+
+
+def load_all_manifests(manifest_dir: Path) -> list[dict]:
+    """Load all YAML manifests from a directory."""
+    manifests = []
+    if not manifest_dir.is_dir():
+        logger.warning("Manifest directory not found: %s", manifest_dir)
+        return manifests
+    for f in sorted(manifest_dir.glob("*.yaml")):
+        data = load_manifest(f)
+        if data:
+            manifests.append(data)
+    return manifests
+
+
+def manifest_to_agent_config(manifest: dict) -> AgentConfig:
+    """Convert a YAML manifest dict to an AgentConfig."""
+    model = manifest.get("model", {})
+    schedule = manifest.get("schedule", {})
+    delivery = manifest.get("delivery", {})
+    streams = manifest.get("streams", {})
+    warmup = manifest.get("warmup", {})
+
+    delivery_mode_str = delivery.get("mode", "none")
+    try:
+        delivery_mode = DeliveryMode(delivery_mode_str)
+    except ValueError:
+        delivery_mode = DeliveryMode.NONE
+
+    return AgentConfig(
+        id=manifest["id"],
+        name=manifest.get("name", manifest["id"]),
+        description=manifest.get("description", ""),
+        model_primary=model.get("primary", ""),
+        model_fallbacks=model.get("fallbacks", []),
+        cron_expr=schedule.get("cron", ""),
+        timezone=schedule.get("timezone", "America/Grenada"),
+        timeout_seconds=schedule.get("timeout_seconds", 600),
+        max_iterations=schedule.get("max_iterations", 20),
+        session_target=schedule.get("session_target", "isolated"),
+        delivery_mode=delivery_mode,
+        delivery_channel=delivery.get("channel", ""),
+        delivery_to=delivery.get("to", ""),
+        tools_allowed=manifest.get("tools_allowed", []),
+        tools_denied=manifest.get("tools_denied", []),
+        instruction_file=manifest.get("instruction_file", ""),
+        bootstrap_files=manifest.get("bootstrap_files", []),
+        reports_to=manifest.get("reports_to", ""),
+        department=manifest.get("department", ""),
+        task_protocol=manifest.get("task_protocol", False),
+        review_workflow=manifest.get("review_workflow", False),
+        notification_inbox=manifest.get("notification_inbox", False),
+        shared_working_state=manifest.get("shared_working_state", False),
+        status_file=manifest.get("status_file", ""),
+        sla=manifest.get("sla", {}),
+        streams_read=streams.get("read", []),
+        streams_write=streams.get("write", []),
+        warmup_memory_blocks=warmup.get("memory_blocks", []),
+        warmup_context_files=warmup.get("context_files", []),
+        warmup_peer_agents=warmup.get("peer_agents", []),
+        downstream_agents=manifest.get("downstream_agents", []),
+    )
+
+
+def load_agent_config(agent_id: str, manifest_dir: Path) -> AgentConfig | None:
+    """Load a single agent config by ID from the manifest directory."""
+    manifest_path = manifest_dir / f"{agent_id}.yaml"
+    if manifest_path.exists():
+        data = load_manifest(manifest_path)
+        if data:
+            return manifest_to_agent_config(data)
+    # Fallback: scan all manifests for matching ID
+    for m in load_all_manifests(manifest_dir):
+        if m["id"] == agent_id:
+            return manifest_to_agent_config(m)
+    return None
+
+
+def build_system_prompt(config: AgentConfig, workspace: Path) -> str:
+    """Build the full system prompt from instruction + bootstrap files.
+
+    Respects per-file and total char limits.
+    """
+    parts: list[str] = []
+    total_chars = 0
+
+    # Load instruction file first (primary)
+    if config.instruction_file:
+        instruction_path = workspace / config.instruction_file
+        if instruction_path.exists():
+            content = instruction_path.read_text()
+            if len(content) > BOOTSTRAP_MAX_CHARS_PER_FILE:
+                content = content[:BOOTSTRAP_MAX_CHARS_PER_FILE]
+                logger.warning(
+                    "Instruction file %s truncated to %d chars",
+                    config.instruction_file,
+                    BOOTSTRAP_MAX_CHARS_PER_FILE,
+                )
+            parts.append(content)
+            total_chars += len(content)
+        else:
+            logger.warning("Instruction file not found: %s", instruction_path)
+
+    # Load bootstrap files
+    for bs_file in config.bootstrap_files:
+        if total_chars >= BOOTSTRAP_TOTAL_MAX_CHARS:
+            logger.warning("Bootstrap total limit reached, skipping remaining files")
+            break
+
+        bs_path = workspace / bs_file
+        if not bs_path.exists():
+            logger.warning("Bootstrap file not found: %s", bs_path)
+            continue
+
+        content = bs_path.read_text()
+        remaining = BOOTSTRAP_TOTAL_MAX_CHARS - total_chars
+        max_this_file = min(BOOTSTRAP_MAX_CHARS_PER_FILE, remaining)
+        if len(content) > max_this_file:
+            content = content[:max_this_file]
+            logger.warning(
+                "Bootstrap file %s truncated to %d chars", bs_file, max_this_file
+            )
+        parts.append(content)
+        total_chars += len(content)
+
+    return "\n\n---\n\n".join(parts)

@@ -76,6 +76,12 @@ notification_inbox: true
 status_file: brain/memory/crm-steward-status.md
 shared_working_state: true
 
+warmup:
+  memory_blocks:
+    - contacts_summary
+  context_files:
+    - brain/memory/crm-steward-status.md
+
 instruction_file: brain/CRM_STEWARD.md
 bootstrap_files:
   - brain/AGENTS.md

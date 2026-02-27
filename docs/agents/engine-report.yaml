@@ -1,8 +1,8 @@
-id: morning-briefing
-name: Morning Briefing
-description: Daily morning briefing with weather, news, calendar, and CRM activity
-version: "2026-02-24"
-department: briefings
+id: engine-report
+name: Engine Report
+description: Daily summary of agent engine activity and health
+version: "2026-02-27"
+department: operations
 
 reports_to: null
 creates_tasks_for: []
@@ -17,9 +17,9 @@ model:
   payload_alias: kimi
 
 schedule:
-  cron: "30 6 * * *"
+  cron: "0 23 * * *"
   timezone: America/Grenada
-  timeout_seconds: 480
+  timeout_seconds: 300
   session_target: isolated
 
 delivery:
@@ -28,14 +28,20 @@ delivery:
   to: "7636850023"
 
 tools_allowed:
-  - list_conversations
+  - list_agent_runs
+  - get_agent_run
+  - list_agent_schedules
+  - get_agent_stats
 tools_denied:
   - message
-bridge_endpoints:
-  - "GET /health"
-  - "GET /api/conversations"
+  - create_person
+  - update_person
+  - delete_person
+  - web_search
+  - web_fetch
+
 streams:
-  read: [email, calendar, health]
+  read: [agent]
   write: []
 
 sla:
@@ -50,20 +56,12 @@ notification_inbox: false
 status_file: null
 shared_working_state: false
 
-warmup:
-  memory_blocks:
-    - user_profile
-
-instruction_file: null
-bootstrap_files:
-  - brain/AGENTS.md
-  - brain/TOOLS.md
+instruction_file: brain/ENGINE_REPORT.md
+bootstrap_files: []
 
 tags_produced: []
 tags_consumed: []
 
 changelog:
   - date: "2026-02-27"
-    change: "Add health section in payload (garmin-health.md)"
-  - date: "2026-02-24"
-    change: "Initial manifest creation; agentId changed from 'main' to 'morning-briefing'"
+    change: "Initial creation — daily engine activity summary"
