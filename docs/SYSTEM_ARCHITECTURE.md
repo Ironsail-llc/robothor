@@ -162,7 +162,7 @@ All services are **system-level systemd units** (`/etc/systemd/system/`), manage
 | Privacy policy | robothor-privacy.service | 3002 | Node.js | privacy.robothor.ai |
 | CRM stack | robothor-crm.service | 3010, 8222, 8880 | Docker Compose | Vaultwarden, Uptime Kuma, Kokoro TTS |
 | Bridge | robothor-bridge.service | 9100 | Python/FastAPI | Contact resolution, webhooks, REST proxy |
-| Gateway | moltbot-gateway.service | 18789 | Node.js | OpenClaw messaging (30+ channels) |
+| Gateway | robothor-gateway.service | 18789 | Node.js | OpenClaw messaging (30+ channels) |
 | Transcript watcher | robothor-transcript.service | — | Python | Voice transcript processing |
 | Tunnel | cloudflared.service | — | Go binary | Cloudflare Tunnel (all external routing) |
 | VPN | tailscaled.service | — | Go binary | Tailscale mesh (ironsail tailnet) |
@@ -638,7 +638,7 @@ LUKS2-encrypted SanDisk SSD (1.8 TB) mounted at `/mnt/robothor-backup`.
 
 | Category | Contents |
 |----------|----------|
-| Project directories | `clawd/`, `moltbot/`, `garmin-sync/`, `clawd-main/`, `robothor/` |
+| Project directories | `clawd/`, `garmin-sync/`, `robothor/` (including `gateway/`, `templates/`) |
 | Config directories | `.openclaw/`, `.cloudflared/` |
 | Credentials | `.bashrc`, `crm/.env` |
 | Databases | 2x `pg_dump`: robothor\_memory, vaultwarden |
@@ -798,30 +798,17 @@ robothor/                                 Project root (git repo)
 │   ├── welcome/                          Welcome page
 │   └── gap-analysis/                     Architecture analysis
 │
-├── comms/ → ~/moltbot/                   OpenClaw messaging (public repo)
-│   ├── CLAUDE.md
-│   ├── AGENTS.md
-│   ├── apps/                             Native apps (android, ios, macos)
+├── gateway/                               OpenClaw messaging gateway (git subtree)
+│   ├── src/                              TypeScript source (patched locally)
 │   ├── dist/                             Built gateway + CLI
-│   └── assets/
+│   ├── skills/                           Built-in skills (gog, etc.)
+│   ├── packages/                         Sub-packages
+│   └── package.json
 │
-├── runtime/ → ~/.openclaw/               OpenClaw runtime config
-│   ├── openclaw.json                     Main config (plugins, models)
-│   ├── moltbot.json                      Gateway config
-│   ├── agents/                           Agent profiles (main, supervisor, health, test)
-│   ├── cron/
-│   │   ├── jobs.json                     All scheduled agent jobs
-│   │   └── runs/                         Execution logs
-│   ├── credentials/                      Telegram, Google Chat pairing
-│   ├── devices/                          Paired devices
-│   ├── identity/                         Device authentication
-│   ├── memory/
-│   │   ├── main.sqlite                   OpenClaw local memory
-│   │   └── vision-events.jsonl           Vision event log
-│   ├── workspace/                        Agent workspace docs
-│   ├── subagents/                        Sub-agent run tracking
-│   ├── media/                            Inbound media files
-│   └── browser/                          Browser extension data
+├── runtime/                              OpenClaw runtime config templates (git-tracked)
+│   ├── openclaw.json                     Main config (secrets scrubbed with $SOPS:)
+│   └── cron/
+│       └── jobs.json                     All scheduled agent jobs
 │
 ├── health/ → ~/garmin-sync/              Garmin health data
 │   ├── garmin_sync.py                    */15 — Garmin API sync
@@ -830,7 +817,7 @@ robothor/                                 Project root (git repo)
 │   ├── garmin.db                         Health data store
 │   └── .garmin_tokens/                   OAuth credentials
 │
-├── templates/ → ~/clawd-main/            Bootstrap templates
+├── templates/                             Bootstrap templates
 │
 └── tunnel/ → ~/.cloudflared/             Cloudflare tunnel
     ├── config.yml                        Tunnel ingress rules

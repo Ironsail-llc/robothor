@@ -605,7 +605,7 @@
     "googlechat": {
       "enabled": true,
       "groupPolicy": "allowlist",
-      "serviceAccountFile": "/home/philip/.moltbot/googlechat-service-account.json",
+      "serviceAccountFile": "/home/philip/.openclaw/googlechat-service-account.json",
       "audienceType": "app-url",
       "audience": "https://api.robothor.ai/googlechat",
       "webhookPath": "/googlechat",

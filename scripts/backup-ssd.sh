@@ -50,21 +50,20 @@ EXCLUDES=(
 
 # ── Project directories ─────────────────────────────────────────
 
-for dir in clawd moltbot garmin-sync clawd-main; do
+for dir in clawd garmin-sync; do
     if [ -d "$HOME/$dir" ]; then
         rsync -a --delete "${EXCLUDES[@]}" \
             "$HOME/$dir/" "$BACKUP_ROOT/latest/$dir/" 2>> "$LOG"
     fi
 done
 
-# robothor root (excluding symlinks to avoid duplicating clawd/moltbot/etc)
+# robothor root (excluding symlinks to avoid duplicating clawd/garmin-sync/etc)
 rsync -a --delete "${EXCLUDES[@]}" \
     --exclude='brain' \
-    --exclude='comms' \
-    --exclude='runtime' \
     --exclude='health' \
-    --exclude='templates' \
     --exclude='tunnel' \
+    --exclude='gateway/node_modules' \
+    --exclude='gateway/dist' \
     "$HOME/robothor/" "$BACKUP_ROOT/latest/robothor/" 2>> "$LOG"
 
 # ── Hidden config directories ───────────────────────────────────
@@ -77,7 +76,6 @@ rsync -a --delete "$HOME/.cloudflared/" "$BACKUP_ROOT/latest/cloudflared/" 2>> "
 mkdir -p "$BACKUP_ROOT/latest/systemd-services"
 sudo cp /etc/systemd/system/robothor-*.service "$BACKUP_ROOT/latest/systemd-services/" 2>> "$LOG"
 sudo cp /etc/systemd/system/mediamtx-webcam.service "$BACKUP_ROOT/latest/systemd-services/" 2>> "$LOG" || true
-sudo cp /etc/systemd/system/moltbot-gateway.service "$BACKUP_ROOT/latest/systemd-services/" 2>> "$LOG" || true
 
 # ── Credentials ─────────────────────────────────────────────────
 

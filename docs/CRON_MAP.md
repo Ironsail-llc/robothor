@@ -46,6 +46,9 @@ Hourly         │ Email Classifier (OpenClaw, every 2h 6-22, announce) — clas
 
 04:00 AM       │ Snapshot cleanup (crontab) — delete vision snapshots > 30 days
 
+Every 4h 6-22  │ Task Cleanup (crontab) — brain/scripts/task_cleanup.py
+               │   Delete test data, resolve past-date calendar tasks, reset stuck IN_PROGRESS, resolve orphan TODOs
+
 Every 4h 8-20  │ Email Responder (OpenClaw, announce) — compose and send replies (substantive for analytical)
 
 8, 14, 20      │ Conversation Resolver (OpenClaw, silent) — auto-resolve stale conversations (>7d inactive)

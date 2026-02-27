@@ -44,7 +44,7 @@
       "host": "0.0.0.0",
       "health": null,
       "protocol": "ws",
-      "systemd_unit": "moltbot-gateway.service",
+      "systemd_unit": "robothor-gateway.service",
       "tunnel_route": "gateway.robothor.ai",
       "dependencies": []
     },

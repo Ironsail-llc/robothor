@@ -161,8 +161,8 @@ The system passes all 6 fork criteria (verified by `scripts/verify-fork-readines
 | Path | Purpose |
 |------|---------|
 | `brain/` → `~/clawd/` | Core: memory system, scripts, voice, vision, dashboards |
-| `comms/` → `~/moltbot/` | OpenClaw messaging framework |
-| `runtime/` → `~/.openclaw/` | OpenClaw runtime: agents, cron jobs, credentials |
+| `gateway/` | OpenClaw messaging gateway (git subtree from upstream) |
+| `runtime/` | OpenClaw runtime config templates (git-tracked, secrets scrubbed) |
 | `app/` | The Helm — Next.js 16 live dashboard |
 | `crm/` | CRM stack: Bridge service, migrations, Docker Compose |
 | `scripts/` | Boot orchestrator, backup, verification |
