@@ -19,7 +19,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "🌅 MORNING BRIEFING: Generate Philip's daily briefing. Check calendar (memory/calendar-log.json), email-log.json for urgent items.\n\n💪 HEALTH (ALWAYS INCLUDE):\nRead memory/garmin-health.md for Philip's health data.\nInclude: last night's sleep (duration + score), body battery level, resting HR.\nIf sleep score < 70 or sleep < 6h: flag it. If body battery < 30: flag it.\nKeep to 2-3 bullet points.\n\n🌤️ WEATHER (ALWAYS INCLUDE BOTH):\n1. St. George, Grenada (where Philip is) — use Open-Meteo: latitude=12.05, longitude=-61.75\n2. Broad Channel, NY (home base) — use Open-Meteo: latitude=40.59, longitude=-73.82\nUse fahrenheit and mph. If wttr.in times out, fall back to Open-Meteo API.\n\n📰 NEWS (ALWAYS INCLUDE — 3-4 items):\n- Use web_search to find today's top stories in: (1) technology/AI, (2) technology in medicine/healthtech/digital health\n- Search queries: \"AI technology news today\" and \"healthtech medical technology news today\"\n- Format each as: • [Headline] — one-sentence summary\n\n📊 CRM ACTIVITY (ALWAYS INCLUDE):\n- Use list_conversations (status=open) to list open conversations\n- Count conversations with unread messages\n- Summarize: \"X open conversations, Y with unread messages\"\n- If notable contacts have open threads, mention by name\n\nFormat a concise briefing and deliver to Philip via Telegram.",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 480
       },
       "delivery": {
         "mode": "announce",
@@ -55,7 +55,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "🌙 EVENING WIND-DOWN: Generate Philip's evening summary. Check tomorrow's calendar (memory/calendar-log.json), any open tasks.\n\n💪 HEALTH (ALWAYS INCLUDE):\nRead memory/garmin-health.md for Philip's end-of-day health data.\nInclude: steps vs goal, stress level (avg + label), body battery.\nIf steps < 50% of goal: suggest activity. If stress avg > 50: note it.\nKeep to 2-3 bullet points.\n\n🌤️ WEATHER (ALWAYS INCLUDE BOTH):\n1. St. George, Grenada (where Philip is) — use Open-Meteo: latitude=12.05, longitude=-61.75\n2. Broad Channel, NY (home base) — use Open-Meteo: latitude=40.59, longitude=-73.82\nUse fahrenheit and mph. If wttr.in times out, fall back to Open-Meteo API.\n\n📰 NEWS (ALWAYS INCLUDE — 3-4 items):\n- Use web_search to find today's top stories in: (1) technology/AI, (2) technology in medicine/healthtech/digital health\n- Search queries: \"AI technology news today\" and \"healthtech medical technology news today\"\n- Format each as: • [Headline] — one-sentence summary\n\n📊 CRM DAY SUMMARY (ALWAYS INCLUDE):\n- Use list_conversations (status=all) to count resolved today\n- Summarize: \"X interactions logged, Y conversations resolved\"\n\nFormat a concise summary and deliver to Philip via Telegram.",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 480
       },
       "delivery": {
         "mode": "announce",
@@ -91,7 +91,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "EMAIL CLASSIFIER — Read EMAIL_CLASSIFIER.md for full instructions.\n\nYou ARE Robothor. Process ONLY email items from memory/triage-inbox.json.\n\n1. list_my_tasks — check for tasks assigned to you first\n2. Read memory/triage-inbox.json\n3. If counts.emails is 0: write status file, output HEARTBEAT_OK, stop\n4. Check activeEscalationIds — do NOT re-escalate items already listed\n5. ⚠️ DEDUP CHECK: Before creating ANY task, call list_tasks(assignedToAgent=\"email-responder\", excludeResolved=true) AND list_tasks(assignedToAgent=\"email-analyst\", excludeResolved=true). Search ALL returned task bodies for the same threadId. If found, skip — do NOT create a duplicate.\n6. For each email: dismiss junk, route reply-worthy via create_task(assignedToAgent=\"email-responder\"), route analytical/reports/data via create_task(assignedToAgent=\"email-analyst\"), escalate unknowns/complex via create_task(assignedToAgent=\"supervisor\")\n7. Use CRM tools (log_interaction, create_person) as needed\n8. REQUIRED: call create_task for every non-dismissed email. assignedToAgent MUST be one of: \"email-responder\", \"email-analyst\", \"supervisor\". NEVER leave blank.\n9. REQUIRED: Before finishing, write memory/email-classifier-status.md via exec. The Supervisor reads it — if stale, it thinks you're dead.\n\nDo NOT use the write tool — use exec for file operations.\nDo NOT process calendar or jira items.\nDo NOT reply to emails — route via create_task.\nDo NOT write to response-queue.json or worker-handoff.json — use create_task instead.\n\n⚠️ OUTPUT: ZERO emails → HEARTBEAT_OK\nOtherwise → 📧/❓/🗑️ format per EMAIL_CLASSIFIER.md. Include [task:<id>] for each routed/escalated email.\n⚠️ ALWAYS write email-classifier-status.md before finishing — the Supervisor reads it.\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"email-classifier: <summary>\")",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 600
       },
       "delivery": {
         "mode": "announce",
@@ -127,7 +127,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "CALENDAR MONITOR — Read CALENDAR_MONITOR.md for full instructions.\n\nYou ARE Robothor. Process ONLY calendar items from memory/triage-inbox.json.\n\n1. list_my_tasks — check for tasks assigned to you first\n2. Read memory/triage-inbox.json\n3. If counts.calendar is 0: write status file, output HEARTBEAT_OK, stop\n4. Check activeEscalationIds — do NOT re-escalate items already listed\n5. For each calendar item: note routine additions, detect conflicts/cancellations\n6. For conflicts or urgent changes: create_task(assignedToAgent=\"supervisor\", tags=[\"calendar\",\"conflict\"], priority=\"high\")\n7. REQUIRED: Before finishing, write memory/calendar-monitor-status.md via exec.\n\nDo NOT use the write tool — use exec for file operations.\nDo NOT process email or jira items.\nDo NOT write to worker-handoff.json — use create_task instead.\n\n⚠️ OUTPUT: ZERO calendar items → HEARTBEAT_OK\nOtherwise → 📅 format per CALENDAR_MONITOR.md.\n⚠️ ALWAYS write calendar-monitor-status.md before finishing — the Supervisor reads it.\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"calendar-monitor: <summary>\")",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 480
       },
       "delivery": {
         "mode": "announce",
@@ -163,7 +163,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "SUPERVISOR HEARTBEAT — Read HEARTBEAT.md for full instructions.\n\nYou are Robothor checking in with Philip on Telegram. Report what you handled (✅), ask for help on what's stuck (❓), remind about stale asks (🔄).\n\n⚠️ CRITICAL: Do NOT call the message tool. Your text output IS the Telegram message — the cron framework delivers it automatically.\n\nStep 0: Check get_inbox(agentId=\"supervisor\", unreadOnly=true) for notifications. Handle review_requested notifications. ack_notification for each.\n\nStep 1 — REVIEW tasks FIRST (highest priority):\n- list_tasks(status=\"REVIEW\") — find tasks awaiting approval\n- For each: read body and resolution, then approve_task or reject_task\n- If unsure: create escalation task with needs-philip tag\n- Do this BEFORE reading status files — REVIEW tasks have SLA pressure\n\nStep 2 — Agent health:\nRead these worker status files (skip missing):\n- memory/cron-health-status.md (PRIORITY: cron system ground truth)\n- memory/email-classifier-status.md, memory/calendar-monitor-status.md\n- memory/response-status.md, memory/conversation-resolver-status.md\n- memory/crm-steward-status.md, memory/vision-monitor-status.md\n- memory/conversation-inbox-status.md\n\nCron health interpretation: Errors with consecutiveErrors >= 2 = escalate. Stale = escalate. Agent healthy but status file stale = do NOT escalate.\n\nStep 3 — Task activity:\n- list_my_tasks — check for escalation tasks assigned to you\n- list_tasks(status=\"TODO\") — find stale tasks (>2h old = agent may have failed)\n- Surface escalation tasks to Philip, then resolve_task when done\n\nSLA deadlines: urgent=30m, high=2h, normal=8h, low=24h. Flag overdue tasks.\n\nAlso read memory/worker-handoff.json for INFRASTRUCTURE alerts only.\nApply surfacing rules from HEARTBEAT.md.\n\nAfter checks: append_to_block(block_name=\"shared_working_state\", entry=\"supervisor: <summary>\")\n\nNEVER re-surface items Philip already knows about. HEARTBEAT_OK only when truly nothing happened.\nKeep total output under 500 chars.",
-        "timeoutSeconds": 480
+        "timeoutSeconds": 600
       },
       "delivery": {
         "mode": "announce",
@@ -234,7 +234,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "CONVERSATION INBOX MONITOR — Check for NEW urgent messages only.\n\n1. Use list_conversations (status=open)\n2. If ZERO open conversations: output HEARTBEAT_OK, stop\n3. For each OPEN conversation: check for unread incoming messages from the LAST 2 HOURS only\n4. If urgent (key contacts: Samantha, Caroline, Joshua, Craig OR keywords: urgent/asap/emergency/cancellation/payment due): create_task(title=\"[URGENT MSG] ...\", assignedToAgent=\"supervisor\", tags=[\"conversation\",\"escalation\"], priority=\"high\")\n5. After escalating, mark conversation resolved to prevent re-alert\n6. If no new urgent messages in last 2h: HEARTBEAT_OK\n\n⚠️ IMPORTANT: Do NOT count total unread messages. Only alert on NEW messages (last 2h) in OPEN conversations. Historical unread counts in resolved conversations should be ignored.\n\nAfter processing, write status to memory/conversation-inbox-status.md:\n# Conversation Inbox Status\nLast run: <ISO timestamp>\nOpen conversations checked: <N>\nUrgent escalations: <N>",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 480
       },
       "delivery": {
         "mode": "none"
@@ -270,7 +270,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "EMAIL ANALYST — Read EMAIL_ANALYST.md for full instructions.\n\nYou ARE Robothor. Your work comes from tasks tagged 'analytical' created by the Email Classifier.\n\n1. list_my_tasks(status=\"TODO\") — find tasks assigned to you\n2. If ZERO tasks: write email-analyst-status.md, output HEARTBEAT_OK, stop\n3. For each task: update_task(status=\"IN_PROGRESS\")\n4. Read the threadId from the task body\n5. Fetch the email thread: gog gmail thread get <threadId> --account robothor@ironsail.ai --format full\n6. Produce structured analysis (content summary, relationship context, action items, suggested approach)\n7. Write findings to memory/response-analysis.json keyed by threadId\n8. resolve_task(resolution=\"Analyzed: <brief summary>\")\n\nZERO tasks → write email-analyst-status.md, then HEARTBEAT_OK\nOtherwise → 🔬 N emails analyzed\n⚠️ ALWAYS write email-analyst-status.md before finishing — the Supervisor reads it.\n0. First: get_inbox(agentId=\"email-analyst\", unreadOnly=true) — check for review_rejected notifications. ack_notification for each.\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"email-analyst: <summary>\")",
-        "timeoutSeconds": 240
+        "timeoutSeconds": 480
       },
       "delivery": {
         "mode": "announce",
@@ -306,7 +306,7 @@
         "kind": "agentTurn",
         "model": "sonnet",
         "message": "EMAIL RESPONDER — Read RESPONDER.md for full instructions.\n\nYou ARE Robothor. Your work comes from tasks created by the Email Classifier.\n\n0. Check get_inbox(agentId=\"email-responder\", unreadOnly=true) for notifications. If review_rejected: re-read task, apply changeRequests. ack_notification for each.\n1. list_my_tasks(status=\"TODO\") — fetch your task inbox\n2. For each task: update_task(status=\"IN_PROGRESS\")\n3. Read the threadId from the task body\n4. Fetch the email thread: gog gmail thread get <threadId> --account robothor@ironsail.ai --format full\n5. Look up the sender in CRM: list_people(search=\"<sender>\")\n6. Compose and send reply via gog gmail send --reply-all --thread-id <threadId> --cc philip@ironsail.ai\n7. For high-priority, analytical, or key-contact replies: update_task(status=\"REVIEW\") — supervisor reviews. Otherwise: resolve_task(resolution=\"Sent reply: ...\")\n8. Log via log_interaction\n9. append_to_block(block_name=\"shared_working_state\", entry=\"email-responder: <summary>\")\n\nIf you can't handle an item, escalate via create_task(assignedToAgent=\"supervisor\").\n\nZERO tasks → write response-status.md (\"Inbox empty\"), then HEARTBEAT_OK\nOtherwise → ✅/❓ format per RESPONDER.md\n⚠️ ALWAYS write response-status.md before finishing — the Supervisor reads it.",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 600
       },
       "delivery": {
         "mode": "announce",
@@ -342,7 +342,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "CONVERSATION RESOLVER — Read CONVERSATION_RESOLVER.md for full instructions.\n\nYou ARE Robothor. Auto-resolve stale conversations.\n\n1. list_conversations(status=open) — paginate all pages\n2. For each: check last message timestamp via list_messages\n3. Resolve if last message >7 days ago AND no unread incoming <48h\n4. Check list_tasks(status=\"DONE\", tags=[\"conversation\"]) for resolved conversation escalations\n5. Write memory/conversation-resolver-status.md\n\nNEVER resolve conversations with recent unread incoming messages.\nNEVER resolve key contacts (Samantha, Caroline, Joshua, Craig) unless >14d old.\n\n⚠️ OUTPUT: ZERO resolved → HEARTBEAT_OK\nOtherwise → 🧹 Resolved N stale conversations\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"conversation-resolver: <summary>\")",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 480
       },
       "delivery": {
         "mode": "none"
@@ -376,7 +376,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "CRM STEWARD — Read CRM_STEWARD.md for full instructions.\n\nYou ARE Robothor. Check notifications and tasks first, then three phases: task hygiene + CRM hygiene + enrichment.\n\n0. Check get_inbox(agentId=\"crm-steward\", unreadOnly=true) for notifications. If review_rejected: re-read task, apply changeRequests. ack_notification for each.\n1. list_my_tasks — check for tasks assigned to you first. Process before normal work.\n2. crm_health() — if degraded, output HEARTBEAT_OK and stop\n\nPhase -1 — Task Hygiene (NEW — run FIRST):\n- list_tasks(status=\"IN_PROGRESS\") — reset stuck tasks (>4h old) back to TODO\n- list_tasks(status=\"TODO\", excludeResolved=true) — dedup tasks with same threadId, keep oldest\n- Fix unassigned tasks: assign based on tags (email+reply-needed→responder, email+analytical→analyst, escalation→supervisor)\n- Flag SLA overdue tasks (max 3 escalations per run)\n\nPhase 1 — CRM Hygiene:\n3. list_people(limit=200) — duplicate detection\n4. Auto-merge high-confidence matches (>0.95). For uncertain matches (0.85-0.95): merge, then update_task(status=\"REVIEW\") for supervisor approval.\n5. Orphan detection — delete orphan identifiers, fix broken links\n\nPhase 2 — Enrichment (SKIP if already running >3 min):\n6. Pick exactly 1 contact with incomplete data\n7. Spawn research sub-agent with 30-second timeout\n8. Update CRM records with findings\n\n9. append_to_block(block_name=\"shared_working_state\", entry=\"crm-steward: <summary>\")\n\nDo NOT write to worker-handoff.json — use create_task for escalations.\n⚠️ OUTPUT: Per CRM_STEWARD.md format. Track task hygiene + merge/enrichment counts.",
-        "timeoutSeconds": 480
+        "timeoutSeconds": 600
       },
       "delivery": {
         "mode": "announce",
@@ -412,7 +412,7 @@
         "kind": "agentTurn",
         "model": "kimi",
         "message": "EMAIL CLASSIFIER — Read EMAIL_CLASSIFIER.md for full instructions.\n\nYou ARE Robothor. Process ONLY email items from memory/triage-inbox.json.\n\n1. list_my_tasks — check for tasks assigned to you first\n2. Read memory/triage-inbox.json\n3. If counts.emails is 0: write status file, output HEARTBEAT_OK, stop\n4. Check activeEscalationIds — do NOT re-escalate items already listed\n5. ⚠️ DEDUP CHECK: Before creating ANY task, call list_tasks(assignedToAgent=\"email-responder\", excludeResolved=true) AND list_tasks(assignedToAgent=\"email-analyst\", excludeResolved=true). Search ALL returned task bodies for the same threadId. If found, skip — do NOT create a duplicate.\n6. For each email: dismiss junk, route reply-worthy via create_task(assignedToAgent=\"email-responder\"), route analytical/reports/data via create_task(assignedToAgent=\"email-analyst\"), escalate unknowns/complex via create_task(assignedToAgent=\"supervisor\")\n7. Use CRM tools (log_interaction, create_person) as needed\n8. REQUIRED: call create_task for every non-dismissed email. assignedToAgent MUST be one of: \"email-responder\", \"email-analyst\", \"supervisor\". NEVER leave blank.\n9. REQUIRED: Before finishing, write memory/email-classifier-status.md via exec. The Supervisor reads it — if stale, it thinks you're dead.\n\nDo NOT use the write tool — use exec for file operations.\nDo NOT process calendar or jira items.\nDo NOT reply to emails — route via create_task.\nDo NOT write to response-queue.json or worker-handoff.json — use create_task instead.\n\n⚠️ OUTPUT: ZERO emails → HEARTBEAT_OK\nOtherwise → 📧/❓/🗑️ format per EMAIL_CLASSIFIER.md. Include [task:<id>] for each routed/escalated email.\n⚠️ ALWAYS write email-classifier-status.md before finishing — the Supervisor reads it.\nAfter processing: append_to_block(block_name=\"shared_working_state\", entry=\"email-classifier: <summary>\")",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 600
       },
       "delivery": {
         "mode": "none"
@@ -437,7 +437,7 @@
         "kind": "agentTurn",
         "model": "sonnet",
         "message": "EMAIL RESPONDER — Read RESPONDER.md for full instructions.\n\nYou ARE Robothor. Your work comes from tasks created by the Email Classifier.\n\n0. Check get_inbox(agentId=\"email-responder\", unreadOnly=true) for notifications. If review_rejected: re-read task, apply changeRequests. ack_notification for each.\n1. list_my_tasks(status=\"TODO\") — fetch your task inbox\n2. For each task: update_task(status=\"IN_PROGRESS\")\n3. Read the threadId from the task body\n4. Fetch the email thread: gog gmail thread get <threadId> --account robothor@ironsail.ai --format full\n5. Look up the sender in CRM: list_people(search=\"<sender>\")\n6. Compose and send reply via gog gmail send --reply-all --thread-id <threadId> --cc philip@ironsail.ai\n7. For high-priority, analytical, or key-contact replies: update_task(status=\"REVIEW\") — supervisor reviews. Otherwise: resolve_task(resolution=\"Sent reply: ...\")\n8. Log via log_interaction\n9. append_to_block(block_name=\"shared_working_state\", entry=\"email-responder: <summary>\")\n\nIf you can't handle an item, escalate via create_task(assignedToAgent=\"supervisor\").\n\nZERO tasks → write response-status.md (\"Inbox empty\"), then HEARTBEAT_OK\nOtherwise → ✅/❓ format per RESPONDER.md\n⚠️ ALWAYS write response-status.md before finishing — the Supervisor reads it.",
-        "timeoutSeconds": 300
+        "timeoutSeconds": 600
       },
       "delivery": {
         "mode": "none"
