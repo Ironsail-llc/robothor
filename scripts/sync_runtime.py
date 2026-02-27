@@ -211,9 +211,9 @@ def sync(dry_run: bool = False, auto_yes: bool = False, restart: bool = False):
     print("\nSync complete.")
 
     if restart:
-        print("\nRestarting moltbot-gateway...")
+        print("\nRestarting robothor-gateway...")
         result = subprocess.run(
-            ["sudo", "systemctl", "restart", "moltbot-gateway"],
+            ["sudo", "systemctl", "restart", "robothor-gateway"],
             capture_output=True,
             text=True,
         )
@@ -241,7 +241,7 @@ def main():
     parser.add_argument(
         "--restart",
         action="store_true",
-        help="Restart moltbot-gateway after sync (requires sudo)",
+        help="Restart robothor-gateway after sync (requires sudo)",
     )
     args = parser.parse_args()
     sync(dry_run=args.dry_run, auto_yes=args.yes, restart=args.restart)

@@ -479,3 +479,79 @@ def test_history_to_dict():
     assert result["toStatus"] == "IN_PROGRESS"
     assert result["changedBy"] == "email-classifier"
     assert result["metadata"] == {"key": "value"}
+
+
+# ─── Task Dedup Tests ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_task_dedup_returns_existing(test_client):
+    """When a task with the same threadId already exists, return it with deduplicated=True."""
+    existing = {"id": "existing-task-id", "title": "[EMAIL] Reply to thread", "status": "TODO"}
+
+    with patch("routers.notes_tasks.find_task_by_thread_id", return_value=existing), \
+         patch("routers.notes_tasks.create_task") as mock_create:
+
+        r = await test_client.post("/api/tasks", json={
+            "title": "[EMAIL] Reply to thread abc123",
+            "body": "threadId: abc123\nFrom: test@example.com",
+            "assignedToAgent": "email-responder",
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["deduplicated"] is True
+        assert data["id"] == "existing-task-id"
+        # create_task should NOT have been called
+        mock_create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_task_dedup_allows_different_agent(test_client):
+    """Same threadId but different assigned agent gets dedup-checked separately."""
+    with patch("routers.notes_tasks.find_task_by_thread_id", return_value=None), \
+         patch("routers.notes_tasks.create_task", return_value="new-task-id"), \
+         patch("routers.notes_tasks.publish"), \
+         patch("routers.notes_tasks.send_notification"):
+
+        r = await test_client.post("/api/tasks", json={
+            "title": "[EMAIL] Analyze thread abc123",
+            "body": "threadId: abc123\nFrom: test@example.com",
+            "assignedToAgent": "email-analyst",
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert "deduplicated" not in data
+        assert data["id"] == "new-task-id"
+
+
+@pytest.mark.asyncio
+async def test_create_task_no_threadid_skips_dedup(test_client):
+    """Tasks without threadId in body skip dedup entirely."""
+    with patch("routers.notes_tasks.find_task_by_thread_id") as mock_find, \
+         patch("routers.notes_tasks.create_task", return_value="new-task-id"), \
+         patch("routers.notes_tasks.publish"), \
+         patch("routers.notes_tasks.send_notification"):
+
+        r = await test_client.post("/api/tasks", json={
+            "title": "Calendar conflict detected",
+            "body": "Meeting overlap on 2026-02-28",
+            "assignedToAgent": "supervisor",
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["id"] == "new-task-id"
+        # find_task_by_thread_id should not have been called
+        mock_find.assert_not_called()
+
+
+# ─── Conversation Toggle Test ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_toggle_conversation_status(test_client):
+    """POST /api/conversations/{id}/toggle_status should return 200."""
+    with patch("routers.conversations.toggle_conversation_status", return_value=True):
+        r = await test_client.post("/api/conversations/42/toggle_status", json={
+            "status": "resolved",
+        })
+        assert r.status_code == 200
