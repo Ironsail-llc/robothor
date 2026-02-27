@@ -121,6 +121,7 @@ class TelegramBot:
                 "<b>Robothor Commands</b>\n\n"
                 "/model — Switch AI model\n"
                 "/clear — Clear conversation history\n"
+                "/context — Context window stats\n"
                 "/reset — Reset model + history\n"
                 "/stop — Cancel current response\n"
                 "/status — Engine health\n"
@@ -162,6 +163,28 @@ class TelegramBot:
                 await message.answer("Stopped.")
             else:
                 await message.answer("Nothing running.")
+
+        @self.dp.message(Command("context"))
+        async def cmd_context(message: Message) -> None:
+            chat_id = str(message.chat.id)
+            history = self._chat_history.get(chat_id, [])
+
+            from robothor.engine.context import get_context_stats
+            stats = get_context_stats(history)
+
+            lines = [
+                "<b>Context Window</b>\n",
+                f"Messages: {stats['message_count']}",
+                f"Estimated tokens: {stats['estimated_tokens']:,}",
+                f"Usage: {stats['usage_pct']}% of threshold",
+                f"Compress threshold: {stats['compress_threshold']:,}",
+                f"Would compress: {'yes' if stats['would_compress'] else 'no'}",
+            ]
+            roles = stats.get("role_counts", {})
+            if roles:
+                parts = [f"{r}: {c}" for r, c in sorted(roles.items())]
+                lines.append(f"By role: {', '.join(parts)}")
+            await message.answer("\n".join(lines))
 
         @self.dp.message(Command("status"))
         async def cmd_status(message: Message) -> None:
@@ -485,6 +508,7 @@ class TelegramBot:
             await self.bot.set_my_commands([
                 BotCommand(command="model", description="Switch AI model"),
                 BotCommand(command="clear", description="Clear conversation history"),
+                BotCommand(command="context", description="Context window stats"),
                 BotCommand(command="status", description="Engine health"),
                 BotCommand(command="reset", description="Reset model + history"),
                 BotCommand(command="stop", description="Cancel current response"),

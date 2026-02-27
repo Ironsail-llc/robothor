@@ -141,17 +141,32 @@ class AgentRunner:
         on_content: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         """Core conversation loop: LLM call → tool execution → repeat."""
-        max_iterations = self.config.max_iterations
+        max_iterations = agent_config.max_iterations
+
+        # Track models that hit permanent errors (401/403/429) across iterations
+        broken_models: set[str] = set()
+
+        # Compress context for persistent sessions
+        if agent_config.session_target == "persistent":
+            try:
+                from robothor.engine.context import maybe_compress
+                session.messages = await maybe_compress(session.messages, models)
+            except Exception as e:
+                logger.debug("Context compression failed: %s", e)
 
         for iteration in range(max_iterations):
             # Call LLM (streaming when callback provided)
             start = time.monotonic()
             if on_content:
                 response = await self._call_llm_streaming(
-                    session.messages, models, tool_schemas, on_content
+                    session.messages, models, tool_schemas, on_content,
+                    broken_models=broken_models,
                 )
             else:
-                response = await self._call_llm(session.messages, models, tool_schemas)
+                response = await self._call_llm(
+                    session.messages, models, tool_schemas,
+                    broken_models=broken_models,
+                )
             elapsed_ms = int((time.monotonic() - start) * 1000)
 
             if response is None:
@@ -234,11 +249,15 @@ class AgentRunner:
         messages: list[dict[str, Any]],
         models: list[str],
         tools: list[dict],
+        broken_models: set[str] | None = None,
     ) -> Any:
         """Call LLM with model fallback. Returns litellm response or None."""
         last_error = None
 
         for model in models:
+            if broken_models and model in broken_models:
+                continue
+
             try:
                 kwargs: dict[str, Any] = {
                     "model": model,
@@ -254,8 +273,16 @@ class AgentRunner:
                 return response
 
             except Exception as e:
+                status = getattr(e, "status_code", None)
+                if broken_models is not None and status in (401, 403, 429):
+                    broken_models.add(model)
+                    logger.warning(
+                        "Model %s permanently failed (%s), removing from rotation",
+                        model, status,
+                    )
+                else:
+                    logger.warning("Model %s failed: %s", model, e)
                 last_error = e
-                logger.warning("Model %s failed: %s", model, e)
                 continue
 
         logger.error("All models failed. Last error: %s", last_error)
@@ -267,6 +294,7 @@ class AgentRunner:
         models: list[str],
         tools: list[dict],
         on_content: Callable[[str], Awaitable[None]],
+        broken_models: set[str] | None = None,
     ) -> Any:
         """Call LLM with streaming. Streams text content via on_content callback.
 
@@ -276,6 +304,9 @@ class AgentRunner:
         last_error = None
 
         for model in models:
+            if broken_models and model in broken_models:
+                continue
+
             try:
                 kwargs: dict[str, Any] = {
                     "model": model,
@@ -317,8 +348,16 @@ class AgentRunner:
                 return response
 
             except Exception as e:
+                status = getattr(e, "status_code", None)
+                if broken_models is not None and status in (401, 403, 429):
+                    broken_models.add(model)
+                    logger.warning(
+                        "Model %s permanently failed (%s), removing from rotation",
+                        model, status,
+                    )
+                else:
+                    logger.warning("Model %s (streaming) failed: %s", model, e)
                 last_error = e
-                logger.warning("Model %s (streaming) failed: %s", model, e)
                 continue
 
         logger.error("All models failed (streaming). Last error: %s", last_error)
