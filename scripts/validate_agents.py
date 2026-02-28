@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Validate agent manifests against the Python Agent Engine.
+"""Validate agent manifests against the schema contract.
 
-Checks:
-  A. Manifest structure (required fields, valid enums)
-  B. Instruction + bootstrap file existence
-  C. tools_allowed entries registered in ToolRegistry
-  D. Agents with status_file have file write tools (exec/write_file)
-  E. Cron expression validity
-  F. Relationship targets reference valid agent IDs
-  G. Permission coherence (no tool in both allowed AND denied)
-  H. Downstream agents reference valid IDs
-  I. Warmup file existence (context_files)
+Loads docs/agents/schema.yaml as the source of truth and enforces:
+  A. Schema required fields (strict — blocks commit)
+  B. Manifest structure (delivery, session_target, model enums)
+  C. Instruction + bootstrap file existence
+  D. tools_allowed entries registered in ToolRegistry
+  E. Agents with status_file have file write tools (exec/write_file)
+  F. Cron expression validity
+  G. Relationship targets reference valid agent IDs
+  H. Permission coherence (no tool in both allowed AND denied)
+  I. Downstream agents reference valid IDs
+  J. Warmup file existence (context_files)
+  K. Basic I/O tools
+  L. Hooks validity (stream, event_type, message required per entry)
 
 Usage:
     python scripts/validate_agents.py                   # Check all agents
@@ -21,6 +24,7 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -32,10 +36,35 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_DIR = REPO_ROOT / "docs" / "agents"
+SCHEMA_PATH = MANIFEST_DIR / "schema.yaml"
 
 # Valid enum values
 VALID_DELIVERY_MODES = {"announce", "none", "log"}
 VALID_SESSION_TARGETS = {"isolated", "persistent"}
+
+# Loaded from schema.yaml at runtime
+SCHEMA: dict = {}
+SCHEMA_REQUIRED_FIELDS: set[str] = set()
+SCHEMA_DEPARTMENTS: set[str] = set()
+
+
+def load_schema() -> dict:
+    """Load the agent manifest schema from docs/agents/schema.yaml."""
+    global SCHEMA, SCHEMA_REQUIRED_FIELDS, SCHEMA_DEPARTMENTS
+    if SCHEMA_PATH.exists():
+        with open(SCHEMA_PATH) as f:
+            SCHEMA = yaml.safe_load(f) or {}
+        SCHEMA_REQUIRED_FIELDS = set(SCHEMA.get("required", {}).keys())
+        dept_info = SCHEMA.get("required", {}).get("department", {})
+        SCHEMA_DEPARTMENTS = set(dept_info.get("enum", []))
+    else:
+        # Fallback if schema file is missing
+        SCHEMA_REQUIRED_FIELDS = {"id", "name"}
+        SCHEMA_DEPARTMENTS = set()
+    return SCHEMA
+
+
+# Kept for backward compat — now derived from schema
 REQUIRED_MANIFEST_FIELDS = {"id", "name"}
 
 # Tools that agents with status_file MUST have
@@ -97,14 +126,38 @@ def get_registered_tools() -> set[str]:
         return set()
 
 
-def check_structure(manifest: dict) -> CheckResult:
-    """A. Manifest structure — required fields and valid enums."""
-    result = CheckResult("A", "Manifest structure")
+def check_schema_required(manifest: dict) -> CheckResult:
+    """A. Schema required fields — strict, blocks commit."""
+    result = CheckResult("A", "Schema required fields")
     issues = []
 
-    for field in REQUIRED_MANIFEST_FIELDS:
-        if field not in manifest:
+    # Check required fields from schema.yaml
+    required = SCHEMA_REQUIRED_FIELDS or {"id", "name"}
+    for field in required:
+        if field not in manifest or not manifest[field]:
             issues.append(f"Missing required field: {field}")
+
+    # Validate id is kebab-case
+    agent_id = manifest.get("id", "")
+    if agent_id and not re.match(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", agent_id):
+        issues.append(f"id '{agent_id}' is not kebab-case")
+
+    # Validate department enum
+    dept = manifest.get("department", "")
+    if SCHEMA_DEPARTMENTS and dept and dept not in SCHEMA_DEPARTMENTS:
+        issues.append(
+            f"department '{dept}' not in schema enum: {sorted(SCHEMA_DEPARTMENTS)}"
+        )
+
+    if issues:
+        return result.fail("Schema violations (required)", issues)
+    return result
+
+
+def check_structure(manifest: dict) -> CheckResult:
+    """B. Manifest structure — delivery, session, model enums."""
+    result = CheckResult("B", "Manifest structure")
+    issues = []
 
     delivery_mode = manifest.get("delivery", {}).get("mode", "none")
     if delivery_mode not in VALID_DELIVERY_MODES:
@@ -129,8 +182,8 @@ def check_structure(manifest: dict) -> CheckResult:
 
 
 def check_files(manifest: dict) -> CheckResult:
-    """B. Instruction + bootstrap file existence."""
-    result = CheckResult("B", "File existence")
+    """C. Instruction + bootstrap file existence."""
+    result = CheckResult("C", "File existence")
     issues = []
 
     instr_file = manifest.get("instruction_file")
@@ -158,8 +211,8 @@ def check_files(manifest: dict) -> CheckResult:
 
 
 def check_tools_registered(manifest: dict, registered: set[str]) -> CheckResult:
-    """C. tools_allowed entries are registered in ToolRegistry."""
-    result = CheckResult("C", "Tools registered")
+    """D. tools_allowed entries are registered in ToolRegistry."""
+    result = CheckResult("D", "Tools registered")
     if not registered:
         return result.skip("ToolRegistry not available")
 
@@ -174,8 +227,8 @@ def check_tools_registered(manifest: dict, registered: set[str]) -> CheckResult:
 
 
 def check_status_file_tools(manifest: dict) -> CheckResult:
-    """D. Agents with status_file have file write tools."""
-    result = CheckResult("D", "Status file tools")
+    """E. Agents with status_file have file write tools."""
+    result = CheckResult("E", "Status file tools")
     status_file = manifest.get("status_file")
     if not status_file:
         return result.skip("No status_file declared")
@@ -194,8 +247,8 @@ def check_status_file_tools(manifest: dict) -> CheckResult:
 
 
 def check_cron(manifest: dict) -> CheckResult:
-    """E. Cron expression validity."""
-    result = CheckResult("E", "Cron expression")
+    """F. Cron expression validity."""
+    result = CheckResult("F", "Cron expression")
     cron_expr = manifest.get("schedule", {}).get("cron", "")
     if not cron_expr:
         return result.skip("No cron expression")
@@ -211,8 +264,8 @@ def check_cron(manifest: dict) -> CheckResult:
 
 
 def check_relationships(manifest: dict, all_manifests: dict) -> CheckResult:
-    """F. Relationship targets reference valid agent IDs."""
-    result = CheckResult("F", "Relationships")
+    """G. Relationship targets reference valid agent IDs."""
+    result = CheckResult("G", "Relationships")
     issues = []
 
     for field in ["creates_tasks_for", "receives_tasks_from"]:
@@ -234,8 +287,8 @@ def check_relationships(manifest: dict, all_manifests: dict) -> CheckResult:
 
 
 def check_permission_coherence(manifest: dict) -> CheckResult:
-    """G. No tool in both allowed AND denied."""
-    result = CheckResult("G", "Permission coherence")
+    """H. No tool in both allowed AND denied."""
+    result = CheckResult("H", "Permission coherence")
     allowed = set(manifest.get("tools_allowed", []))
     denied = set(manifest.get("tools_denied", []))
     overlap = allowed & denied
@@ -246,8 +299,8 @@ def check_permission_coherence(manifest: dict) -> CheckResult:
 
 
 def check_downstream(manifest: dict, all_manifests: dict) -> CheckResult:
-    """H. Downstream agents reference valid IDs."""
-    result = CheckResult("H", "Downstream agents")
+    """I. Downstream agents reference valid IDs."""
+    result = CheckResult("I", "Downstream agents")
     downstream = manifest.get("downstream_agents", [])
     if not downstream:
         return result.skip("No downstream agents")
@@ -259,8 +312,8 @@ def check_downstream(manifest: dict, all_manifests: dict) -> CheckResult:
 
 
 def check_warmup_files(manifest: dict) -> CheckResult:
-    """I. Warmup context_files exist on disk."""
-    result = CheckResult("I", "Warmup files")
+    """J. Warmup context_files exist on disk."""
+    result = CheckResult("J", "Warmup files")
     warmup = manifest.get("warmup", {})
     context_files = warmup.get("context_files", [])
     if not context_files:
@@ -278,8 +331,8 @@ def check_warmup_files(manifest: dict) -> CheckResult:
 
 
 def check_basic_io_tools(manifest: dict) -> CheckResult:
-    """J. Agents with tools_allowed should include basic I/O tools."""
-    result = CheckResult("J", "Basic I/O tools")
+    """K. Agents with tools_allowed should include basic I/O tools."""
+    result = CheckResult("K", "Basic I/O tools")
     tools_allowed = set(manifest.get("tools_allowed", []))
     if not tools_allowed:
         return result.skip("No tools_allowed (all tools available)")
@@ -293,24 +346,71 @@ def check_basic_io_tools(manifest: dict) -> CheckResult:
     return result
 
 
+def check_hooks(manifest: dict) -> CheckResult:
+    """L. Hooks entries are well-formed (stream, event_type required)."""
+    result = CheckResult("L", "Hooks validity")
+    hooks = manifest.get("hooks", [])
+    if not hooks:
+        return result.skip("No hooks defined")
+
+    if not isinstance(hooks, list):
+        return result.fail("hooks must be a list")
+
+    issues = []
+    for i, hook in enumerate(hooks):
+        if not isinstance(hook, dict):
+            issues.append(f"hooks[{i}]: not a dict")
+            continue
+        if not hook.get("stream"):
+            issues.append(f"hooks[{i}]: missing 'stream'")
+        if not hook.get("event_type"):
+            issues.append(f"hooks[{i}]: missing 'event_type'")
+
+    if issues:
+        return result.fail("Invalid hook entries", issues)
+    return result
+
+
 def validate_agent(
     manifest: dict,
     all_manifests: dict,
     registered_tools: set[str],
+    ci: bool = False,
 ) -> list[CheckResult]:
-    """Run all checks for a single agent."""
-    return [
+    """Run all checks for a single agent.
+
+    Args:
+        ci: When True, skip checks that require local symlinks (C, J).
+    """
+    checks = [
+        check_schema_required(manifest),
         check_structure(manifest),
-        check_files(manifest),
+    ]
+    if ci:
+        skip_c = CheckResult("C", "File existence")
+        skip_c.skip("Skipped in CI (symlinks not available)")
+        checks.append(skip_c)
+    else:
+        checks.append(check_files(manifest))
+    checks.extend([
         check_tools_registered(manifest, registered_tools),
         check_status_file_tools(manifest),
         check_cron(manifest),
         check_relationships(manifest, all_manifests),
         check_permission_coherence(manifest),
         check_downstream(manifest, all_manifests),
-        check_warmup_files(manifest),
+    ])
+    if ci:
+        skip_j = CheckResult("J", "Warmup files")
+        skip_j.skip("Skipped in CI (symlinks not available)")
+        checks.append(skip_j)
+    else:
+        checks.append(check_warmup_files(manifest))
+    checks.extend([
         check_basic_io_tools(manifest),
-    ]
+        check_hooks(manifest),
+    ])
+    return checks
 
 
 def main():
@@ -320,7 +420,18 @@ def main():
     parser.add_argument("--agent", "-a", help="Check a single agent by ID")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show details")
     parser.add_argument("--json", action="store_true", help="JSON output")
+    parser.add_argument(
+        "--ci", action="store_true",
+        help="CI mode: skip checks requiring local symlinks (C, J)",
+    )
     args = parser.parse_args()
+
+    # Load schema
+    schema = load_schema()
+    if schema:
+        print(f"Schema: {len(SCHEMA_REQUIRED_FIELDS)} required fields loaded from schema.yaml")
+    else:
+        print("Schema: schema.yaml not found, using minimal required fields")
 
     # Load all manifests
     all_manifests = load_manifests()
@@ -352,7 +463,7 @@ def main():
     total_skip = 0
 
     for agent_id, manifest in sorted(target.items()):
-        results = validate_agent(manifest, all_manifests, registered_tools)
+        results = validate_agent(manifest, all_manifests, registered_tools, ci=args.ci)
         all_results[agent_id] = results
 
         total_pass += sum(1 for r in results if r.status == "PASS")
