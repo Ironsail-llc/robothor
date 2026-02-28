@@ -37,6 +37,12 @@ const statusColors: Record<string, string> = {
   REVIEW: "border-t-amber-500",
   DONE: "border-t-emerald-500",
 };
+const columnTints: Record<string, string> = {
+  TODO: "bg-zinc-500/[0.03]",
+  IN_PROGRESS: "bg-blue-500/[0.03]",
+  REVIEW: "bg-amber-500/[0.03]",
+  DONE: "bg-emerald-500/[0.03]",
+};
 const priorityColors: Record<string, string> = {
   urgent: "bg-red-500/20 text-red-400",
   high: "bg-orange-500/20 text-orange-400",
@@ -91,7 +97,7 @@ export function TaskBoard({ tasks, onApprove, onReject }: TaskBoardProps) {
       {statusColumns.map((status) => {
         const columnTasks = tasks.filter((t) => t.status === status);
         return (
-          <div key={status} className="space-y-2">
+          <div key={status} className={`space-y-2 rounded-lg p-2 ${columnTints[status]}`}>
             <div className={`flex items-center gap-2 mb-2 border-t-2 pt-2 ${statusColors[status]}`}>
               <h4 className="text-sm font-medium">{statusLabels[status]}</h4>
               <Badge variant="secondary">{columnTasks.length}</Badge>
@@ -99,7 +105,7 @@ export function TaskBoard({ tasks, onApprove, onReject }: TaskBoardProps) {
             {columnTasks.map((task) => (
               <Card
                 key={task.id}
-                className={`glass-panel ${isSlaOverdue(task.slaDeadlineAt) && status !== "DONE" ? "ring-1 ring-red-500/50" : ""}`}
+                className={`glass-panel ${isSlaOverdue(task.slaDeadlineAt) && status !== "DONE" ? "ring-1 ring-red-500/50 animate-pulse" : ""}`}
                 data-testid="task-card"
               >
                 <CardHeader className="pb-1 pt-3 px-3">

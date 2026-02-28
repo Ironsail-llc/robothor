@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { useVisualState } from "@/hooks/use-visual-state";
 import { useThrottle } from "@/hooks/use-throttle";
-import { Send, Square, Loader2 } from "lucide-react";
+import { Send, Square } from "lucide-react";
 
 interface ChatMessage {
   id: string;
@@ -250,7 +250,10 @@ export function ChatPanel() {
     <div className="h-full w-full flex flex-col bg-background" data-testid="chat-panel">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-green-500" />
+        <div className="relative">
+          <div className="w-2 h-2 rounded-full bg-emerald-400" />
+          <div className="absolute inset-0 w-2 h-2 rounded-full bg-emerald-400 animate-ping opacity-40" />
+        </div>
         <span className="text-sm font-semibold">{process.env.NEXT_PUBLIC_AI_NAME || "Robothor"}</span>
       </div>
 
@@ -260,7 +263,7 @@ export function ChatPanel() {
           {messages.length === 0 && !isStreaming && (
             <div className="space-y-4" data-testid="empty-state">
               <p className="text-sm text-muted-foreground">
-                Hey {process.env.NEXT_PUBLIC_OWNER_NAME || "there"}. What can I help you with?
+                Ready when you are.
               </p>
               <div className="flex flex-wrap gap-2">
                 {suggestedPrompts.map((prompt) => (
@@ -290,7 +293,7 @@ export function ChatPanel() {
                 className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                   msg.role === "user"
                     ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
+                    : "bg-muted border-l-2 border-l-primary"
                 }`}
               >
                 {msg.role === "assistant" ? (
@@ -317,9 +320,10 @@ export function ChatPanel() {
                     </ReactMarkdown>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Thinking...</span>
+                  <div className="flex items-center gap-1.5 py-1">
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
                   </div>
                 )}
               </div>

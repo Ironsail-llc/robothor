@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sidebar, type ViewId } from "./sidebar";
 import { ChatPanel } from "@/components/chat-panel";
 import { DashboardView } from "@/components/views/dashboard-view";
@@ -8,6 +8,34 @@ import { TasksView } from "@/components/views/tasks-view";
 import { AgentsView } from "@/components/views/agents-view";
 import { useTasks } from "@/hooks/use-tasks";
 import { useAgents } from "@/hooks/use-agents";
+import Image from "next/image";
+
+const viewTitles: Record<ViewId, string> = {
+  dashboard: "Dashboard",
+  tasks: "Tasks",
+  agents: "Agents",
+};
+
+function HeaderClock() {
+  const [time, setTime] = useState("");
+
+  useEffect(() => {
+    const update = () => {
+      setTime(
+        new Date().toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          timeZone: "America/New_York",
+        })
+      );
+    };
+    update();
+    const interval = setInterval(update, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return <span className="text-xs text-muted-foreground tabular-nums">{time} ET</span>;
+}
 
 export function AppShell() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
@@ -20,6 +48,8 @@ export function AppShell() {
   const reviewCount = tasks.filter((t) => t.status === "REVIEW").length;
   const unhealthyCount = agentSummary.degraded + agentSummary.failed;
 
+  const allHealthy = agentSummary.failed === 0 && agentSummary.degraded === 0;
+
   return (
     <div className="flex h-full w-full" data-testid="app-shell">
       <Sidebar
@@ -31,22 +61,53 @@ export function AppShell() {
         unhealthyCount={unhealthyCount}
       />
 
-      {/* Main content area — all views stay mounted */}
-      <div className="flex-1 min-w-0 h-full relative">
-        <DashboardView visible={activeView === "dashboard"} />
-        <TasksView
-          visible={activeView === "tasks"}
-          tasks={tasks}
-          isLoading={tasksLoading}
-          onApprove={approveTask}
-          onReject={rejectTask}
-        />
-        <AgentsView
-          visible={activeView === "agents"}
-          agents={agents}
-          summary={agentSummary}
-          isLoading={agentsLoading}
-        />
+      <div className="flex-1 min-w-0 h-full flex flex-col relative">
+        {/* Header bar */}
+        <header
+          className="h-10 shrink-0 flex items-center px-4 border-b border-border bg-background/80 backdrop-blur-sm"
+          data-testid="header-bar"
+        >
+          <div className="flex items-center gap-2">
+            <Image
+              src="/robothor-bolt.svg"
+              alt=""
+              width={14}
+              height={14}
+              className="opacity-70"
+            />
+            <span className="text-sm font-semibold tracking-tight">Robothor</span>
+          </div>
+
+          <span className="mx-auto text-xs font-medium text-muted-foreground" data-testid="header-title">
+            {viewTitles[activeView]}
+          </span>
+
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-1.5 h-1.5 rounded-full ${allHealthy ? "bg-emerald-400" : "bg-amber-400"}`}
+              data-testid="system-status-dot"
+            />
+            <HeaderClock />
+          </div>
+        </header>
+
+        {/* Main content area — all views stay mounted */}
+        <div className="flex-1 min-h-0 relative">
+          <DashboardView visible={activeView === "dashboard"} />
+          <TasksView
+            visible={activeView === "tasks"}
+            tasks={tasks}
+            isLoading={tasksLoading}
+            onApprove={approveTask}
+            onReject={rejectTask}
+          />
+          <AgentsView
+            visible={activeView === "agents"}
+            agents={agents}
+            summary={agentSummary}
+            isLoading={agentsLoading}
+          />
+        </div>
       </div>
 
       {/* Collapsible chat panel */}

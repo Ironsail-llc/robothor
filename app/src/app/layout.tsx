@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Robothor",
   description: "Robothor Business Layer",
+  icons: {
+    icon: "/robothor-bolt.svg",
+  },
 };
 
 export default function RootLayout({
