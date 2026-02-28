@@ -25,11 +25,11 @@ interface AgentStatusProps {
   summary?: { healthy: number; degraded: number; failed: number; total: number };
 }
 
-const tierConfig: Record<HealthTier, { color: string; bg: string; icon: string; label: string }> = {
-  healthy: { color: "text-emerald-400", bg: "bg-emerald-500/20", icon: "\u25CF", label: "Healthy" },
-  degraded: { color: "text-amber-400", bg: "bg-amber-500/20", icon: "\u25B2", label: "Degraded" },
-  failed: { color: "text-red-400", bg: "bg-red-500/20", icon: "\u2716", label: "Failed" },
-  unknown: { color: "text-zinc-500", bg: "bg-zinc-700/20", icon: "?", label: "Unknown" },
+const tierConfig: Record<HealthTier, { color: string; bg: string; dotBg: string; border: string; label: string }> = {
+  healthy: { color: "text-emerald-400", bg: "bg-emerald-500/20", dotBg: "bg-emerald-400", border: "border-l-emerald-400", label: "Healthy" },
+  degraded: { color: "text-amber-400", bg: "bg-amber-500/20", dotBg: "bg-amber-400", border: "border-l-amber-400", label: "Degraded" },
+  failed: { color: "text-red-400", bg: "bg-red-500/20", dotBg: "bg-red-400", border: "border-l-red-400", label: "Failed" },
+  unknown: { color: "text-zinc-500", bg: "bg-zinc-700/20", dotBg: "bg-zinc-500", border: "border-l-zinc-500", label: "Unknown" },
 };
 
 function formatDuration(ms?: number): string {
@@ -75,12 +75,13 @@ export function AgentStatus({ agents, summary }: AgentStatusProps) {
         {agents.map((agent) => {
           const tier = tierConfig[agent.status];
           return (
-            <Card key={agent.name} className="glass-panel" data-testid="agent-card">
+            <Card key={agent.name} className={`glass-panel border-l-2 ${tier.border}`} data-testid="agent-card">
               <CardHeader className="pb-1 pt-3 px-3">
                 <div className="flex items-center gap-2">
-                  <span className={`text-sm ${tier.color}`} data-testid="status-indicator">
-                    {tier.icon}
-                  </span>
+                  <div
+                    className={`w-2 h-2 rounded-full shrink-0 ${tier.dotBg}`}
+                    data-testid="status-indicator"
+                  />
                   <CardTitle className="text-sm flex-1">{agent.name}</CardTitle>
                   {agent.errorCount ? (
                     <Badge variant="destructive" className="text-[10px] px-1 py-0">

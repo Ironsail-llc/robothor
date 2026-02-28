@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 // Mock hooks
 const mockUseTasks = vi.fn();
@@ -11,6 +11,18 @@ vi.mock("@/hooks/use-tasks", () => ({
 
 vi.mock("@/hooks/use-agents", () => ({
   useAgents: () => mockUseAgents(),
+}));
+
+// Mock next/image
+vi.mock("next/image", () => ({
+  default: (props: Record<string, unknown>) => <img {...props} />,
+}));
+
+// Mock shadcn tooltip
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }));
 
 // Mock child components to keep tests focused on AppShell logic
@@ -94,6 +106,31 @@ describe("AppShell", () => {
   it("renders the sidebar", () => {
     render(<AppShell />);
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
+  });
+
+  it("renders the header bar", () => {
+    render(<AppShell />);
+    expect(screen.getByTestId("header-bar")).toBeInTheDocument();
+    expect(screen.getByText("Robothor")).toBeInTheDocument();
+  });
+
+  it("header shows current view title", () => {
+    render(<AppShell />);
+    expect(screen.getByTestId("header-title")).toHaveTextContent("Dashboard");
+  });
+
+  it("header title updates when view changes", () => {
+    render(<AppShell />);
+    fireEvent.click(screen.getByTestId("nav-tasks"));
+    expect(screen.getByTestId("header-title")).toHaveTextContent("Tasks");
+  });
+
+  it("header shows system status dot", () => {
+    render(<AppShell />);
+    const dot = screen.getByTestId("system-status-dot");
+    expect(dot).toBeInTheDocument();
+    // 1 failed agent -> amber dot
+    expect(dot.className).toContain("bg-amber");
   });
 
   it("renders chat panel", () => {

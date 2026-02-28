@@ -2,6 +2,18 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Sidebar, type ViewId } from "@/components/layout/sidebar";
 
+// Mock next/image
+vi.mock("next/image", () => ({
+  default: (props: Record<string, unknown>) => <img {...props} />,
+}));
+
+// Mock shadcn tooltip (render children directly)
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+}));
+
 function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
   const defaults = {
     activeView: "dashboard" as ViewId,
@@ -24,14 +36,19 @@ describe("Sidebar", () => {
     expect(screen.getByTestId("nav-chat")).toBeInTheDocument();
   });
 
-  it("highlights active view", () => {
+  it("renders bolt icon and separator", () => {
+    renderSidebar();
+    expect(screen.getByTestId("sidebar-bolt")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-separator")).toBeInTheDocument();
+  });
+
+  it("highlights active view with accent border", () => {
     renderSidebar({ activeView: "tasks" });
     const tasksBtn = screen.getByTestId("nav-tasks");
-    // Active item has bg-sidebar-accent as a standalone class (not just in hover)
     expect(tasksBtn.className).toMatch(/\bbg-sidebar-accent\b/);
     expect(tasksBtn.className).toContain("text-sidebar-accent-foreground");
+    expect(tasksBtn.className).toContain("border-l-primary");
     const dashboardBtn = screen.getByTestId("nav-dashboard");
-    // Inactive item should NOT have the accent-foreground text
     expect(dashboardBtn.className).not.toContain("text-sidebar-accent-foreground");
   });
 

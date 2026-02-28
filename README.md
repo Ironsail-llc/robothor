@@ -1,363 +1,363 @@
-# Robothor
+<p align="center">
+  <img src="docs/images/robothor-logo.png" width="200" alt="Robothor">
+</p>
 
-**An autonomous AI system with persistent memory, agent orchestration, vision, CRM, and a live control plane — running 24/7 on a single machine.**
+<h1 align="center">Robothor</h1>
+<p align="center"><b>An AI operating system you run on your own hardware.</b></p>
 
-Not another agent framework. A complete AI *system* — persistent memory that decays and strengthens, a knowledge graph that grows autonomously, 13 agents orchestrated through declarative YAML workflows, a CRM that tracks every contact across every channel, and a dashboard to monitor it all. One repo. One CLI. All on your hardware.
+<p align="center">
+Define agents in YAML. Wire them into pipelines. Manage everything from a live control plane.
+Give your system eyes, memory, and a CRM that knows every contact across every channel.
+<br><br>
+One repo. One CLI. Your hardware.
+</p>
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1%2C500%2B%20passing-brightgreen.svg)]()
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/tests-1%2C500%2B%20passing-brightgreen.svg" alt="Tests">
+</p>
 
-## Architecture
+---
 
-Three layers, one repo:
+## Highlights
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  The Helm (Next.js 16)                                  │
-│  Live dashboard: chat, task board, event streams,       │
-│  agent status, CRM views, service health                │
-│  Port 3004 · app.robothor.ai                            │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────┴────────────────────────────────┐
-│  Agent Orchestration (Python Engine)                     │
-│  13 autonomous agents · declarative workflow pipelines   │
-│  YAML manifests · task coordination · Telegram delivery  │
-│  Port 18800 · engine.robothor.ai                         │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────┴────────────────────────────────┐
-│  Intelligence Layer (robothor Python package)             │
-│  Memory · RAG · CRM · Vision · Events · Audit            │
-│                                                           │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐ │
-│  │ MCP      │ │ Bridge   │ │ Orchest- │ │ Vision      │ │
-│  │ Server   │ │ Service  │ │ rator    │ │ Service     │ │
-│  │ 57 tools │ │ CRM API  │ │ RAG API  │ │ YOLO+Faces  │ │
-│  │ (stdio)  │ │ :9100    │ │ :9099    │ │ :8600       │ │
-│  └──────────┘ └──────────┘ └──────────┘ └─────────────┘ │
-│                                                           │
-│  PostgreSQL 16 + pgvector    Redis 7    Ollama (local)   │
-└──────────────────────────────────────────────────────────┘
-```
+**Platform** — Declarative YAML manifests for every agent. A workflow engine with conditional branching. 74 registered tools with per-agent allow/deny lists. Redis Streams event bus with consumer groups and RBAC.
 
-## What Makes This Different
+**The Helm** — Not a dashboard, a control plane. Next.js 16 + Dockview with 20 lazy-loaded components. Chat with agents, manage tasks on a Kanban board, watch event streams in real time, monitor service health. Fully extensible component registry.
 
-| Feature | Typical Agent Frameworks | Robothor |
-|---------|--------------------------|----------|
-| Memory | Stateless (you build it) | Three-tier: working, short-term (48h TTL), long-term (permanent) |
-| Knowledge | None | Entity graph with relationships, auto-extracted from all inputs |
-| Memory Lifecycle | None | Facts decay, strengthen, supersede, and consolidate autonomously |
-| Vision | None | YOLO + face recognition + scene analysis (all local) |
-| CRM | None | Built-in contacts, companies, conversations — cross-channel identity resolution |
-| Agent Coordination | Basic task lists | State machine (TODO → IN_PROGRESS → REVIEW → DONE) with SLA tracking |
-| Multi-Tenancy | None | Tenant-scoped data isolation across all CRM tables |
-| Event Bus | None | Redis Streams with RBAC and consumer groups |
-| Dashboard | None | The Helm — live control plane with chat, event streams, and agent status |
-| Self-Healing | None | Watchdogs, health-gated boot, auto-restart, structured audit trail |
-| Infrastructure | Cloud-dependent | 19 systemd services on a single machine, Cloudflare tunnel, encrypted secrets |
-| Cloud Dependency | Required (OpenAI, etc.) | Optional. Runs 100% local with Ollama |
+**Intelligence** — Three-tier memory (working, short-term with TTL, long-term with semantic search). Knowledge graph that grows autonomously. Local RAG stack with embeddings, reranking, and generation. Facts have confidence scores, categories, and lifecycle states — they decay, strengthen, supersede, and consolidate on their own.
+
+**Physical** — YOLOv8 nano + InsightFace ArcFace, loaded once at startup. Three runtime modes: disarmed, basic (motion-triggered smart detection), armed (per-frame tracking). Any RTSP camera. Pluggable alert targets. Scene analysis via vision LLM. All local, no cloud.
+
+**Operations** — Built-in CRM with cross-channel identity resolution and multi-tenancy. Task state machine (TODO &rarr; IN_PROGRESS &rarr; REVIEW &rarr; DONE) with SLA tracking and agent notifications. MCP server exposes 57 tools over stdio. Encrypted secrets (SOPS + age), systemd services, Cloudflare tunnel, self-healing watchdogs.
 
 ## Quick Start
 
 ```bash
-# Clone and install the Python package
 git clone https://github.com/Ironsail-llc/robothor.git
 cd robothor
 pip install -e ".[all]"
-
-# Interactive setup: DB, migrations, Redis, Ollama
-robothor init
-
-# Start the system
-robothor serve           # Orchestrator + engine
+robothor init       # Interactive setup: DB, Redis, Ollama, migrations
+robothor serve      # Start orchestrator + engine
 ```
 
-### Full Stack (Docker)
+Or with Docker for dependencies:
 
 ```bash
-robothor init --docker   # PostgreSQL+pgvector, Redis, Ollama in Docker
+robothor init --docker   # PostgreSQL+pgvector, Redis, Ollama in containers
 robothor serve
 ```
 
-### CLI
+Engine and TUI commands:
 
 ```bash
-robothor init            # Interactive setup wizard
-robothor serve           # Start orchestrator + engine
-robothor status          # System health overview
-robothor migrate         # Run database migrations
-robothor mcp             # Start MCP server (57 tools, stdio transport)
-
-# Engine management
-robothor engine start    # Start the agent engine daemon
-robothor engine stop     # Stop the engine
 robothor engine status   # Engine health, scheduler, bot status
-robothor engine run <id> # Run an agent manually
-robothor engine list     # List all scheduled agents
-robothor engine history  # Recent agent run history
+robothor engine run <id> # Run any agent manually
+robothor tui             # Terminal dashboard for monitoring
+```
 
-# Workflow engine
+## Build Your Agents
+
+Every agent is defined by a YAML manifest and an optional instruction file. Scaffold one, or drop a manifest in `docs/agents/` yourself.
+
+```bash
+robothor agent scaffold support-triage --description "Classify incoming support tickets"
+```
+
+This creates `docs/agents/support-triage.yaml` (manifest) and `brain/SUPPORT_TRIAGE.md` (instruction file) from templates. Edit them to fit your needs:
+
+```yaml
+# docs/agents/support-triage.yaml
+id: support-triage
+name: Support Triage
+description: Classify incoming support tickets and route to the right team
+version: "2026-03-01"
+department: operations
+
+model:
+  primary: openrouter/moonshotai/kimi-k2.5
+  fallbacks:
+    - openrouter/anthropic/claude-sonnet-4.6
+    - gemini/gemini-2.5-pro
+
+schedule:
+  cron: "*/30 8-20 * * 1-5"
+  timezone: America/New_York
+  timeout_seconds: 300
+  max_iterations: 15
+  session_target: isolated
+
+delivery:
+  mode: none              # Silent worker — no user-facing output
+
+# Event hooks — primary trigger path (cron serves as safety net)
+hooks:
+  - stream: support
+    event_type: ticket.new
+    message: "New support ticket received. Classify and route."
+
+tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
+  - create_task
+  - list_tasks
+  - resolve_task
+tools_denied:
+  - delete_task
+
+task_protocol: true       # Must follow: list_my_tasks → process → resolve
+status_file: brain/memory/support-triage-status.md
+instruction_file: brain/SUPPORT_TRIAGE.md
+bootstrap_files:
+  - brain/AGENTS.md
+  - brain/TOOLS.md
+
+downstream_agents:
+  - support-engineer
+  - account-manager
+tags_produced: [support, routing, escalation]
+```
+
+### Contracts
+
+Agents are built against two strict contracts:
+
+| Contract | File | Enforced by |
+|----------|------|-------------|
+| Manifest schema | `docs/agents/schema.yaml` | `validate_agents.py`, pre-commit hook, engine startup |
+| Instruction format | `docs/agents/INSTRUCTION_CONTRACT.md` | Convention (AI-readable) |
+
+Required manifest fields: `id` (kebab-case), `name`, `description`, `version` (YYYY-MM-DD), `department`.
+
+### Manifest Fields
+
+| Field | Purpose |
+|-------|---------|
+| `model.primary` / `fallbacks` | LLM with ordered fallback chain. Broken models auto-removed per run. |
+| `schedule.cron` | APScheduler cron expression. Leave empty for hook-only agents. |
+| `delivery.mode` | `announce` (delivers to user) or `none` (silent worker). |
+| `tools_allowed` / `tools_denied` | Per-agent tool access. The engine strips tools not in the allow list before sending to the LLM. |
+| `hooks` | Event triggers from Redis Streams. Primary fast path; cron as safety net. |
+| `task_protocol` | Agent must check its inbox, process tasks, and resolve them. |
+| `warmup.context_files` | Files pre-loaded into context before each run. |
+| `streams.read` / `write` | Redis Streams the agent can subscribe to or publish on. |
+| `instruction_file` | Markdown file loaded as the system prompt. |
+| `bootstrap_files` | Shared context files appended after instructions. |
+| `downstream_agents` | Agents this one creates tasks for. |
+| `sla` | Response time targets by priority level. |
+| `review_workflow` | If true, tasks go to REVIEW for supervisor approval. |
+
+Full schema: [schema.yaml](docs/agents/schema.yaml) | Reference: [Agent Playbook](docs/agents/PLAYBOOK.md)
+
+### Agent Lifecycle
+
+```bash
+robothor engine list           # See all scheduled agents
+robothor engine run <id>       # Run one manually
+robothor engine history        # Recent runs with status and duration
+python scripts/validate_agents.py --agent <id>  # Validate manifest
+```
+
+The engine provides **74 tools** — CRM operations, memory search, file I/O, shell execution, web fetch, task coordination, and more. Each agent sees only the tools in its `tools_allowed` list.
+
+## Workflows
+
+Multi-step pipelines defined in YAML. Triggered by events, backed by cron safety nets.
+
+```yaml
+# docs/workflows/support-pipeline.yaml
+id: support-pipeline
+name: Support Pipeline
+description: Triage tickets, then route to engineer or account manager
+
+triggers:
+  - type: hook
+    stream: support
+    event_type: ticket.new
+  - type: cron
+    cron: "0 9-17/4 * * 1-5"
+
+steps:
+  - id: triage
+    type: agent
+    agent_id: support-triage
+    message: "New ticket received. Classify and route."
+    on_failure: abort
+
+  - id: check_priority
+    type: condition
+    input: "{{ steps.triage.output_text }}"
+    branches:
+      - when: "'escalation' in value.lower()"
+        goto: escalate
+      - when: "'technical' in value.lower()"
+        goto: engineer
+      - otherwise: true
+        goto: done
+
+  - id: escalate
+    type: agent
+    agent_id: account-manager
+    message: "High-priority ticket escalated. Review and respond."
+
+  - id: engineer
+    type: agent
+    agent_id: support-engineer
+    message: "Technical ticket assigned. Investigate and resolve."
+
+  - id: done
+    type: noop
+```
+
+**Event hooks** on Redis Streams are the primary trigger. Cron schedules serve as safety nets at relaxed frequencies. The workflow engine handles conditional branching, failure modes (`abort` / `skip`), and step chaining.
+
+```bash
 robothor engine workflow list      # List loaded workflows
-robothor engine workflow run <id>  # Execute a workflow manually
+robothor engine workflow run <id>  # Execute manually
+```
+
+## The Helm
+
+Not a dashboard — a control plane. Built with Next.js 16 and Dockview for a paneled, IDE-like layout.
+
+<p align="center">
+  <img src="docs/images/helm-dashboard.png" width="800" alt="The Helm — control plane">
+</p>
+
+- **Chat** — Talk to agents through the Engine via SSE streaming
+- **Task Board** — Kanban with drag-and-drop, approve/reject workflow
+- **Event Streams** — Real-time feed from all Redis Streams
+- **Agent Status** — Live health, run history, and error tracking
+- **CRM Views** — Contacts, companies, conversations, notes
+- **Service Health** — System topology with status indicators
+- **Component Registry** — 20 lazy-loaded components, add your own
+
+## The CRM
+
+How agents coordinate. Native PostgreSQL tables — no external CRM dependency.
+
+- **Task state machine** — TODO &rarr; IN_PROGRESS &rarr; REVIEW &rarr; DONE with full audit trail and SLA tracking
+- **Agent notifications** — Typed messages between agents (task assigned, review requested, blocked, errors)
+- **Cross-channel identity** — A single contact resolved across email, Telegram, voice, web, and API
+- **Multi-tenancy** — Every table scoped by `tenant_id`. Bridge middleware enforces isolation.
+- **Merge tools** — Deduplicate contacts and companies. Keeper absorbs loser's data, re-links all records.
+
+## Memory
+
+Three tiers of persistent memory, all local:
+
+| Tier | Storage | Lifetime | Purpose |
+|------|---------|----------|---------|
+| Working | Context window | Session | Current conversation state |
+| Short-term | PostgreSQL | 48h TTL, auto-decay | Recent facts and observations |
+| Long-term | PostgreSQL + pgvector | Permanent | Importance-scored, semantic search |
+
+Facts are extracted from every input — email, calendar, conversations, vision events. Each fact carries a confidence score, category, entities, and lifecycle state. A knowledge graph of entities and relationships grows autonomously as the system ingests data.
+
+```python
+from robothor.memory.facts import store_fact, search_facts
+
+# Store with confidence, category, and entity links
+fact_id = await store_fact(
+    fact={"fact_text": "Acme renewed for 2 years", "category": "deal",
+          "confidence": 0.95, "entities": ["Acme Corp"]},
+    source_content="email from sales",
+    source_type="email",
+)
+
+# Semantic search across all facts
+results = await search_facts("Acme contract status", limit=5)
+```
+
+**RAG stack:** Qwen3-Embedding &rarr; pgvector &rarr; Qwen3-Reranker &rarr; LLM generation. Fully local.
+
+## Vision
+
+Always-on camera monitoring with runtime mode switching:
+
+| Mode | Behavior |
+|------|----------|
+| Disarmed | Idle — no processing |
+| Basic | Motion &rarr; YOLO &rarr; InsightFace &rarr; instant alerts + async VLM analysis |
+| Armed | Per-frame tracking with full detection pipeline |
+
+**Pipeline:** Motion detection &rarr; YOLOv8 nano (6 MB) &rarr; InsightFace ArcFace (300 MB) &rarr; pluggable alerts. Unknown persons trigger a snapshot to your chosen channel in under 2 seconds. Scene analysis via vision LLM (Ollama). Any RTSP camera source. Mode switch at runtime, no restart.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  The Helm                                                │
+│  Control plane: chat, tasks, events, agents, CRM, health │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────┴────────────────────────────────┐
+│  Agent Engine                                            │
+│  YAML manifests · workflow pipelines · 74 tools         │
+│  APScheduler · Redis Stream hooks · Telegram delivery    │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────┴────────────────────────────────┐
+│  Intelligence Layer                                      │
+│                                                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐ │
+│  │ Memory   │ │ CRM      │ │ Vision   │ │ Events     │ │
+│  │ Facts    │ │ Contacts │ │ YOLO     │ │ Redis      │ │
+│  │ Entities │ │ Tasks    │ │ Faces    │ │ Streams    │ │
+│  │ RAG      │ │ Identity │ │ VLM      │ │ RBAC       │ │
+│  └──────────┘ └──────────┘ └──────────┘ └────────────┘ │
+│                                                          │
+│  PostgreSQL 16 + pgvector  ·  Redis 7  ·  Ollama        │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Project Structure
 
 ```
 robothor/
-├── robothor/               # Python intelligence layer
-│   ├── memory/             # Three-tier memory, facts, entities, lifecycle, conflicts
-│   ├── rag/                # Semantic search, reranking, context assembly, web search
-│   ├── crm/                # Contact validation, models, blocklists
+├── robothor/               # Python package — the intelligence layer
+│   ├── engine/             # Agent Engine: runner, tools, scheduler, hooks, workflows
+│   ├── memory/             # Three-tier memory, facts, entities, lifecycle
+│   ├── rag/                # Semantic search, reranking, context assembly
+│   ├── crm/                # Models, validation, blocklists
 │   ├── vision/             # YOLO detection, InsightFace recognition, alerts
 │   ├── events/             # Redis Streams, RBAC, consumer workers
-│   ├── engine/             # Agent Engine: runner, tools, Telegram, scheduler, hooks, workflows
 │   ├── api/                # MCP server (57 tools), RAG orchestrator
-│   ├── db/                 # PostgreSQL connection factory with pooling
-│   ├── llm/                # Ollama client (chat, embeddings, model management)
-│   ├── audit/              # Structured audit logging with typed events
-│   ├── services/           # Service registry with topology sort and health checks
-│   ├── config.py           # Env-based configuration with validation
+│   ├── health/             # Garmin health data sync
 │   └── cli.py              # CLI entry point
 │
-├── app/                    # The Helm — live dashboard (Next.js 16, React 19)
-│   └── src/
-│       ├── app/            # Pages + API routes
-│       ├── components/     # 40+ lazy-loaded components
-│       └── lib/            # Component registry, config
-│
-├── crm/                    # CRM stack
-│   ├── bridge/             # Bridge service (FastAPI, 9 routers, RBAC, multi-tenancy)
-│   ├── migrations/         # SQL schema (native PostgreSQL, no ORM)
-│   └── docker-compose.yml  # Vaultwarden, Kokoro TTS, Uptime Kuma
-│
-├── docs/                   # Documentation + agent manifests
-│   ├── agents/             # 13 YAML agent manifests + PLAYBOOK.md
-│   └── workflows/          # Declarative workflow pipelines (email, calendar, vision)
-│
-├── brain/                  # → ~/clawd/ (symlink) — scripts, voice, vision, identity
-├── robothor/health/        # Garmin health sync → PostgreSQL
-├── infra/                  # Docker Compose, migrations, systemd templates
-├── examples/               # 4 usage examples
-├── scripts/                # Backup, utilities, validation
+├── app/                    # The Helm (Next.js 16, React 19, Dockview)
+├── crm/                    # CRM stack: Bridge service, migrations, Docker Compose
+├── docs/
+│   ├── agents/             # YAML agent manifests + PLAYBOOK.md
+│   └── workflows/          # Declarative workflow pipelines
+├── brain/                  # Scripts, voice, vision, agent instructions (symlink)
+├── scripts/                # Backup, validation, utilities
 └── templates/              # Bootstrap templates for new instances
 ```
 
-## The Intelligence Layer
+## CLI Reference
 
-### Three-Tier Memory
-
-1. **Working Memory** — Current context window (managed by the agent framework)
-2. **Short-Term Memory** — PostgreSQL, 48-hour TTL, auto-decays based on access patterns
-3. **Long-Term Memory** — PostgreSQL + pgvector, permanent, importance-scored with semantic search
-
-Facts are extracted from all inputs (email, calendar, conversations, vision events) and stored with confidence scores, categories, and lifecycle states. The knowledge graph grows autonomously as entities and relationships are discovered.
-
-```python
-import asyncio
-from robothor.memory.facts import store_fact, search_facts
-from robothor.memory.conflicts import resolve_and_store
-
-# Store a fact
-fact_id = asyncio.run(store_fact(
-    fact={"fact_text": "Philip prefers Neovim for Python development",
-          "category": "preference", "confidence": 0.9,
-          "entities": ["Philip"]},
-    source_content="conversation about editors",
-    source_type="conversation",
-))
-
-# Conflicting fact arrives — auto-detects and supersedes
-result = asyncio.run(resolve_and_store(
-    fact={"fact_text": "Philip switched to VS Code with Copilot",
-          "category": "preference", "confidence": 0.95,
-          "entities": ["Philip"]},
-    source_content="conversation about editors",
-    source_type="conversation",
-    similarity_threshold=0.7,
-))
-# result["action"] = "superseded" — old fact linked to new one
-```
-
-### RAG Pipeline
-
-Fully local retrieval-augmented generation:
-
-```python
-import asyncio
-from robothor.rag.pipeline import run_pipeline
-
-result = asyncio.run(run_pipeline(
-    query="What did Philip decide about the deployment?",
-    profile="factual",  # or "conversational", "analytical"
-))
-```
-
-**Stack:** Qwen3-Embedding (dense vectors) → pgvector → Qwen3-Reranker (cross-encoder) → LLM generation. All local. No API keys needed.
-
-### Vision
-
-Always-on camera monitoring with three modes:
-
-```python
-from robothor.vision.service import VisionService
-
-service = VisionService(
-    rtsp_url="rtsp://localhost:8554/webcam",
-    default_mode="basic",
-)
-# Modes: disarmed (idle), basic (motion → detect → identify → alert), armed (per-frame)
-service.set_mode("basic")
-await service.process_frame_basic(frame)
-```
-
-**Stack:** Motion detection → YOLOv8 (objects) → InsightFace ArcFace (faces) → pluggable alerts (Telegram, webhook). Scene analysis via vision LLM. All local.
-
-### CRM
-
-Built-in contact management with cross-channel identity resolution, multi-tenancy, and task workflows:
-
-```python
-from robothor.crm.dal import create_person, list_people, merge_people
-
-person_id = create_person("Jane", "Smith", email="jane@example.com")
-results = list_people(search="Jane")
-merge_people(keeper_id=person_id, loser_id=duplicate_id)  # Keeper absorbs loser's data
-```
-
-### Task Coordination
-
-Tasks follow a strict state machine with SLA tracking, review workflow, and agent notifications:
-
-```
-TODO → IN_PROGRESS → REVIEW → DONE
-                   ↗ (reject)
-```
-
-```python
-from robothor.crm.dal import create_task, transition_task, approve_task
-
-task_id = create_task(
-    title="Analyze Q4 report",
-    assigned_to_agent="email-analyst",
-    priority="high",
-    tags=["analytical", "email"],
-)
-transition_task(task_id, new_status="IN_PROGRESS", actor="email-analyst")
-transition_task(task_id, new_status="REVIEW", actor="email-analyst")
-approve_task(task_id, reviewer="supervisor", resolution="Analysis complete")
-```
-
-### Event Bus
-
-Redis Streams with standard envelopes, consumer groups, and RBAC:
-
-```python
-from robothor.events.bus import publish, subscribe
-
-publish("email", "email.received", {
-    "from": "alice@example.com",
-    "subject": "Meeting tomorrow",
-}, source="email-sync")
-
-subscribe("email", "classifier-group", "worker-1", handler=handle_email)
-```
-
-## The Agent Fleet
-
-13 autonomous agents defined as YAML manifests in `docs/agents/`, loaded by the Engine scheduler:
-
-| Agent | Model | Schedule | Purpose |
-|-------|-------|----------|---------|
-| Email Classifier | Kimi K2.5 | Every 6h (safety net) | Classify emails, route or escalate |
-| Email Analyst | Kimi K2.5 | Every 6h (safety net) | Deep analysis of complex emails |
-| Email Responder | Sonnet 4.6 | Every 4h | Compose and send replies |
-| Calendar Monitor | Kimi K2.5 | Every 6h (safety net) | Detect conflicts, cancellations |
-| Supervisor | Kimi K2.5 | Every 4h | Audit logs, surface escalations, approve tasks |
-| Vision Monitor | Kimi K2.5 | Every 6h (safety net) | Check motion events |
-| Conv Inbox Monitor | Kimi K2.5 | Hourly | Check for urgent messages |
-| Conv Resolver | Kimi K2.5 | 3x/day | Auto-resolve stale conversations |
-| CRM Steward | Kimi K2.5 | Daily | Data hygiene + contact enrichment |
-| Morning Briefing | Kimi K2.5 | 6:30 AM | Calendar, email, weather summary |
-| Evening Wind-Down | Kimi K2.5 | 9:00 PM | Tomorrow preview, open items |
-| Main | Gemini Flash | Interactive | Telegram interactive session |
-| Engine Report | Kimi K2.5 | On-demand | Engine status reports |
-
-Agents communicate through tasks (not files). The supervisor reviews and approves. Only 3 agents talk to the user — supervisor, morning briefing, and evening wind-down. All workers operate silently.
-
-**Event-driven hooks** are the primary trigger for email, calendar, and vision agents. Crons are 6h safety nets. A **declarative workflow engine** (`docs/workflows/*.yaml`) orchestrates multi-step pipelines with conditional routing — e.g., the email pipeline: classify → condition branch → analyze or respond.
-
-### Agent Manifest Example
-
-```yaml
-# docs/agents/email-classifier.yaml
-id: email-classifier
-name: Email Classifier
-model:
-  primary: openrouter/moonshotai/kimi-k2.5
-  fallbacks: [openrouter/minimax/minimax-m2.5, gemini/gemini-2.5-pro]
-schedule:
-  cron: "0 6-22/6 * * *"
-  timezone: America/Grenada
-  timeout_seconds: 300
-delivery:
-  mode: none  # silent worker
-tools_allowed: [exec, read_file, write_file, create_task, list_tasks, ...]
-tools_denied: [delete_task, create_person, ...]
-downstream_agents: [email-analyst, email-responder]
-```
-
-## The Helm
-
-A live control plane dashboard at `app.robothor.ai` (Next.js 16 + Dockview):
-
-- **Chat** — Direct conversation with agents via the Engine
-- **Task Board** — Kanban view with approve/reject workflow
-- **Event Streams** — Real-time SSE feed from all Redis Streams
-- **Agent Status** — Live health and run status for all cron agents
-- **CRM Views** — Contacts, companies, conversations
-- **Service Health** — System topology and service status
-- **Tenant Switching** — Switch between tenants for multi-tenant deployments
-
-## Infrastructure
-
-### Services
-
-19 systemd services running 24/7, all system-level (`sudo systemctl`):
-
-| Service | Port | Purpose |
-|---------|------|---------|
-| robothor-engine | 18800 | Agent Engine (Telegram, scheduler, tools) |
-| robothor-orchestrator | 9099 | RAG + vision API |
-| robothor-bridge | 9100 | CRM API, contact resolution, webhooks |
-| robothor-vision | 8600 | YOLO + InsightFace detection loop |
-| robothor-app | 3004 | The Helm dashboard |
-| robothor-voice | 8765 | Twilio voice server |
-| robothor-sms | 8766 | Twilio SMS webhooks |
-| robothor-status | 3000 | robothor.ai homepage |
-| robothor-crm | — | Docker: Vaultwarden, Kokoro TTS, Uptime Kuma |
-| cloudflared | — | Cloudflare tunnel (all *.robothor.ai routes) |
-
-All internal services are protected by Cloudflare Access (email OTP). Public services (status, voice) are unprotected.
-
-### Hardware
-
-The production system runs on a **Lenovo ThinkStation PGX** — NVIDIA Grace Blackwell GB10, 128 GB unified memory, ARM Cortex-X925 (20 cores). ~41% memory utilization with all services running.
-
-### Local Models (Ollama)
-
-| Model | Size | Role |
-|-------|------|------|
-| qwen3:14b | 9.3 GB | Agent workloads (calendar, vision, CRM) |
-| llama3.2-vision:11b | 7.8 GB | Vision analysis, intelligence pipeline |
-| qwen3-embedding:0.6b | 639 MB | Dense vector embeddings (1024-dim) |
-| Qwen3-Reranker-0.6B | 1.2 GB | Cross-encoder reranking |
-
-### Secrets
-
-SOPS + age encryption. All credentials encrypted at rest in `/etc/robothor/secrets.enc.json`, decrypted to tmpfs at runtime. Gitleaks pre-commit hook blocks accidental leaks.
+| Command | Purpose |
+|---------|---------|
+| `robothor init` | Interactive setup wizard |
+| `robothor serve` | Start orchestrator + engine |
+| `robothor status` | System health overview |
+| `robothor migrate` | Run database migrations |
+| `robothor mcp` | Start MCP server (57 tools, stdio) |
+| `robothor tui` | Terminal monitoring dashboard |
+| `robothor agent scaffold <id>` | Scaffold a new agent (manifest + instruction file) |
+| `robothor engine start` | Start the engine daemon |
+| `robothor engine stop` | Stop the engine |
+| `robothor engine status` | Engine health, scheduler, bot |
+| `robothor engine run <id>` | Run an agent manually |
+| `robothor engine list` | List all scheduled agents |
+| `robothor engine history` | Recent agent run history |
+| `robothor engine workflow list` | List loaded workflows |
+| `robothor engine workflow run <id>` | Execute a workflow manually |
 
 ## Requirements
 
@@ -378,67 +378,52 @@ All configuration via environment variables with sensible defaults:
 |----------|---------|-------------|
 | `ROBOTHOR_WORKSPACE` | `~/robothor` | Working directory |
 | `ROBOTHOR_DB_HOST` | `127.0.0.1` | PostgreSQL host |
-| `ROBOTHOR_DB_PORT` | `5432` | PostgreSQL port |
 | `ROBOTHOR_DB_NAME` | `robothor_memory` | Database name |
-| `ROBOTHOR_DB_USER` | `$USER` | Database user |
-| `ROBOTHOR_DB_PASSWORD` | *(empty)* | Database password |
 | `ROBOTHOR_REDIS_HOST` | `127.0.0.1` | Redis host |
-| `ROBOTHOR_REDIS_PORT` | `6379` | Redis port |
 | `ROBOTHOR_OLLAMA_HOST` | `127.0.0.1` | Ollama host |
-| `ROBOTHOR_OLLAMA_PORT` | `11434` | Ollama port |
-| `EVENT_BUS_ENABLED` | `true` | Enable/disable Redis Streams event bus |
+| `EVENT_BUS_ENABLED` | `true` | Enable Redis Streams event bus |
+
+## Infrastructure
+
+The system runs as systemd services behind a Cloudflare tunnel with encrypted secrets (SOPS + age). Internal services are protected by Cloudflare Access; public services are open.
+
+| Service | Purpose |
+|---------|---------|
+| Agent Engine | LLM runner, scheduler, Telegram bot, event hooks |
+| RAG Orchestrator | Semantic search and retrieval API |
+| Bridge | CRM API, contact resolution, webhooks, multi-tenancy |
+| Vision | YOLO + InsightFace detection loop |
+| The Helm | Live control plane dashboard |
+| Cloudflare Tunnel | All `*.robothor.ai` routes with Access policies |
+
+**Local models (Ollama):**
+
+| Model | Size | Role |
+|-------|------|------|
+| qwen3:14b | 9.3 GB | Agent workloads |
+| llama3.2-vision:11b | 7.8 GB | Vision analysis |
+| qwen3-embedding:0.6b | 639 MB | Dense vector embeddings |
+| Qwen3-Reranker-0.6B | 1.2 GB | Cross-encoder reranking |
 
 ## Testing
 
 ```bash
 pip install -e ".[dev]"
-
-# Fast unit tests (pre-commit)
-pytest -m "not slow and not llm and not e2e"
-
-# Full suite
-pytest
-
-# Helm tests
-cd app && pnpm test
-
-# Agent manifest validation
-python scripts/validate_agents.py
+pytest -m "not slow and not llm and not e2e"   # Fast unit tests
+pytest                                          # Full suite
+cd app && pnpm test                             # Helm tests
+python scripts/validate_agents.py               # Agent manifest validation
 ```
 
-**1,500+ tests** across Python and TypeScript:
-- **483** package unit tests (memory, events, consumers, audit, services, CRM, RAG, vision, API)
-- **203** Bridge integration tests (RBAC, multi-tenancy, task coordination, notifications, review workflow)
-- **209** system script tests (email pipeline, cron jobs, task cleanup, data archival)
-- **143** memory system tests (ingestion, analysis, vision)
-- **206** engine tests (runner, tools, config, session, tracking, telegram, hooks, warmup)
-- **354** Helm vitest tests (35 suites — components, hooks, API routes, event bus)
+**1,500+ tests** across Python and TypeScript. See [TESTING.md](docs/TESTING.md) for the full strategy, markers, and coverage plan.
 
-## Development
-
-```bash
-git clone https://github.com/Ironsail-llc/robothor.git
-cd robothor
-pip install -e ".[dev]"
-pytest
-ruff check .
-mypy robothor/
-```
+## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards, PR process, and architecture details.
 
 ## Roadmap
 
-Robothor's path from AI brain to AI operating system. See [ROADMAP.md](ROADMAP.md) for the full plan.
-
-- **v0.1-0.3** — Implemented. Memory, RAG, CRM, vision, events, RBAC, audit, service registry.
-- **v0.4** — Implemented. Agent lifecycle management with supervised execution, 13-agent fleet.
-- **v0.5** — Implemented. Per-agent tool allow/deny lists, tenant-scoped data isolation.
-- **v0.6** — Implemented. Unified cron + event-driven scheduling + declarative workflow engine.
-- **v0.7** — Channel drivers. Messaging abstraction for additional channels.
-- **v0.8** — Device abstraction. Cameras, microphones, sensors as first-class resources.
-- **v0.9** — The Helm as shell. Process manager, file browser, resource monitor.
-- **v1.0** — Unified syscall interface. The complete AI operating system.
+See [ROADMAP.md](ROADMAP.md) for the full plan — from AI brain to AI operating system.
 
 ## License
 
