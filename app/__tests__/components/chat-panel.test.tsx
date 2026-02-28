@@ -12,7 +12,6 @@ vi.mock("remark-gfm", () => ({ default: () => {} }));
 vi.mock("lucide-react", () => ({
   Send: () => <span data-testid="send-icon">Send</span>,
   Square: () => <span>Square</span>,
-  Loader2: () => <span>Loading</span>,
 }));
 
 // Mock visual state
@@ -68,7 +67,7 @@ describe("ChatPanel", () => {
   it("displays initial greeting on empty state", () => {
     render(<ChatPanel />);
     expect(screen.getByTestId("empty-state")).toBeInTheDocument();
-    expect(screen.getByText(/Hey.*\. What can I help/)).toBeInTheDocument();
+    expect(screen.getByText("Ready when you are.")).toBeInTheDocument();
   });
 
   it("renders suggested prompts", () => {
