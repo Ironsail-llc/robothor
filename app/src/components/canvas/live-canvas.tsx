@@ -20,7 +20,6 @@ export function LiveCanvas() {
     canvasMode,
     setCanvasMode,
     dashboardCode,
-    dashboardCodeType,
     setDashboardCode,
     clearDashboard,
     isUpdating,
@@ -29,7 +28,7 @@ export function LiveCanvas() {
   } = useVisualState();
 
   const [error, setError] = useState<string | null>(null);
-  const [welcomeLoaded, setWelcomeLoaded] = useState(false);
+  const welcomeLoadedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Background dashboard agent — handles conversation-driven updates
@@ -37,8 +36,8 @@ export function LiveCanvas() {
 
   // Welcome dashboard on first load — try restore first, then generate
   useEffect(() => {
-    if (welcomeLoaded) return;
-    setWelcomeLoaded(true);
+    if (welcomeLoadedRef.current) return;
+    welcomeLoadedRef.current = true;
 
     // Don't auto-generate if we have a view or existing dashboard
     if (currentView || dashboardCode) return;

@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { NextRequest } from "next/server";
 
 // Mock config module
 vi.mock("@/lib/config", () => ({
@@ -23,7 +24,7 @@ const { GET, POST } = await import("@/app/api/session/route");
 function makeRequest(body: unknown) {
   return {
     json: () => Promise.resolve(body),
-  } as any;
+  } as unknown as NextRequest;
 }
 
 describe("GET /api/session", () => {

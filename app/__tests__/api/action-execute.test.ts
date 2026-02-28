@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { NextRequest } from "next/server";
 
 // Mock config module
 vi.mock("@/lib/config", () => ({
@@ -25,7 +26,7 @@ function makeRequest(body: unknown) {
     json: () => Promise.resolve(body),
     headers: new Headers({ "x-forwarded-for": "127.0.0.1" }),
     nextUrl: new URL("http://localhost/api/actions/execute"),
-  } as any;
+  } as unknown as NextRequest;
 }
 
 describe("POST /api/actions/execute", () => {
@@ -123,7 +124,7 @@ describe("POST /api/actions/execute", () => {
       json: () => Promise.resolve({ tool: "crm_health", params: {} }),
       headers: new Headers({ "x-forwarded-for": ip }),
       nextUrl: new URL("http://localhost/api/actions/execute"),
-    } as any;
+    } as unknown as NextRequest;
 
     mockFetch.mockResolvedValue({
       ok: true,
