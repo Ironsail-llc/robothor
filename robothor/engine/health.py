@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def create_health_app(config: EngineConfig, runner: AgentRunner | None = None):
+def create_health_app(config: EngineConfig, runner: AgentRunner | None = None, workflow_engine=None):
     """Create a lightweight FastAPI health app."""
     from fastapi import FastAPI
 
@@ -125,14 +125,131 @@ def create_health_app(config: EngineConfig, runner: AgentRunner | None = None):
         except Exception as e:
             return {"error": str(e)}
 
+    # ── Workflow API endpoints ───────────────────────────────────────
+
+    @app.get("/api/workflows")
+    async def list_workflows():
+        """List loaded workflow definitions."""
+        if not workflow_engine:
+            return {"workflows": []}
+        return {
+            "workflows": [
+                {
+                    "id": wf.id,
+                    "name": wf.name,
+                    "description": wf.description,
+                    "version": wf.version,
+                    "steps": len(wf.steps),
+                    "triggers": [
+                        {"type": t.type, "stream": t.stream, "event_type": t.event_type, "cron": t.cron}
+                        for t in wf.triggers
+                    ],
+                }
+                for wf in workflow_engine.list_workflows()
+            ]
+        }
+
+    @app.get("/api/workflows/{workflow_id}/runs")
+    async def list_workflow_runs(workflow_id: str, limit: int = 20):
+        """List runs for a specific workflow."""
+        try:
+            from robothor.db.connection import get_connection
+
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """SELECT id, status, trigger_type, trigger_detail,
+                              steps_total, steps_completed, steps_failed, steps_skipped,
+                              duration_ms, error_message,
+                              started_at, completed_at, created_at
+                       FROM workflow_runs
+                       WHERE workflow_id = %s AND tenant_id = %s
+                       ORDER BY created_at DESC LIMIT %s""",
+                    (workflow_id, config.tenant_id, limit),
+                )
+                rows = cur.fetchall()
+                cols = [d[0] for d in cur.description]
+                return {
+                    "runs": [
+                        {c: str(v) if v is not None else None for c, v in zip(cols, row)}
+                        for row in rows
+                    ]
+                }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @app.get("/api/workflows/runs/{run_id}")
+    async def get_workflow_run(run_id: str):
+        """Get workflow run detail with step results."""
+        try:
+            from robothor.db.connection import get_connection
+
+            with get_connection() as conn:
+                cur = conn.cursor()
+                # Get run
+                cur.execute(
+                    """SELECT id, workflow_id, status, trigger_type, trigger_detail,
+                              steps_total, steps_completed, steps_failed, steps_skipped,
+                              duration_ms, error_message, context,
+                              started_at, completed_at
+                       FROM workflow_runs WHERE id = %s""",
+                    (run_id,),
+                )
+                run_row = cur.fetchone()
+                if not run_row:
+                    return {"error": "Run not found"}
+                cols = [d[0] for d in cur.description]
+                run_data = {c: str(v) if v is not None else None for c, v in zip(cols, run_row)}
+
+                # Get steps
+                cur.execute(
+                    """SELECT step_id, step_type, status, agent_id, agent_run_id,
+                              tool_name, condition_branch, output_text,
+                              error_message, duration_ms, started_at, completed_at
+                       FROM workflow_run_steps WHERE run_id = %s
+                       ORDER BY created_at""",
+                    (run_id,),
+                )
+                step_rows = cur.fetchall()
+                step_cols = [d[0] for d in cur.description]
+                run_data["steps"] = [
+                    {c: str(v) if v is not None else None for c, v in zip(step_cols, row)}
+                    for row in step_rows
+                ]
+
+                return run_data
+        except Exception as e:
+            return {"error": str(e)}
+
+    @app.post("/api/workflows/{workflow_id}/execute")
+    async def execute_workflow(workflow_id: str):
+        """Manually trigger a workflow execution."""
+        if not workflow_engine:
+            return {"error": "Workflow engine not available"}
+
+        wf = workflow_engine.get_workflow(workflow_id)
+        if not wf:
+            return {"error": f"Workflow not found: {workflow_id}"}
+
+        # Execute in background
+        import asyncio
+        asyncio.create_task(
+            workflow_engine.execute(
+                workflow_id=workflow_id,
+                trigger_type="manual",
+                trigger_detail="api",
+            )
+        )
+        return {"status": "started", "workflow_id": workflow_id}
+
     return app
 
 
-async def serve_health(config: EngineConfig, runner: AgentRunner | None = None) -> None:
+async def serve_health(config: EngineConfig, runner: AgentRunner | None = None, workflow_engine=None) -> None:
     """Start the health endpoint server."""
     import uvicorn
 
-    app = create_health_app(config, runner=runner)
+    app = create_health_app(config, runner=runner, workflow_engine=workflow_engine)
     uvi_config = uvicorn.Config(
         app,
         host="127.0.0.1",

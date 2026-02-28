@@ -17,18 +17,20 @@ model:
   payload_alias: kimi
 
 schedule:
-  cron: "0 6-22/2 * * *"
+  cron: "0 6-22/6 * * *"
   timezone: America/Grenada
   timeout_seconds: 480
   max_iterations: 8
   session_target: isolated
 
 delivery:
-  mode: announce
-  channel: telegram
-  to: "7636850023"
+  mode: none
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
   - log_interaction
   - create_task
   - list_my_tasks
@@ -83,6 +85,10 @@ tags_produced: [calendar, conflict, cancellation]
 tags_consumed: []
 
 changelog:
+  - date: "2026-02-28"
+    change: "CRITICAL FIX: Add exec, read_file, write_file, search_memory — agent couldn't read calendar data. Delivery→none."
+  - date: "2026-02-27"
+    change: Relax cron to 6h safety-net (primary trigger is now hook on calendar.new/rescheduled/modified)
   - date: "2026-02-24"
     change: "Initial manifest creation; payload model fixed from qwen3-14b to kimi"
   - date: "2026-02-23"

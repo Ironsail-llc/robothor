@@ -24,6 +24,26 @@ logger = logging.getLogger(__name__)
 # Vision service URL
 VISION_URL = "http://127.0.0.1:8600"
 
+# Bridge service URL (Impetus One passthrough)
+BRIDGE_URL = "http://127.0.0.1:9100"
+
+# Impetus One tools — routed via Bridge MCP passthrough
+IMPETUS_TOOLS = frozenset({
+    "search_patients",
+    "get_patient_details",
+    "get_patient_clinical_notes",
+    "get_patient_prescriptions",
+    "search_prescriptions",
+    "get_prescription_status",
+    "search_medications",
+    "search_pharmacies",
+    "get_appointments",
+    "list_actable_providers",
+    "create_prescription_draft",
+    "schedule_appointment",
+    "transmit_prescription",
+})
+
 
 class ToolRegistry:
     """Registry of available tools with schema filtering per agent."""
@@ -224,6 +244,97 @@ class ToolRegistry:
                         },
                     },
                     "required": ["agent_id"],
+                },
+            },
+        }
+
+        # ── Convenience aliases ──
+
+        self._schemas["list_my_tasks"] = {
+            "type": "function",
+            "function": {
+                "name": "list_my_tasks",
+                "description": "List tasks assigned to you (the current agent). Shortcut for list_agent_tasks with your own agent ID.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "description": "Filter by status: TODO, IN_PROGRESS, REVIEW, DONE",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Max results (default 50)",
+                            "default": 50,
+                        },
+                    },
+                },
+            },
+        }
+
+        # ── CRM Merge tools ──
+
+        self._schemas["merge_people"] = {
+            "type": "function",
+            "function": {
+                "name": "merge_people",
+                "description": "Merge two duplicate people. Keeper is preserved, loser is soft-deleted. Fills empty fields, collects emails/phones, re-links conversations/notes/tasks.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "keeperId": {
+                            "type": "string",
+                            "description": "UUID of the person to keep",
+                        },
+                        "loserId": {
+                            "type": "string",
+                            "description": "UUID of the person to merge into keeper and delete",
+                        },
+                    },
+                    "required": ["keeperId", "loserId"],
+                },
+            },
+        }
+        # merge_contacts is an alias for merge_people
+        self._schemas["merge_contacts"] = {
+            "type": "function",
+            "function": {
+                "name": "merge_contacts",
+                "description": "Merge two duplicate contacts (alias for merge_people). Keeper is preserved, loser is soft-deleted.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "keeperId": {
+                            "type": "string",
+                            "description": "UUID of the contact to keep",
+                        },
+                        "loserId": {
+                            "type": "string",
+                            "description": "UUID of the contact to merge into keeper and delete",
+                        },
+                    },
+                    "required": ["keeperId", "loserId"],
+                },
+            },
+        }
+        self._schemas["merge_companies"] = {
+            "type": "function",
+            "function": {
+                "name": "merge_companies",
+                "description": "Merge two duplicate companies. Keeper is preserved, loser is soft-deleted. Fills empty fields, re-links people and notes.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "keeperId": {
+                            "type": "string",
+                            "description": "UUID of the company to keep",
+                        },
+                        "loserId": {
+                            "type": "string",
+                            "description": "UUID of the company to merge into keeper and delete",
+                        },
+                    },
+                    "required": ["keeperId", "loserId"],
                 },
             },
         }
@@ -964,5 +1075,40 @@ async def _execute_tool(
                 return {"results": results, "count": len(results)}
         except Exception as e:
             return {"error": f"Search failed: {e}"}
+
+    # ── CRM Merge tools ──
+
+    if name in ("merge_people", "merge_contacts"):
+        from robothor.crm.dal import merge_people as _merge_people
+        result = _merge_people(
+            keeper_id=args.get("keeperId", ""),
+            loser_id=args.get("loserId", ""),
+            tenant_id=tenant_id,
+        )
+        if result:
+            return {"success": True, "keeper": result}
+        return {"error": "Merge failed — one or both IDs not found"}
+
+    if name == "merge_companies":
+        from robothor.crm.dal import merge_companies as _merge_companies
+        result = _merge_companies(
+            keeper_id=args.get("keeperId", ""),
+            loser_id=args.get("loserId", ""),
+            tenant_id=tenant_id,
+        )
+        if result:
+            return {"success": True, "keeper": result}
+        return {"error": "Merge failed — one or both IDs not found"}
+
+    # ── Impetus One (Bridge MCP passthrough) ──
+
+    if name in IMPETUS_TOOLS:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{BRIDGE_URL}/api/impetus/tools/call",
+                json={"name": name, "arguments": args},
+            )
+            resp.raise_for_status()
+            return resp.json()
 
     return {"error": f"Unknown tool: {name}"}

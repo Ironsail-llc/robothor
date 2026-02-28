@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from robothor.engine.models import AgentConfig
-from robothor.engine.tools import ToolRegistry, _execute_tool, get_registry
+from robothor.engine.tools import IMPETUS_TOOLS, ToolRegistry, _execute_tool, get_registry
 
 
 class TestToolRegistry:
@@ -331,6 +332,246 @@ class TestObservabilityTools:
         assert "list_agent_runs" in names
         assert "get_agent_stats" in names
         assert "exec" in names
+
+
+class TestImpetusTool:
+    def test_impetus_tools_frozenset_has_all_13(self):
+        """IMPETUS_TOOLS frozenset contains exactly 13 tools."""
+        assert len(IMPETUS_TOOLS) == 13
+        assert "search_patients" in IMPETUS_TOOLS
+        assert "get_patient_details" in IMPETUS_TOOLS
+        assert "get_patient_clinical_notes" in IMPETUS_TOOLS
+        assert "get_patient_prescriptions" in IMPETUS_TOOLS
+        assert "search_prescriptions" in IMPETUS_TOOLS
+        assert "get_prescription_status" in IMPETUS_TOOLS
+        assert "search_medications" in IMPETUS_TOOLS
+        assert "search_pharmacies" in IMPETUS_TOOLS
+        assert "get_appointments" in IMPETUS_TOOLS
+        assert "list_actable_providers" in IMPETUS_TOOLS
+        assert "create_prescription_draft" in IMPETUS_TOOLS
+        assert "schedule_appointment" in IMPETUS_TOOLS
+        assert "transmit_prescription" in IMPETUS_TOOLS
+
+    def test_all_impetus_schemas_registered(self):
+        """All 13 Impetus tool schemas are registered in ToolRegistry."""
+        from robothor.api.mcp import get_tool_definitions
+        real_defs = get_tool_definitions()
+        with patch("robothor.api.mcp.get_tool_definitions", return_value=real_defs):
+            registry = ToolRegistry()
+        for tool_name in IMPETUS_TOOLS:
+            assert tool_name in registry._schemas, f"{tool_name} not in registry"
+
+    @pytest.mark.asyncio
+    async def test_search_patients_routes_to_bridge(self):
+        """search_patients routes through Bridge MCP passthrough."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"patients": [{"id": "p1", "name": "Smith"}]}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        with patch("robothor.engine.tools.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await _execute_tool("search_patients", {"query": "Smith"})
+
+        assert result == {"patients": [{"id": "p1", "name": "Smith"}]}
+        mock_client.post.assert_called_once_with(
+            "http://127.0.0.1:9100/api/impetus/tools/call",
+            json={"name": "search_patients", "arguments": {"query": "Smith"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_transmit_prescription_routes_to_bridge(self):
+        """transmit_prescription (write tool) routes through Bridge."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status": "pending_confirmation", "confirmationId": "c1"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        with patch("robothor.engine.tools.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await _execute_tool("transmit_prescription", {"prescriptionId": "rx-1"})
+
+        assert result["confirmationId"] == "c1"
+        mock_client.post.assert_called_once_with(
+            "http://127.0.0.1:9100/api/impetus/tools/call",
+            json={"name": "transmit_prescription", "arguments": {"prescriptionId": "rx-1"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_bridge_error_returns_error_dict(self):
+        """Bridge HTTP errors are caught and returned as error dicts."""
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = httpx.HTTPStatusError(
+            "502 Bad Gateway", request=MagicMock(), response=MagicMock(status_code=502),
+        )
+
+        with patch("robothor.engine.tools.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            # _execute_tool raises, but ToolRegistry.execute catches it
+            with pytest.raises(httpx.HTTPStatusError):
+                await _execute_tool("search_patients", {"query": "test"})
+
+    def test_impetus_tools_in_main_agent_allowlist(self):
+        """Impetus tools are available to the main agent when in tools_allowed."""
+        from robothor.api.mcp import get_tool_definitions
+        real_defs = get_tool_definitions()
+        with patch("robothor.api.mcp.get_tool_definitions", return_value=real_defs):
+            registry = ToolRegistry()
+
+        config = AgentConfig(
+            id="main", name="main",
+            tools_allowed=list(IMPETUS_TOOLS) + ["exec"],
+        )
+        names = registry.get_tool_names(config)
+        for tool_name in IMPETUS_TOOLS:
+            assert tool_name in names, f"{tool_name} not accessible to main agent"
+
+
+class TestMergeAndAliasTools:
+    """Tests for merge_people, merge_contacts, merge_companies, list_my_tasks schemas."""
+
+    def _make_registry(self):
+        with patch("robothor.api.mcp.get_tool_definitions", return_value=[]):
+            return ToolRegistry()
+
+    def test_list_my_tasks_schema_registered(self):
+        r = self._make_registry()
+        assert "list_my_tasks" in r._schemas
+        params = r._schemas["list_my_tasks"]["function"]["parameters"]
+        assert "status" in params["properties"]
+        assert "limit" in params["properties"]
+
+    def test_merge_people_schema_registered(self):
+        r = self._make_registry()
+        assert "merge_people" in r._schemas
+        params = r._schemas["merge_people"]["function"]["parameters"]
+        assert "keeperId" in params["properties"]
+        assert "loserId" in params["properties"]
+        assert params["required"] == ["keeperId", "loserId"]
+
+    def test_merge_contacts_schema_registered(self):
+        r = self._make_registry()
+        assert "merge_contacts" in r._schemas
+        params = r._schemas["merge_contacts"]["function"]["parameters"]
+        assert "keeperId" in params["properties"]
+        assert "loserId" in params["properties"]
+
+    def test_merge_companies_schema_registered(self):
+        r = self._make_registry()
+        assert "merge_companies" in r._schemas
+        params = r._schemas["merge_companies"]["function"]["parameters"]
+        assert "keeperId" in params["properties"]
+        assert "loserId" in params["properties"]
+
+    def test_list_my_tasks_in_agent_allowlist(self):
+        """Agent with list_my_tasks in tools_allowed gets the schema."""
+        r = self._make_registry()
+        config = AgentConfig(
+            id="test", name="test",
+            tools_allowed=["list_my_tasks", "exec"],
+        )
+        tools = r.build_for_agent(config)
+        names = [t["function"]["name"] for t in tools]
+        assert "list_my_tasks" in names
+        assert "exec" in names
+        assert len(names) == 2
+
+    def test_merge_contacts_in_agent_allowlist(self):
+        """Agent with merge_contacts in tools_allowed gets the schema."""
+        r = self._make_registry()
+        config = AgentConfig(
+            id="test", name="test",
+            tools_allowed=["merge_contacts", "merge_companies"],
+        )
+        tools = r.build_for_agent(config)
+        names = [t["function"]["name"] for t in tools]
+        assert "merge_contacts" in names
+        assert "merge_companies" in names
+
+    @pytest.mark.asyncio
+    async def test_list_my_tasks_executor(self):
+        """list_my_tasks calls list_agent_tasks with the current agent ID."""
+        with patch("robothor.crm.dal.list_agent_tasks") as mock_lat:
+            mock_lat.return_value = [{"id": "t1", "title": "Test"}]
+            result = await _execute_tool(
+                "list_my_tasks",
+                {"status": "TODO", "limit": 10},
+                agent_id="email-classifier",
+                tenant_id="test",
+            )
+        assert result["count"] == 1
+        mock_lat.assert_called_once_with(
+            agent_id="email-classifier",
+            include_unassigned=False,
+            status="TODO",
+            limit=10,
+            tenant_id="test",
+        )
+
+    @pytest.mark.asyncio
+    async def test_merge_people_executor(self):
+        """merge_people calls dal.merge_people."""
+        with patch("robothor.crm.dal.merge_people") as mock_merge:
+            mock_merge.return_value = {"id": "keeper-1", "first_name": "Philip"}
+            result = await _execute_tool(
+                "merge_people",
+                {"keeperId": "keeper-1", "loserId": "loser-1"},
+                tenant_id="test",
+            )
+        assert result["success"] is True
+        mock_merge.assert_called_once_with(
+            keeper_id="keeper-1", loser_id="loser-1", tenant_id="test",
+        )
+
+    @pytest.mark.asyncio
+    async def test_merge_contacts_executor(self):
+        """merge_contacts is an alias for merge_people."""
+        with patch("robothor.crm.dal.merge_people") as mock_merge:
+            mock_merge.return_value = {"id": "keeper-1"}
+            result = await _execute_tool(
+                "merge_contacts",
+                {"keeperId": "keeper-1", "loserId": "loser-1"},
+                tenant_id="test",
+            )
+        assert result["success"] is True
+        mock_merge.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_merge_companies_executor(self):
+        """merge_companies calls dal.merge_companies."""
+        with patch("robothor.crm.dal.merge_companies") as mock_merge:
+            mock_merge.return_value = {"id": "keeper-co"}
+            result = await _execute_tool(
+                "merge_companies",
+                {"keeperId": "keeper-co", "loserId": "loser-co"},
+                tenant_id="test",
+            )
+        assert result["success"] is True
+        mock_merge.assert_called_once_with(
+            keeper_id="keeper-co", loser_id="loser-co", tenant_id="test",
+        )
+
+    @pytest.mark.asyncio
+    async def test_merge_people_not_found(self):
+        """merge_people returns error when IDs not found."""
+        with patch("robothor.crm.dal.merge_people") as mock_merge:
+            mock_merge.return_value = None
+            result = await _execute_tool(
+                "merge_people",
+                {"keeperId": "bad", "loserId": "bad"},
+                tenant_id="test",
+            )
+        assert "error" in result
 
 
 class TestRegistrySingleton:

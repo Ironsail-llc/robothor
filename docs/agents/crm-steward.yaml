@@ -24,11 +24,14 @@ schedule:
   session_target: isolated
 
 delivery:
-  mode: announce
-  channel: telegram
-  to: "7636850023"
+  mode: none
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
+  - get_entity
   - list_people
   - update_person
   - update_company
@@ -92,6 +95,8 @@ tags_produced: [crm-hygiene, dedup, enrichment]
 tags_consumed: [crm-hygiene]
 
 changelog:
+  - date: "2026-02-28"
+    change: "CRITICAL FIX: Add exec, read_file, write_file, search_memory, get_entity — agent couldn't read/write files. Delivery→none."
   - date: "2026-02-24"
     change: "Initial manifest creation; payload model fixed from qwen3-14b to kimi"
   - date: "2026-02-23"

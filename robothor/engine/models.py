@@ -21,6 +21,7 @@ class TriggerType(str, Enum):
     MANUAL = "manual"
     TELEGRAM = "telegram"
     WEBCHAT = "webchat"
+    WORKFLOW = "workflow"
 
 
 class RunStatus(str, Enum):
@@ -178,3 +179,124 @@ class AgentRun:
     delivery_channel: str | None = None
 
     steps: list[RunStep] = field(default_factory=list)
+
+
+# ─── Workflow Engine Models ────────────────────────────────────────────
+
+
+class WorkflowStepType(str, Enum):
+    AGENT = "agent"
+    TOOL = "tool"
+    CONDITION = "condition"
+    TRANSFORM = "transform"
+    NOOP = "noop"
+
+
+class WorkflowStepStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+@dataclass
+class ConditionBranch:
+    """A single branch in a condition step."""
+
+    when: str | None = None  # Python expression (value = input)
+    otherwise: bool = False
+    goto: str = ""  # Step ID to jump to
+
+
+@dataclass
+class WorkflowStepDef:
+    """Parsed step definition from workflow YAML."""
+
+    id: str
+    type: WorkflowStepType = WorkflowStepType.NOOP
+
+    # Agent step
+    agent_id: str = ""
+    message: str = ""
+
+    # Tool step
+    tool_name: str = ""
+    tool_args: dict[str, Any] = field(default_factory=dict)
+
+    # Condition step
+    input_expr: str = ""  # {{ steps.X.output_text }}
+    branches: list[ConditionBranch] = field(default_factory=list)
+
+    # Transform step
+    transform_expr: str = ""
+
+    # Error handling
+    on_failure: str = "abort"  # abort, skip, retry
+    retry_count: int = 0
+
+    # Flow control
+    next: str = ""  # Explicit next step ID (overrides sequential)
+
+
+@dataclass
+class WorkflowTriggerDef:
+    """Trigger definition for a workflow."""
+
+    type: str = ""  # hook, cron
+    stream: str = ""
+    event_type: str = ""
+    cron: str = ""
+    timezone: str = "America/Grenada"
+
+
+@dataclass
+class WorkflowDef:
+    """Complete workflow definition parsed from YAML."""
+
+    id: str
+    name: str = ""
+    description: str = ""
+    version: str = ""
+    triggers: list[WorkflowTriggerDef] = field(default_factory=list)
+    steps: list[WorkflowStepDef] = field(default_factory=list)
+    timeout_seconds: int = 900
+    delivery_mode: str = "none"
+    delivery_channel: str = ""
+    delivery_to: str = ""
+
+
+@dataclass
+class WorkflowStepResult:
+    """Result of executing a single workflow step."""
+
+    step_id: str
+    step_type: WorkflowStepType = WorkflowStepType.NOOP
+    status: WorkflowStepStatus = WorkflowStepStatus.PENDING
+    output_text: str | None = None
+    agent_run_id: str | None = None
+    tool_output: dict[str, Any] | None = None
+    condition_branch: str | None = None
+    error_message: str | None = None
+    duration_ms: int = 0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+@dataclass
+class WorkflowRun:
+    """Complete workflow execution."""
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    workflow_id: str = ""
+    tenant_id: str = "robothor-primary"
+    trigger_type: str = "manual"
+    trigger_detail: str = ""
+    correlation_id: str | None = None
+    status: RunStatus = RunStatus.PENDING
+    step_results: list[WorkflowStepResult] = field(default_factory=list)
+    context: dict[str, Any] = field(default_factory=dict)
+    error_message: str | None = None
+    duration_ms: int = 0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None

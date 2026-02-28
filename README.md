@@ -2,11 +2,11 @@
 
 **An autonomous AI system with persistent memory, agent orchestration, vision, CRM, and a live control plane — running 24/7 on a single machine.**
 
-Not another agent framework. A complete AI *system* — persistent memory that decays and strengthens, a knowledge graph that grows autonomously, 11 agents that read your email and watch through cameras, a CRM that tracks every contact across every channel, and a dashboard to monitor it all. One repo. One CLI. All on your hardware.
+Not another agent framework. A complete AI *system* — persistent memory that decays and strengthens, a knowledge graph that grows autonomously, 13 agents orchestrated through declarative YAML workflows, a CRM that tracks every contact across every channel, and a dashboard to monitor it all. One repo. One CLI. All on your hardware.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1%2C400%2B%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C500%2B%20passing-brightgreen.svg)]()
 
 ## Architecture
 
@@ -22,8 +22,8 @@ Three layers, one repo:
                          │
 ┌────────────────────────┴────────────────────────────────┐
 │  Agent Orchestration (Python Engine)                     │
-│  11 autonomous agents · Telegram delivery                │
-│  YAML-defined manifests · task-based coordination        │
+│  13 autonomous agents · declarative workflow pipelines   │
+│  YAML manifests · task coordination · Telegram delivery  │
 │  Port 18800 · engine.robothor.ai                         │
 └────────────────────────┬────────────────────────────────┘
                          │
@@ -34,7 +34,7 @@ Three layers, one repo:
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐ │
 │  │ MCP      │ │ Bridge   │ │ Orchest- │ │ Vision      │ │
 │  │ Server   │ │ Service  │ │ rator    │ │ Service     │ │
-│  │ 44 tools │ │ CRM API  │ │ RAG API  │ │ YOLO+Faces  │ │
+│  │ 57 tools │ │ CRM API  │ │ RAG API  │ │ YOLO+Faces  │ │
 │  │ (stdio)  │ │ :9100    │ │ :9099    │ │ :8600       │ │
 │  └──────────┘ └──────────┘ └──────────┘ └─────────────┘ │
 │                                                           │
@@ -88,7 +88,7 @@ robothor init            # Interactive setup wizard
 robothor serve           # Start orchestrator + engine
 robothor status          # System health overview
 robothor migrate         # Run database migrations
-robothor mcp             # Start MCP server (44 tools, stdio transport)
+robothor mcp             # Start MCP server (57 tools, stdio transport)
 
 # Engine management
 robothor engine start    # Start the agent engine daemon
@@ -97,6 +97,10 @@ robothor engine status   # Engine health, scheduler, bot status
 robothor engine run <id> # Run an agent manually
 robothor engine list     # List all scheduled agents
 robothor engine history  # Recent agent run history
+
+# Workflow engine
+robothor engine workflow list      # List loaded workflows
+robothor engine workflow run <id>  # Execute a workflow manually
 ```
 
 ## Project Structure
@@ -109,8 +113,8 @@ robothor/
 │   ├── crm/                # Contact validation, models, blocklists
 │   ├── vision/             # YOLO detection, InsightFace recognition, alerts
 │   ├── events/             # Redis Streams, RBAC, consumer workers
-│   ├── engine/             # Agent Engine: runner, tools, Telegram, scheduler, hooks
-│   ├── api/                # MCP server (44 tools), RAG orchestrator
+│   ├── engine/             # Agent Engine: runner, tools, Telegram, scheduler, hooks, workflows
+│   ├── api/                # MCP server (57 tools), RAG orchestrator
 │   ├── db/                 # PostgreSQL connection factory with pooling
 │   ├── llm/                # Ollama client (chat, embeddings, model management)
 │   ├── audit/              # Structured audit logging with typed events
@@ -130,7 +134,8 @@ robothor/
 │   └── docker-compose.yml  # Vaultwarden, Kokoro TTS, Uptime Kuma
 │
 ├── docs/                   # Documentation + agent manifests
-│   └── agents/             # 11 YAML agent manifests + PLAYBOOK.md
+│   ├── agents/             # 13 YAML agent manifests + PLAYBOOK.md
+│   └── workflows/          # Declarative workflow pipelines (email, calendar, vision)
 │
 ├── brain/                  # → ~/clawd/ (symlink) — scripts, voice, vision, identity
 ├── robothor/health/        # Garmin health sync → PostgreSQL
@@ -262,23 +267,27 @@ subscribe("email", "classifier-group", "worker-1", handler=handle_email)
 
 ## The Agent Fleet
 
-11 autonomous agents defined as YAML manifests in `docs/agents/`, loaded by the Engine scheduler:
+13 autonomous agents defined as YAML manifests in `docs/agents/`, loaded by the Engine scheduler:
 
 | Agent | Model | Schedule | Purpose |
 |-------|-------|----------|---------|
-| Email Classifier | Kimi K2.5 | Every 2h | Classify emails, route or escalate |
-| Email Analyst | Kimi K2.5 | Every 2h | Deep analysis of complex emails |
+| Email Classifier | Kimi K2.5 | Every 6h (safety net) | Classify emails, route or escalate |
+| Email Analyst | Kimi K2.5 | Every 6h (safety net) | Deep analysis of complex emails |
 | Email Responder | Sonnet 4.6 | Every 4h | Compose and send replies |
-| Calendar Monitor | Kimi K2.5 | Every 2h | Detect conflicts, cancellations |
-| Supervisor | Kimi K2.5 | Every 2h | Audit logs, surface escalations, approve tasks |
-| Vision Monitor | Kimi K2.5 | Hourly | Check motion events |
+| Calendar Monitor | Kimi K2.5 | Every 6h (safety net) | Detect conflicts, cancellations |
+| Supervisor | Kimi K2.5 | Every 4h | Audit logs, surface escalations, approve tasks |
+| Vision Monitor | Kimi K2.5 | Every 6h (safety net) | Check motion events |
 | Conv Inbox Monitor | Kimi K2.5 | Hourly | Check for urgent messages |
 | Conv Resolver | Kimi K2.5 | 3x/day | Auto-resolve stale conversations |
 | CRM Steward | Kimi K2.5 | Daily | Data hygiene + contact enrichment |
 | Morning Briefing | Kimi K2.5 | 6:30 AM | Calendar, email, weather summary |
 | Evening Wind-Down | Kimi K2.5 | 9:00 PM | Tomorrow preview, open items |
+| Main | Gemini Flash | Interactive | Telegram interactive session |
+| Engine Report | Kimi K2.5 | On-demand | Engine status reports |
 
-Agents communicate through tasks (not files). The supervisor reviews and approves. Event-driven email pipeline handles real-time (~60s email-to-reply); crons are the safety net.
+Agents communicate through tasks (not files). The supervisor reviews and approves. Only 3 agents talk to the user — supervisor, morning briefing, and evening wind-down. All workers operate silently.
+
+**Event-driven hooks** are the primary trigger for email, calendar, and vision agents. Crons are 6h safety nets. A **declarative workflow engine** (`docs/workflows/*.yaml`) orchestrates multi-step pipelines with conditional routing — e.g., the email pipeline: classify → condition branch → analyze or respond.
 
 ### Agent Manifest Example
 
@@ -288,13 +297,16 @@ id: email-classifier
 name: Email Classifier
 model:
   primary: openrouter/moonshotai/kimi-k2.5
-  fallback: openrouter/google/gemini-2.5-pro
-schedule: "0 6-22/2 * * *"
-timeout: 300
-delivery: announce
-tools:
-  allow: [create_task, list_tasks, update_task, resolve_task, ...]
-  deny: [delete_task, create_person, ...]
+  fallbacks: [openrouter/minimax/minimax-m2.5, gemini/gemini-2.5-pro]
+schedule:
+  cron: "0 6-22/6 * * *"
+  timezone: America/Grenada
+  timeout_seconds: 300
+delivery:
+  mode: none  # silent worker
+tools_allowed: [exec, read_file, write_file, create_task, list_tasks, ...]
+tools_denied: [delete_task, create_person, ...]
+downstream_agents: [email-analyst, email-responder]
 ```
 
 ## The Helm
@@ -394,12 +406,12 @@ cd app && pnpm test
 python scripts/validate_agents.py
 ```
 
-**1,400+ tests** across Python and TypeScript:
+**1,500+ tests** across Python and TypeScript:
 - **483** package unit tests (memory, events, consumers, audit, services, CRM, RAG, vision, API)
 - **203** Bridge integration tests (RBAC, multi-tenancy, task coordination, notifications, review workflow)
 - **209** system script tests (email pipeline, cron jobs, task cleanup, data archival)
 - **143** memory system tests (ingestion, analysis, vision)
-- **89** engine tests (runner, tools, config, session, tracking, telegram)
+- **206** engine tests (runner, tools, config, session, tracking, telegram, hooks, warmup)
 - **354** Helm vitest tests (35 suites — components, hooks, API routes, event bus)
 
 ## Development
@@ -420,9 +432,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards, PR process, and arc
 Robothor's path from AI brain to AI operating system. See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 - **v0.1-0.3** — Implemented. Memory, RAG, CRM, vision, events, RBAC, audit, service registry.
-- **v0.4** — Process model. Agent lifecycle management with supervised execution.
-- **v0.5** — Capabilities. Per-agent rate limiting, data scoping, resource quotas.
-- **v0.6** — Scheduler. Unified cron + event-driven scheduling.
+- **v0.4** — Implemented. Agent lifecycle management with supervised execution, 13-agent fleet.
+- **v0.5** — Implemented. Per-agent tool allow/deny lists, tenant-scoped data isolation.
+- **v0.6** — Implemented. Unified cron + event-driven scheduling + declarative workflow engine.
 - **v0.7** — Channel drivers. Messaging abstraction for additional channels.
 - **v0.8** — Device abstraction. Cameras, microphones, sensors as first-class resources.
 - **v0.9** — The Helm as shell. Process manager, file browser, resource monitor.

@@ -107,6 +107,9 @@ async def chat_send(request: Request) -> StreamingResponse:
                         last_sent_len = len(cumulative)
                         await queue.put({"event": "delta", "data": {"text": delta}})
 
+                async def on_tool(event: dict) -> None:
+                    await queue.put({"event": event["event"], "data": event})
+
                 # Determine agent ID from session key or default to "main"
                 agent_id = "main"
                 parts = session_key.split(":")
@@ -119,6 +122,7 @@ async def chat_send(request: Request) -> StreamingResponse:
                     trigger_type=TriggerType.WEBCHAT,
                     trigger_detail=f"webchat:{session_key}",
                     on_content=on_content,
+                    on_tool=on_tool,
                     model_override=session.model_override,
                     conversation_history=list(session.history),
                 )
@@ -134,11 +138,17 @@ async def chat_send(request: Request) -> StreamingResponse:
                 if len(session.history) > MAX_HISTORY:
                     session.history = session.history[-MAX_HISTORY:]
 
-                # Signal completion
+                # Signal completion with metadata
                 await queue.put(
                     {
                         "event": "done",
-                        "data": {"text": run.output_text or ""},
+                        "data": {
+                            "text": run.output_text or "",
+                            "model": run.model_used,
+                            "input_tokens": run.input_tokens,
+                            "output_tokens": run.output_tokens,
+                            "duration_ms": run.duration_ms,
+                        },
                     }
                 )
             except asyncio.CancelledError:

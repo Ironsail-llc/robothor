@@ -34,9 +34,15 @@ logger = logging.getLogger(__name__)
 class CronScheduler:
     """APScheduler-based cron scheduler for agent runs."""
 
-    def __init__(self, config: EngineConfig, runner: AgentRunner) -> None:
+    def __init__(
+        self,
+        config: EngineConfig,
+        runner: AgentRunner,
+        workflow_engine=None,
+    ) -> None:
         self.config = config
         self.runner = runner
+        self.workflow_engine = workflow_engine
         self.scheduler = AsyncIOScheduler(timezone=config.default_timezone)
 
     async def start(self) -> None:
@@ -96,6 +102,34 @@ class CronScheduler:
             loaded += 1
 
         logger.info("Loaded %d scheduled agents from %d manifests", loaded, len(manifests))
+
+        # Register workflow cron jobs
+        wf_loaded = 0
+        if self.workflow_engine:
+            for wf, wf_trigger in self.workflow_engine.get_workflows_for_cron():
+                try:
+                    wf_cron_trigger = CronTrigger.from_crontab(
+                        wf_trigger.cron,
+                        timezone=wf_trigger.timezone,
+                    )
+                    self.scheduler.add_job(
+                        self._run_workflow,
+                        trigger=wf_cron_trigger,
+                        args=[wf.id],
+                        id=f"workflow:{wf.id}",
+                        name=f"workflow:{wf.name}",
+                        max_instances=1,
+                        coalesce=True,
+                        misfire_grace_time=60,
+                    )
+                    wf_loaded += 1
+                except Exception as e:
+                    logger.error(
+                        "Invalid workflow cron for %s: %s — %s",
+                        wf.id, wf_trigger.cron, e,
+                    )
+            logger.info("Loaded %d workflow cron jobs", wf_loaded)
+
         self.scheduler.start()
         logger.info("Cron scheduler started")
 
@@ -204,6 +238,24 @@ class CronScheduler:
 
         finally:
             release(agent_id)
+
+    async def _run_workflow(self, workflow_id: str) -> None:
+        """Execute a workflow as a scheduled cron job."""
+        if not self.workflow_engine:
+            return
+        try:
+            logger.info("Cron trigger: running workflow %s", workflow_id)
+            run = await self.workflow_engine.execute(
+                workflow_id=workflow_id,
+                trigger_type="cron",
+                trigger_detail=f"cron:{workflow_id}",
+            )
+            logger.info(
+                "Workflow cron complete: %s status=%s duration=%dms",
+                workflow_id, run.status.value, run.duration_ms,
+            )
+        except Exception as e:
+            logger.error("Workflow cron failed for %s: %s", workflow_id, e)
 
     def _build_payload(self, config: AgentConfig) -> str:
         """Build the cron payload message from agent config.

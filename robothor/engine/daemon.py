@@ -22,6 +22,7 @@ from robothor.engine.hooks import EventHooks
 from robothor.engine.runner import AgentRunner
 from robothor.engine.scheduler import CronScheduler
 from robothor.engine.telegram import TelegramBot
+from robothor.engine.workflow import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
@@ -46,16 +47,23 @@ async def main() -> None:
 
     # Create subsystems
     runner = AgentRunner(config)
+    workflow_engine = WorkflowEngine(config, runner)
+    wf_count = workflow_engine.load_workflows(config.workflow_dir)
+    logger.info("Loaded %d workflows", wf_count)
+
     bot = TelegramBot(config, runner)
-    scheduler = CronScheduler(config, runner)
-    hooks = EventHooks(config, runner)
+    scheduler = CronScheduler(config, runner, workflow_engine=workflow_engine)
+    hooks = EventHooks(config, runner, workflow_engine=workflow_engine)
 
     # Start all subsystems concurrently
     tasks = [
         asyncio.create_task(bot.start_polling(), name="telegram"),
         asyncio.create_task(scheduler.start(), name="scheduler"),
         asyncio.create_task(hooks.start(), name="hooks"),
-        asyncio.create_task(serve_health(config, runner=runner), name="health"),
+        asyncio.create_task(
+            serve_health(config, runner=runner, workflow_engine=workflow_engine),
+            name="health",
+        ),
         asyncio.create_task(_watchdog(config), name="watchdog"),
     ]
 

@@ -27,6 +27,12 @@ delivery:
   mode: none
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
+  - get_entity
+  - store_memory
   - list_conversations
   - list_messages
   - toggle_conversation_status

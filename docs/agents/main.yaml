@@ -87,6 +87,20 @@ tools_allowed:
   - get_agent_run
   - list_agent_schedules
   - get_agent_stats
+  # Impetus One healthcare tools
+  - search_patients
+  - get_patient_details
+  - get_patient_clinical_notes
+  - get_patient_prescriptions
+  - search_prescriptions
+  - get_prescription_status
+  - search_medications
+  - search_pharmacies
+  - get_appointments
+  - list_actable_providers
+  - create_prescription_draft
+  - schedule_appointment
+  - transmit_prescription
 tools_denied: []
 
 streams:

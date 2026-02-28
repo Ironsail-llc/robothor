@@ -17,7 +17,7 @@ model:
   payload_alias: kimi
 
 schedule:
-  cron: "0 6-22/2 * * *"
+  cron: "0 6-22/4 * * *"
   timezone: America/Grenada
   timeout_seconds: 600
   max_iterations: 15
@@ -29,6 +29,11 @@ delivery:
   to: "7636850023"
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
+  - get_entity
   - list_conversations
   - list_tasks
   - get_task
@@ -104,6 +109,8 @@ tags_produced: [escalation, needs-philip]
 tags_consumed: [escalation, needs-philip, calendar, conflict, cancellation, vision, unknown-person, conversation]
 
 changelog:
+  - date: "2026-02-28"
+    change: "CRITICAL FIX: Add exec, read_file, write_file, search_memory, get_entity — supervisor couldn't read status files. Cron 2h→4h, workers now silent."
   - date: "2026-02-26"
     change: "Added cron-health-status.md as primary health signal; reduces false pipeline-down alerts"
   - date: "2026-02-24"
