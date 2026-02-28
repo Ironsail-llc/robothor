@@ -53,6 +53,7 @@ class AgentRunner:
         correlation_id: str | None = None,
         agent_config: AgentConfig | None = None,
         on_content: Callable[[str], Awaitable[None]] | None = None,
+        on_tool: Callable[[dict], Awaitable[None]] | None = None,
         model_override: str | None = None,
         conversation_history: list[dict] | None = None,
     ) -> AgentRun:
@@ -117,7 +118,7 @@ class AgentRunner:
         timeout = agent_config.timeout_seconds
         try:
             async with asyncio.timeout(timeout):
-                await self._run_loop(session, models, tool_schemas, agent_config, on_content)
+                await self._run_loop(session, models, tool_schemas, agent_config, on_content, on_tool)
         except asyncio.TimeoutError:
             logger.warning("Agent %s timed out after %ds", agent_id, timeout)
             session.record_error(f"Timed out after {timeout}s")
@@ -139,6 +140,7 @@ class AgentRunner:
         tool_schemas: list[dict],
         agent_config: AgentConfig,
         on_content: Callable[[str], Awaitable[None]] | None = None,
+        on_tool: Callable[[dict], Awaitable[None]] | None = None,
     ) -> None:
         """Core conversation loop: LLM call → tool execution → repeat."""
         max_iterations = agent_config.max_iterations
@@ -223,6 +225,18 @@ class AgentRunner:
                 except json.JSONDecodeError:
                     tool_args = {}
 
+                # Emit tool_start event
+                if on_tool:
+                    try:
+                        await on_tool({
+                            "event": "tool_start",
+                            "tool": tool_name,
+                            "args": tool_args,
+                            "call_id": tc.id,
+                        })
+                    except Exception:
+                        pass  # Never block tool execution
+
                 tool_start = time.monotonic()
                 result = await self.registry.execute(
                     tool_name,
@@ -234,6 +248,27 @@ class AgentRunner:
                 tool_elapsed = int((time.monotonic() - tool_start) * 1000)
 
                 error_msg = result.get("error") if isinstance(result, dict) else None
+
+                # Emit tool_end event
+                if on_tool:
+                    try:
+                        result_preview = json.dumps(result, default=str)
+                        if len(result_preview) > 2000:
+                            result_preview = result_preview[:2000] + "..."
+                    except Exception:
+                        result_preview = str(result)[:2000]
+                    try:
+                        await on_tool({
+                            "event": "tool_end",
+                            "tool": tool_name,
+                            "call_id": tc.id,
+                            "duration_ms": tool_elapsed,
+                            "result_preview": result_preview,
+                            "error": error_msg,
+                        })
+                    except Exception:
+                        pass  # Never block tool execution
+
                 session.record_tool_call(
                     tool_name=tool_name,
                     tool_input=tool_args,

@@ -27,6 +27,12 @@ delivery:
   mode: none
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
+  - get_entity
+  - store_memory
   - list_conversations
   - list_messages
   - toggle_conversation_status
@@ -65,7 +71,7 @@ warmup:
   context_files:
     - brain/memory/conversation-inbox-status.md
 
-instruction_file: null
+instruction_file: brain/CONVERSATION_INBOX.md
 bootstrap_files:
   - brain/AGENTS.md
   - brain/TOOLS.md

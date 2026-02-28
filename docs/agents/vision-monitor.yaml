@@ -17,7 +17,7 @@ model:
   payload_alias: kimi
 
 schedule:
-  cron: "0 * * * *"
+  cron: "0 6-22/6 * * *"
   timezone: America/Grenada
   timeout_seconds: 480
   max_iterations: 5
@@ -28,6 +28,9 @@ delivery:
   mode: none
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
   - look
   - who_is_here
   - set_vision_mode
@@ -83,5 +86,9 @@ tags_produced: [vision, unknown-person]
 tags_consumed: []
 
 changelog:
+  - date: "2026-02-28"
+    change: "CRITICAL FIX: Add exec, read_file, write_file — agent couldn't write status files"
+  - date: "2026-02-27"
+    change: Relax cron to 6h safety-net (primary trigger is now hook on vision.person_unknown)
   - date: "2026-02-24"
     change: "Initial manifest creation; payload model fixed from qwen3-14b to kimi"

@@ -397,6 +397,21 @@ def _get_impetus_mcp() -> ImpetusMCPClient:
     return _impetus_mcp
 
 
+@router.post("/api/impetus/tools/call")
+async def api_impetus_tools_call(request: Request):
+    """Generic MCP passthrough — Engine routes all Impetus tools through this."""
+    try:
+        body = await request.json()
+        name = body.get("name", "")
+        arguments = body.get("arguments", {})
+        if not name:
+            return JSONResponse({"error": "tool name required"}, status_code=400)
+        return await _get_impetus_mcp().call_tool(name, arguments)
+    except Exception as e:
+        _get_impetus_mcp().reset()
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
 @router.get("/api/impetus/providers")
 async def api_impetus_providers():
     try:

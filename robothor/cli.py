@@ -2,6 +2,8 @@
 Robothor CLI — entry point for all operations.
 
 Usage:
+    robothor                # Launch the TUI (terminal chat)
+    robothor tui            # Launch the TUI (explicit)
     robothor init           # Interactive setup wizard
     robothor serve          # Start the API server
     robothor engine         # Manage the agent engine
@@ -71,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     # version
     subparsers.add_parser("version", help="Show version")
 
+    # tui
+    tui_parser = subparsers.add_parser("tui", help="Launch the terminal chat interface")
+    tui_parser.add_argument("--url", default="http://127.0.0.1:18800", help="Engine URL")
+    tui_parser.add_argument("--session", default=None, help="Session key (auto-generated if omitted)")
+
     # engine
     eng_parser = subparsers.add_parser("engine", help="Manage the agent engine")
     eng_sub = eng_parser.add_subparsers(dest="engine_command")
@@ -85,6 +92,13 @@ def main(argv: list[str] | None = None) -> int:
     eng_history = eng_sub.add_parser("history", help="Show recent agent runs")
     eng_history.add_argument("--agent", help="Filter by agent ID")
     eng_history.add_argument("--limit", type=int, default=20, help="Max results")
+
+    # engine workflow subcommands
+    eng_wf = eng_sub.add_parser("workflow", help="Manage workflows")
+    eng_wf_sub = eng_wf.add_subparsers(dest="workflow_command")
+    eng_wf_sub.add_parser("list", help="List loaded workflows")
+    eng_wf_run = eng_wf_sub.add_parser("run", help="Run a workflow")
+    eng_wf_run.add_argument("workflow_id", help="Workflow ID")
 
     args = parser.parse_args(argv)
 
@@ -108,6 +122,11 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_pipeline(args)
     elif args.command == "engine":
         return _cmd_engine(args)
+    elif args.command == "tui":
+        return _cmd_tui(args)
+    elif args.command is None:
+        # No subcommand — launch the TUI
+        return _cmd_tui(args)
     else:
         parser.print_help()
         return 0
@@ -344,6 +363,30 @@ def _cmd_pipeline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tui(args: argparse.Namespace) -> int:
+    """Launch the terminal chat interface."""
+    try:
+        from robothor.tui import check_textual
+
+        if not check_textual():
+            print("Error: Textual is required for the TUI.")
+            print("Install with: pip install robothor[tui]")
+            return 1
+
+        from robothor.tui.app import RobothorApp
+
+        url = getattr(args, "url", "http://127.0.0.1:18800")
+        session = getattr(args, "session", None)
+        app = RobothorApp(engine_url=url, session_key=session)
+        app.run()
+        return 0
+
+    except ImportError:
+        print("Error: Textual is required for the TUI.")
+        print("Install with: pip install robothor[tui]")
+        return 1
+
+
 def _cmd_engine(args: argparse.Namespace) -> int:
     sub = getattr(args, "engine_command", None)
 
@@ -359,8 +402,10 @@ def _cmd_engine(args: argparse.Namespace) -> int:
         return _cmd_engine_list()
     elif sub == "history":
         return _cmd_engine_history(args)
+    elif sub == "workflow":
+        return _cmd_engine_workflow(args)
     else:
-        print("Usage: robothor engine {run|start|stop|status|list|history}")
+        print("Usage: robothor engine {run|start|stop|status|list|history|workflow}")
         return 0
 
 
@@ -532,6 +577,111 @@ def _cmd_engine_history(args: argparse.Namespace) -> int:
         )
 
     return 0
+
+
+def _cmd_engine_workflow(args: argparse.Namespace) -> int:
+    """Manage workflows."""
+    wf_sub = getattr(args, "workflow_command", None)
+
+    if wf_sub == "list":
+        return _cmd_workflow_list()
+    elif wf_sub == "run":
+        return _cmd_workflow_run(args)
+    else:
+        print("Usage: robothor engine workflow {list|run}")
+        return 0
+
+
+def _cmd_workflow_list() -> int:
+    """List loaded workflow definitions."""
+    from robothor.engine.config import EngineConfig
+    from robothor.engine.workflow import WorkflowEngine
+
+    config = EngineConfig.from_env()
+
+    # We don't need a full runner just to list workflows
+    class _StubRunner:
+        pass
+
+    engine = WorkflowEngine(config, _StubRunner())
+    engine.load_workflows(config.workflow_dir)
+
+    workflows = engine.list_workflows()
+    if not workflows:
+        print(f"No workflows found in {config.workflow_dir}")
+        return 1
+
+    print(f"{'Workflow ID':<25} {'Name':<30} {'Steps':<8} {'Triggers'}")
+    print("-" * 90)
+    for wf in workflows:
+        trigger_strs = []
+        for t in wf.triggers:
+            if t.type == "hook":
+                trigger_strs.append(f"hook:{t.stream}.{t.event_type}")
+            elif t.type == "cron":
+                trigger_strs.append(f"cron:{t.cron}")
+        print(f"{wf.id:<25} {wf.name:<30} {len(wf.steps):<8} {', '.join(trigger_strs)}")
+
+    print(f"\n{len(workflows)} workflows configured")
+    return 0
+
+
+def _cmd_workflow_run(args: argparse.Namespace) -> int:
+    """Run a workflow by ID."""
+    import asyncio
+
+    from robothor.engine.config import EngineConfig
+    from robothor.engine.runner import AgentRunner
+    from robothor.engine.workflow import WorkflowEngine
+
+    config = EngineConfig.from_env()
+    runner = AgentRunner(config)
+    engine = WorkflowEngine(config, runner)
+    engine.load_workflows(config.workflow_dir)
+
+    workflow_id = args.workflow_id
+    wf = engine.get_workflow(workflow_id)
+    if not wf:
+        print(f"Error: Workflow '{workflow_id}' not found in {config.workflow_dir}")
+        return 1
+
+    print(f"Running workflow: {wf.name} ({wf.id})")
+    print(f"Steps: {len(wf.steps)}")
+    print()
+
+    async def _run():
+        return await engine.execute(
+            workflow_id=workflow_id,
+            trigger_type="manual",
+            trigger_detail="cli",
+        )
+
+    run = asyncio.run(_run())
+
+    print(f"Status: {run.status.value}")
+    print(f"Duration: {run.duration_ms}ms")
+    print(f"Steps executed: {len(run.step_results)}")
+    print()
+
+    for result in run.step_results:
+        icon = {
+            "completed": "+",
+            "failed": "!",
+            "skipped": "~",
+        }.get(result.status.value, "?")
+        line = f"  [{icon}] {result.step_id} ({result.step_type.value}): {result.status.value}"
+        if result.duration_ms:
+            line += f" ({result.duration_ms}ms)"
+        if result.condition_branch:
+            line += f" -> {result.condition_branch}"
+        if result.error_message:
+            line += f" ERROR: {result.error_message}"
+        print(line)
+
+    if run.error_message:
+        print(f"\nError: {run.error_message}")
+
+    return 0 if run.status.value == "completed" else 1
 
 
 if __name__ == "__main__":

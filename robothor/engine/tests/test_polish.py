@@ -25,10 +25,10 @@ class TestExpandedTriggers:
         assert "calendar" in EVENT_TRIGGERS
         assert "vision" in EVENT_TRIGGERS
 
-    def test_vision_unknown_person_trigger(self):
+    def test_vision_person_unknown_trigger(self):
         from robothor.engine.hooks import EVENT_TRIGGERS
         triggers = EVENT_TRIGGERS["vision"]
-        unknown = [t for t in triggers if t["event_type"] == "vision.unknown_person"]
+        unknown = [t for t in triggers if t["event_type"] == "vision.person_unknown"]
         assert len(unknown) == 1
         assert unknown[0]["agent_id"] == "vision-monitor"
 
