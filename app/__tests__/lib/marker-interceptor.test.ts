@@ -99,7 +99,7 @@ describe("MarkerInterceptor", () => {
     expect(result.text).toBe("Text before.  Text after.");
     expect(result.markers).toHaveLength(1);
     expect(result.markers[0].type).toBe("dashboard");
-    const m = result.markers[0] as { data: { nested: { deep: { value: number } } } };
+    const m = result.markers[0] as unknown as { data: { nested: { deep: { value: number } } } };
     expect(m.data.nested.deep.value).toBe(42);
   });
 

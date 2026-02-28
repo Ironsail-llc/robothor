@@ -8,25 +8,20 @@ import { useState, useEffect, useRef } from "react";
  */
 export function useThrottle<T>(value: T, ms: number): T {
   const [throttled, setThrottled] = useState(value);
-  const lastUpdated = useRef(Date.now());
+  const lastUpdated = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const now = Date.now();
     const elapsed = now - lastUpdated.current;
 
-    if (elapsed >= ms) {
-      // Enough time has passed — update immediately
-      lastUpdated.current = now;
+    if (timerRef.current) clearTimeout(timerRef.current);
+
+    const delay = elapsed >= ms ? 0 : ms - elapsed;
+    timerRef.current = setTimeout(() => {
+      lastUpdated.current = Date.now();
       setThrottled(value);
-    } else {
-      // Schedule a trailing update
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        lastUpdated.current = Date.now();
-        setThrottled(value);
-      }, ms - elapsed);
-    }
+    }, delay);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);

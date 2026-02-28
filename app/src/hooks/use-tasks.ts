@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useEventStream, type StreamEvent } from "@/lib/event-bus/use-event-stream";
+import { useEventStream } from "@/lib/event-bus/use-event-stream";
 
 export interface Task {
   id: string;
