@@ -5,9 +5,13 @@ import { useEventStream } from "../use-event-stream";
 // Mock EventSource with construction tracking
 let constructedUrls: string[] = [];
 
+interface MockMessageEvent {
+  data: string;
+}
+
 class MockEventSource {
   url: string;
-  listeners: Record<string, ((e: any) => void)[]> = {};
+  listeners: Record<string, ((e: MockMessageEvent) => void)[]> = {};
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
@@ -23,7 +27,7 @@ class MockEventSource {
     }, 0);
   }
 
-  addEventListener(type: string, handler: (e: any) => void) {
+  addEventListener(type: string, handler: (e: MockMessageEvent) => void) {
     if (!this.listeners[type]) this.listeners[type] = [];
     this.listeners[type].push(handler);
   }
@@ -33,7 +37,7 @@ class MockEventSource {
   }
 
   // Test helper: emit an event
-  _emit(type: string, data: any) {
+  _emit(type: string, data: string | Record<string, unknown>) {
     for (const handler of this.listeners[type] || []) {
       handler({ data: typeof data === "string" ? data : JSON.stringify(data) });
     }
@@ -44,7 +48,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   constructedUrls = [];
   MockEventSource.lastInstance = null;
-  // @ts-ignore
+  // @ts-expect-error — Mock EventSource for testing
   global.EventSource = MockEventSource;
 });
 

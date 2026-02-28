@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { MetricGrid } from "@/components/business/metric-grid";
 import { TaskBoard } from "@/components/business/task-board";
 import type { Task } from "@/hooks/use-tasks";
@@ -13,7 +14,7 @@ interface TasksViewProps {
 }
 
 export function TasksView({ visible, tasks, isLoading, onApprove, onReject }: TasksViewProps) {
-  const now = Date.now();
+  const [now] = useState(() => Date.now());
   const dayAgo = now - 86_400_000;
 
   const todoCount = tasks.filter((t) => t.status === "TODO").length;

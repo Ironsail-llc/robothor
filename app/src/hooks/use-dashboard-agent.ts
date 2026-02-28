@@ -20,11 +20,8 @@ export function useDashboardAgent() {
   const {
     pendingMessages,
     pendingAgentData,
-    isUpdating,
     setIsUpdating,
     setDashboardCode,
-    setCanvasMode,
-    dashboardCode,
   } = useVisualState();
 
   const abortRef = useRef<AbortController | null>(null);

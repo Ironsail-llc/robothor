@@ -37,6 +37,7 @@ export function useEventStream(options: UseEventStreamOptions = {}) {
   const [synced, setSynced] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const connectRef = useRef<(() => void) | null>(null);
 
   const connect = useCallback(() => {
     if (!enabled) return;
@@ -77,9 +78,13 @@ export function useEventStream(options: UseEventStreamOptions = {}) {
       setConnected(false);
       es.close();
       // Reconnect after 3 seconds
-      reconnectTimeoutRef.current = setTimeout(connect, 3000);
+      reconnectTimeoutRef.current = setTimeout(() => connectRef.current?.(), 3000);
     };
   }, [enabled, streams, maxEvents]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  });
 
   useEffect(() => {
     connect();

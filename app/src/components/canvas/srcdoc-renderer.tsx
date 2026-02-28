@@ -308,7 +308,7 @@ ${sanitized}
 <\/script>
 </body>
 </html>`;
-  }, [html]);
+  }, [html, preSanitized]);
 
   // Send action result back to iframe
   const sendActionResult = useCallback(

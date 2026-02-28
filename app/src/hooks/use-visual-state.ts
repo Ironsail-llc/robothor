@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useCallback, useState, useRef } from "react";
+import { createContext, useContext, useCallback, useState } from "react";
 import React from "react";
 
 export interface ViewEntry {
