@@ -1,0 +1,30 @@
+id: calendar-pipeline
+name: Calendar Pipeline
+description: Monitor calendar events for conflicts, cancellations, and changes
+version: "2026-02-28"
+
+triggers:
+  - type: hook
+    stream: calendar
+    event_type: calendar.new
+  - type: hook
+    stream: calendar
+    event_type: calendar.rescheduled
+  - type: hook
+    stream: calendar
+    event_type: calendar.modified
+  - type: cron
+    cron: "0 6-22/6 * * *"
+    timezone: America/Grenada
+
+timeout_seconds: 600
+
+steps:
+  - id: monitor
+    type: agent
+    agent_id: calendar-monitor
+    message: "Calendar event detected. Check for conflicts, cancellations, and changes."
+    on_failure: abort
+
+  - id: done
+    type: noop

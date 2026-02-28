@@ -1,0 +1,21 @@
+id: vision-pipeline
+name: Vision Pipeline
+description: Process unknown person detections from the vision system
+version: "2026-02-28"
+
+triggers:
+  - type: hook
+    stream: vision
+    event_type: vision.person_unknown
+
+timeout_seconds: 300
+
+steps:
+  - id: check
+    type: agent
+    agent_id: vision-monitor
+    message: "Unknown person detected. Check vision events and escalate if needed."
+    on_failure: abort
+
+  - id: done
+    type: noop

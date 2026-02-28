@@ -234,6 +234,105 @@ class TestChatClear:
         assert len(hist.json()["messages"]) == 0
 
 
+class TestToolEvents:
+    @pytest.mark.asyncio
+    async def test_sse_includes_tool_start_and_end(self, client, mock_runner):
+        """Verify tool_start and tool_end events appear in the SSE stream."""
+        run = AgentRun(
+            status=RunStatus.COMPLETED,
+            output_text="Found 3 tasks.",
+            trigger_type=TriggerType.WEBCHAT,
+            model_used="test-model",
+            input_tokens=100,
+            output_tokens=50,
+            duration_ms=500,
+        )
+
+        async def fake_execute(**kwargs):
+            on_content = kwargs.get("on_content")
+            on_tool = kwargs.get("on_tool")
+
+            # Simulate tool call
+            if on_tool:
+                await on_tool({
+                    "event": "tool_start",
+                    "tool": "list_tasks",
+                    "args": {"status": "TODO"},
+                    "call_id": "call_1",
+                })
+                await on_tool({
+                    "event": "tool_end",
+                    "tool": "list_tasks",
+                    "call_id": "call_1",
+                    "duration_ms": 42,
+                    "result_preview": "[]",
+                    "error": None,
+                })
+
+            # Simulate content
+            if on_content:
+                await on_content("Found 3 tasks.")
+
+            return run
+
+        mock_runner.execute = AsyncMock(side_effect=fake_execute)
+
+        res = await client.post(
+            "/chat/send",
+            json={"session_key": "tool:main:test", "message": "list tasks"},
+        )
+        assert res.status_code == 200
+
+        events = _parse_sse(res.text)
+
+        tool_start = [e for e in events if e["event"] == "tool_start"]
+        tool_end = [e for e in events if e["event"] == "tool_end"]
+        done = [e for e in events if e["event"] == "done"]
+
+        assert len(tool_start) == 1
+        assert tool_start[0]["data"]["tool"] == "list_tasks"
+        assert tool_start[0]["data"]["call_id"] == "call_1"
+
+        assert len(tool_end) == 1
+        assert tool_end[0]["data"]["duration_ms"] == 42
+
+        # Done event should include metadata
+        assert len(done) == 1
+        assert done[0]["data"]["model"] == "test-model"
+        assert done[0]["data"]["input_tokens"] == 100
+        assert done[0]["data"]["output_tokens"] == 50
+        assert done[0]["data"]["duration_ms"] == 500
+
+    @pytest.mark.asyncio
+    async def test_done_event_enriched_with_metadata(self, client, mock_runner):
+        """Done event includes model, tokens, and duration."""
+        run = AgentRun(
+            status=RunStatus.COMPLETED,
+            output_text="Hello!",
+            trigger_type=TriggerType.WEBCHAT,
+            model_used="openrouter/kimi/k2.5",
+            input_tokens=200,
+            output_tokens=100,
+            duration_ms=1234,
+        )
+
+        mock_runner.execute = AsyncMock(return_value=run)
+
+        res = await client.post(
+            "/chat/send",
+            json={"session_key": "meta:main:test", "message": "hi"},
+        )
+
+        events = _parse_sse(res.text)
+        done = [e for e in events if e["event"] == "done"]
+        assert len(done) == 1
+        data = done[0]["data"]
+        assert data["model"] == "openrouter/kimi/k2.5"
+        assert data["input_tokens"] == 200
+        assert data["output_tokens"] == 100
+        assert data["duration_ms"] == 1234
+
+
 class TestHistoryTrimming:
     @pytest.mark.asyncio
     async def test_max_history_cap(self, client, mock_runner):

@@ -24,11 +24,15 @@ schedule:
   session_target: isolated
 
 delivery:
-  mode: announce
-  channel: telegram
-  to: "7636850023"
+  mode: none
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
+  - get_entity
+  - store_memory
   - log_interaction
   - create_person
   - list_people
@@ -90,6 +94,8 @@ tags_produced: []
 tags_consumed: [email, reply-needed]
 
 changelog:
+  - date: "2026-02-28"
+    change: "CRITICAL FIX: Add exec, read_file, write_file, search_memory, get_entity, store_memory — agent was blind without file access. Delivery→none."
   - date: "2026-02-24"
     change: Add get_task for task detail fetches
   - date: "2026-02-24"

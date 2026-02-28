@@ -20,10 +20,10 @@ Every 15 min   │ Garmin health sync (crontab) — robothor.health.sync
 Every 30 min   │ Jira sync (crontab, 6-22h M-F) — brain/scripts/jira_sync.py
                │ Cron health check (crontab) — brain/scripts/cron_health_check.py
 
-Hourly         │ Email Classifier (Engine, every 2h 6-22, announce) — classify emails, route or escalate
-               │ Calendar Monitor (Engine, every 2h 6-22, announce) — detect conflicts, cancellations, changes
-               │ Supervisor Heartbeat (Engine, every 2h 6-22, → Telegram) — reads all status files, surfaces changes
-               │ Vision Monitor (Engine, hourly 24/7, silent) — check motion events, write status file
+Hourly         │ Email Classifier (Engine, 6h safety net 6-22, silent, primary: hook email.new) — classify emails, route or escalate
+               │ Calendar Monitor (Engine, 6h safety net 6-22, silent, primary: hook calendar.*) — detect conflicts, cancellations, changes
+               │ Supervisor Heartbeat (Engine, every 4h 6-22, → Telegram) — reads all status files, surfaces decisions
+               │ Vision Monitor (Engine, 6h safety net 6-22, silent, primary: hook vision.person_unknown) — check motion events, write status file
                │ Conversation Inbox Monitor (Engine, hourly 6-22, silent) — check urgent messages, write status file
                │ System health check (crontab) — brain/scripts/system_health_check.py
 :10            │ Triage cleanup (crontab) — brain/scripts/triage_cleanup.py
@@ -31,7 +31,7 @@ Hourly         │ Email Classifier (Engine, every 2h 6-22, announce) — classi
 :20            │ Email analysis cleanup (crontab) — clear stale response-analysis.json
 :25            │ Email response prep (crontab) — brain/scripts/email_response_prep.py
                │   Enrich queued emails with thread + contact + topic RAG + calendar + CRM history + depth tag
-:30            │ Email Analyst (Engine, every 2h 8-20, announce) — analyze analytical items
+:30            │ Email Analyst (Engine, 6h safety net 8-20, primary: downstream from classifier) — analyze analytical items
 :55            │ Triage prep (crontab) — brain/scripts/triage_prep.py
                │   Extract pending items + enrich with DB contact context (prepares for next hour)
 
@@ -52,7 +52,7 @@ Hourly         │ Email Classifier (Engine, every 2h 6-22, announce) — classi
 Every 4h 6-22  │ Task Cleanup (crontab) — brain/scripts/task_cleanup.py
                │   Delete test data, resolve past-date calendar tasks, reset stuck IN_PROGRESS, resolve orphan TODOs
 
-Every 4h 8-20  │ Email Responder (Engine, announce) — compose and send replies (substantive for analytical)
+Every 4h 8-20  │ Email Responder (Engine, silent) — compose and send replies (substantive for analytical)
 
 8, 14, 20      │ Conversation Resolver (Engine, silent) — auto-resolve stale conversations (>7d inactive)
 
@@ -155,45 +155,41 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 20 * * * * /home/philip/clawd/memory_system/venv/bin/python3 -c "import json,os; p=os.path.expanduser('~/clawd/memory/response-analysis.json'); open(p,'w').write(json.dumps({'analyses':{}}))" 2>/dev/null
 ```
 
-## OpenClaw Cron Jobs (runtime/cron/jobs.json)
+## Engine Agent Crons (APScheduler from `docs/agents/*.yaml`)
 
-| ID | Name | Schedule | Session | Delivery |
-|----|------|----------|---------|----------|
-| email-classifier-0001 | Email Classifier | 0 6-22/2 * * * | isolated | announce → telegram |
-| calendar-monitor-0001 | Calendar Monitor | 0 6-22/2 * * * | isolated | announce → telegram |
-| email-analyst-0001 | Email Analyst | 30 8-20/2 * * * | isolated | announce → telegram |
-| email-responder-0001 | Email Responder | 0 8-20/4 * * * | isolated | announce → telegram |
-| b7e3...0001 | Supervisor Heartbeat | 0 6-22/2 * * * | isolated | announce → telegram |
-| vision...0001 | Vision Monitor | 0 * * * * | isolated | none (silent) |
-| conversation-inbox-monitor-0001 | Conversation Inbox Monitor | 0 6-22 * * * | isolated | none (silent) |
-| conversation-resolver-0001 | Conversation Resolver | 0 8,14,20 * * * | isolated | none (silent) |
-| crm-steward-0001 | CRM Steward | 0 10 * * * | isolated | announce → telegram |
-| 282b...b829 | Morning Briefing | 30 6 * * * | isolated | announce → telegram |
-| 88db...dca0 | Evening Wind-Down | 0 21 * * * | isolated | announce → telegram |
+| Agent ID | Schedule | Model | Delivery | Primary Trigger |
+|----------|----------|-------|----------|----------------|
+| email-classifier | `0 6-22/6 * * *` | Kimi K2.5 | none (silent) | hook: email.new |
+| calendar-monitor | `0 6-22/6 * * *` | Kimi K2.5 | none (silent) | hook: calendar.* |
+| email-analyst | `30 8-20/6 * * *` | Kimi K2.5 | none (silent) | downstream from classifier |
+| email-responder | `0 8-20/4 * * *` | Sonnet 4.6 | none (silent) | downstream from classifier |
+| supervisor | `0 6-22/4 * * *` | Kimi K2.5 | announce → Telegram | cron |
+| vision-monitor | `0 6-22/6 * * *` | Kimi K2.5 | none (silent) | hook: vision.person_unknown |
+| conversation-inbox | `0 6-22 * * *` | Kimi K2.5 | none (silent) | cron |
+| conversation-resolver | `0 8,14,20 * * *` | Kimi K2.5 | none (silent) | cron |
+| crm-steward | `0 10 * * *` | Kimi K2.5 | none (silent) | cron |
+| morning-briefing | `30 6 * * *` | Kimi K2.5 | announce → Telegram | cron |
+| evening-winddown | `0 21 * * *` | Kimi K2.5 | announce → Telegram | cron |
 
-### Retired Jobs (disabled)
+## Engine Workflow Crons (APScheduler from `docs/workflows/*.yaml`)
 
-| ID | Name | Replaced By |
-|----|------|-------------|
-| a1b2...0001 | Triage Worker | Email Classifier + Calendar Monitor |
+| Workflow ID | Schedule | Steps | Primary Trigger |
+|-------------|----------|-------|----------------|
+| email-pipeline | `0 6-22/6 * * *` | classify → condition → analyze/respond | hook: email.new |
+| calendar-pipeline | `0 6-22/6 * * *` | monitor → done | hook: calendar.* |
 
-### One-Shot Jobs (deleteAfterRun)
-
-| Name | Scheduled | Status |
-|------|-----------|--------|
-| Reminder: Ask Dad to Feed the Eel | 2026-02-21 14:00 UTC | enabled |
-| Merrimack Loan Payment Reminder | 2026-03-02 14:00 UTC | disabled (moved to CRM tasks) |
-| Merrimack Follow-up Reminder | 2026-02-20 14:00 UTC | disabled (moved to CRM tasks) |
+`vision-pipeline` is hook-only (no cron).
 
 ## Notes
 
-- All OpenClaw crons use **Kimi K2.5** (via OpenRouter). Sonnet 4.6 is first fallback.
-- Pipeline agents use `delivery: announce` — output delivered to Telegram. Background agents (Vision, Conversation Inbox, Conversation Resolver) use `delivery: none` (agents still run, output just isn't delivered)
-- Supervisor runs every 2 hours and reads all worker status files + cron-health-status.md + worker-handoff.json
-- Workers output `HEARTBEAT_OK` when nothing to report (suppressed by framework)
-- Main session heartbeat has `activeHours: 06:00-22:00 AST` — no wakeups during quiet hours (10 PM - 6 AM)
-- Hook-based email pipeline is primary (~60s email-to-reply). Crons are hourly safety net.
-- Hourly email timeline: :10 cleanup → :20 analysis reset → :25 enrichment → :30 Analyst → :55 triage prep (Classifier/Responder on their own 2h/4h schedules)
+- All Engine agents use **Kimi K2.5** except Email Responder (**Sonnet 4.6**, quality-critical).
+- Only 3 agents talk to Philip: Supervisor (decisions), Morning Briefing (daily), Evening Wind-Down (daily). All worker agents are silent — they coordinate via tasks, status files, and notification inbox.
+- Supervisor runs every 4 hours and reads all worker status files. Biased toward silence — only speaks when Philip needs to make a decision.
+- Workers write status files and stop silently. HEARTBEAT_OK is supervisor-only.
+- Main session has `activeHours: 06:00-22:00 AST` — no wakeups during quiet hours (10 PM - 6 AM).
+- **Event-driven hooks are the primary trigger** for email, calendar, and vision agents. Crons are 6h safety nets.
+- **Declarative workflow engine** (`robothor/engine/workflow.py`) provides multi-step agent pipelines with conditional routing. Workflows are defined in `docs/workflows/*.yaml`.
+- Hourly email timeline: :10 cleanup → :20 analysis reset → :25 enrichment → :30 Analyst → :55 triage prep
 - Duplicate prevention: filter_already_replied() in response prep, actionCompletedAt guard in cleanup, 5-min cooldown in sync
 - Supervisor Relay is Python (not LLM) — handles meeting alerts and stale/CRM checks
 - CRM Steward spawns research sub-agents for contact enrichment (max 3 per run)
@@ -201,4 +197,4 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 
 ---
 
-**Updated:** 2026-02-27
+**Updated:** 2026-02-28

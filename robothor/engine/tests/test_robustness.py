@@ -120,4 +120,4 @@ class TestExpandedTriggers:
         from robothor.engine.hooks import EVENT_TRIGGERS
         assert "vision" in EVENT_TRIGGERS
         triggers = EVENT_TRIGGERS["vision"]
-        assert any(t["event_type"] == "vision.unknown_person" for t in triggers)
+        assert any(t["event_type"] == "vision.person_unknown" for t in triggers)

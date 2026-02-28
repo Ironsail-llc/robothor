@@ -29,6 +29,12 @@ delivery:
   to: "7636850023"
 
 tools_allowed:
+  - exec
+  - read_file
+  - write_file
+  - search_memory
+  - get_entity
+  - store_memory
   - list_conversations
 tools_denied:
   - message
@@ -54,6 +60,8 @@ shared_working_state: false
 warmup:
   memory_blocks:
     - user_profile
+  context_files:
+    - brain/memory/garmin-health.md
 
 instruction_file: null
 bootstrap_files:
@@ -64,6 +72,8 @@ tags_produced: []
 tags_consumed: []
 
 changelog:
+  - date: "2026-02-28"
+    change: "Wire garmin-health.md into warmup context_files (was missing despite changelog claim)"
   - date: "2026-02-27"
     change: "Add health stream (garmin-health.md) + health section in payload"
   - date: "2026-02-24"

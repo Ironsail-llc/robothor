@@ -39,6 +39,9 @@ class EngineConfig:
     manifest_dir: Path = field(
         default_factory=lambda: Path.home() / "robothor" / "docs" / "agents"
     )
+    workflow_dir: Path = field(
+        default_factory=lambda: Path.home() / "robothor" / "docs" / "workflows"
+    )
 
     # Scheduler
     max_concurrent_agents: int = 3
@@ -60,6 +63,9 @@ class EngineConfig:
             workspace=workspace,
             manifest_dir=Path(
                 os.environ.get("ROBOTHOR_MANIFEST_DIR", workspace / "docs" / "agents")
+            ),
+            workflow_dir=Path(
+                os.environ.get("ROBOTHOR_WORKFLOW_DIR", workspace / "docs" / "workflows")
             ),
             max_concurrent_agents=int(
                 os.environ.get("ROBOTHOR_MAX_CONCURRENT_AGENTS", "3")

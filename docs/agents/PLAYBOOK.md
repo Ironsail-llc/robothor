@@ -146,15 +146,15 @@ changelog:
 | ID | Dept | Model | Schedule | Delivery | max_iter | Instruction File |
 |----|------|-------|----------|----------|----------|-----------------|
 | main | core | Gemini Flash | *(interactive)* | none | 30 | SOUL.md |
-| email-classifier | email | Kimi K2.5 | `0 6-22/2 * * *` | announce | 10 | EMAIL_CLASSIFIER.md |
-| email-analyst | email | Kimi K2.5 | `30 8-20/2 * * *` | announce | 10 | EMAIL_ANALYST.md |
-| email-responder | email | Sonnet 4.6 | `0 8-20/4 * * *` | announce | 15 | RESPONDER.md |
-| calendar-monitor | calendar | Kimi K2.5 | `0 6-22/2 * * *` | announce | 8 | CALENDAR_MONITOR.md |
-| supervisor | operations | Kimi K2.5 | `0 6-22/2 * * *` | announce | 15 | HEARTBEAT.md |
-| vision-monitor | security | Kimi K2.5 | `0 * * * *` | none | 5 | *(payload-only)* |
-| conversation-inbox | communications | Kimi K2.5 | `0 6-22 * * *` | none | 5 | *(payload-only)* |
+| email-classifier | email | Kimi K2.5 | `0 6-22/6 * * *` | none | 10 | EMAIL_CLASSIFIER.md |
+| email-analyst | email | Kimi K2.5 | `30 8-20/6 * * *` | none | 10 | EMAIL_ANALYST.md |
+| email-responder | email | Sonnet 4.6 | `0 8-20/4 * * *` | none | 15 | RESPONDER.md |
+| calendar-monitor | calendar | Kimi K2.5 | `0 6-22/6 * * *` | none | 8 | CALENDAR_MONITOR.md |
+| supervisor | operations | Kimi K2.5 | `0 6-22/4 * * *` | announce | 15 | HEARTBEAT.md |
+| vision-monitor | security | Kimi K2.5 | `0 6-22/6 * * *` | none | 5 | *(payload-only)* |
+| conversation-inbox | communications | Kimi K2.5 | `0 6-22 * * *` | none | 5 | CONVERSATION_INBOX.md |
 | conversation-resolver | communications | Kimi K2.5 | `0 8,14,20 * * *` | none | 5 | CONVERSATION_RESOLVER.md |
-| crm-steward | crm | Kimi K2.5 | `0 10 * * *` | announce | 10 | CRM_STEWARD.md |
+| crm-steward | crm | Kimi K2.5 | `0 10 * * *` | none | 10 | CRM_STEWARD.md |
 | morning-briefing | briefings | Kimi K2.5 | `30 6 * * *` | announce | 10 | *(payload-only)* |
 | evening-winddown | briefings | Kimi K2.5 | `0 21 * * *` | announce | 10 | *(payload-only)* |
 
@@ -303,7 +303,7 @@ Policy changes do NOT auto-propagate. The AI decides which agents need updating.
 | Broken model tracking | Models returning 401/403/429 are removed from rotation for the rest of that run |
 | Max iterations (default) | 20 — override per-agent via `schedule.max_iterations` |
 | Max iterations (guideline) | 5 for simple checkers, 8-10 for processors, 15 for complex agents, 30 for interactive |
-| Output limit | <500 chars, emoji prefix, `HEARTBEAT_OK` if nothing to report |
+| Output limit | <500 chars, emoji prefix. Workers write status file and stop silently. HEARTBEAT_OK is supervisor-only. |
 | Credentials | NEVER hardcode. Env vars via SOPS → `/run/robothor/secrets.env`. |
 | Status files | MANDATORY every run. Supervisor considers >35min = stale. |
 | Bootstrap budget | 12,000 chars per file, 30,000 chars total |
@@ -332,6 +332,7 @@ Policy changes do NOT auto-propagate. The AI decides which agents need updating.
 | Stale status file | Agent errored mid-run, didn't reach status write | Check engine health for `last_status` truth |
 | UUID parse error | LLM passed non-UUID to personId/companyId | Bridge returns 422 — agent should retry |
 | Tool not available | Not in `tools_allowed` list | Add to manifest, restart engine |
+| Agent outputs nothing useful | Missing `exec`, `read_file`, `write_file` in tools_allowed | Every agent that reads files, runs CLI, or writes status MUST have these 3 tools |
 | 500 on task creation | Invalid field types (tags as string not array) | Check Bridge logs: `journalctl -u robothor-bridge` |
 
 ### Live State Checks
@@ -355,4 +356,67 @@ psql robothor_memory -c "SELECT agent_id, status, duration_ms, input_tokens, err
 
 ---
 
-Updated: 2026-02-27
+## 8. Declarative Workflow Engine
+
+Multi-step agent pipelines defined in YAML at `docs/workflows/*.yaml`. The engine (`robothor/engine/workflow.py`) executes workflows triggered by Redis Stream events or cron schedules.
+
+### Step types
+
+| Type | What it does |
+|------|-------------|
+| `agent` | Run an agent via `runner.execute()` — full tool access per agent's manifest |
+| `tool` | Call a tool directly (skip LLM) — args support `{{ }}` templates |
+| `condition` | Branch based on previous step output — Python expressions with `value` variable |
+| `transform` | Reshape data between steps |
+| `noop` | Explicit pipeline end marker |
+
+### Trigger types
+
+| Type | Example |
+|------|---------|
+| `hook` | `stream: email`, `event_type: email.new` — fires on Redis Stream event |
+| `cron` | `cron: "0 6-22/6 * * *"` — APScheduler, registered at startup |
+
+### Active workflows
+
+| ID | Steps | Triggers |
+|----|-------|----------|
+| `email-pipeline` | classify → condition → analyze/respond → done | hook email.new + 6h cron |
+| `calendar-pipeline` | monitor → done | hook calendar.* + 6h cron |
+| `vision-pipeline` | check → done | hook vision.person_unknown |
+
+### CLI
+
+```bash
+robothor engine workflow list    # Show loaded workflows
+robothor engine workflow run <id>  # Manual trigger
+```
+
+### API (port 18800)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/workflows` | GET | List workflow definitions |
+| `/api/workflows/{id}/runs` | GET | List runs for a workflow |
+| `/api/workflows/runs/{run_id}` | GET | Run detail with step results |
+| `/api/workflows/{id}/execute` | POST | Manual trigger |
+
+### DB tables
+
+`workflow_runs` and `workflow_run_steps` (migration 013). Per-step audit trail with agent_run_id FK for agent steps.
+
+---
+
+## 9. Lessons Learned
+
+| Lesson | Context |
+|--------|---------|
+| **Every agent needs `exec`, `read_file`, `write_file`** | `build_for_agent()` strictly filters — if tools_allowed is set, ONLY those tools appear. Without `read_file`, agents can't read data files. Without `exec`, they can't run `gog` CLI. |
+| **`read_file` uses workspace-relative paths** | Workspace is `~/robothor/`. Brain files are at `~/clawd/` but accessible via symlink at `brain/`. Instruction files should reference `brain/memory/triage-inbox.json`. |
+| **HEARTBEAT_OK is supervisor-only** | Workers write status files and stop silently. Cargo-culting HEARTBEAT_OK into worker instructions causes them to skip real work. |
+| **Event hooks are the primary trigger** | Crons are 6h safety nets. The fast path is: Python sync → Redis Stream → hook → agent (email: ~60s end-to-end). |
+| **Validate after every manifest change** | `python scripts/validate_agents.py --agent <id>` catches missing tools, broken file paths, invalid crons. |
+
+---
+
+Updated: 2026-02-28
