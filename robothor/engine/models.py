@@ -94,7 +94,6 @@ class HeartbeatConfig:
 
     # Budget overrides
     token_budget: int = 0
-    cost_budget_usd: float = 0.0
 
 
 @dataclass
@@ -171,7 +170,6 @@ class AgentConfig:
 
     error_feedback: bool = True
     token_budget: int = 0  # max tokens per run (0 = unlimited)
-    cost_budget_usd: float = 0.0  # max cost per run (0 = unlimited)
     planning_enabled: bool = False
     planning_model: str = ""  # separate cheap model for planning
     scratchpad_enabled: bool = False

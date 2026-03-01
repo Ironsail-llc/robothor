@@ -151,7 +151,6 @@ heartbeat:
   peer_agents: [email-classifier, email-responder, calendar-monitor]
   bootstrap_files: [brain/AGENTS.md, brain/TOOLS.md]
   token_budget: 200000
-  cost_budget_usd: 0.15
 
 v2:
   can_spawn_agents: true
