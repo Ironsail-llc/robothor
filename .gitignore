@@ -71,4 +71,5 @@ brain/memory/rlm-traces/
 
 # Runtime state (agent status files, analysis cache)
 status/
+!app/src/app/api/**/status/
 memory/response-analysis.json

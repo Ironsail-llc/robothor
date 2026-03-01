@@ -89,6 +89,7 @@ class AgentRunner:
         conversation_history: list[dict] | None = None,
         resume_from_run_id: str | None = None,
         spawn_context: SpawnContext | None = None,
+        readonly_mode: bool = False,
     ) -> AgentRun:
         """Execute an agent with the given message.
 
@@ -121,8 +122,23 @@ class AgentRunner:
         system_prompt = build_system_prompt(agent_config, self.config.workspace)
 
         # Get filtered tools for this agent
-        tool_schemas = self.registry.build_for_agent(agent_config)
-        tool_names = self.registry.get_tool_names(agent_config)
+        if readonly_mode:
+            # Plan mode: restrict to read-only tools, append plan instructions
+            tool_schemas = self.registry.build_readonly_for_agent(agent_config)
+            tool_names = self.registry.get_readonly_tool_names(agent_config)
+            system_prompt += (
+                "\n\n[PLAN MODE] You are in plan mode. You can explore and read "
+                "but CANNOT make changes. Use the available read-only tools to "
+                "research and gather information.\n\n"
+                "After researching, output a structured plan with:\n"
+                "1. Numbered steps describing each action you will take\n"
+                "2. Any risks or considerations\n"
+                "3. Expected outcome\n\n"
+                "End your plan with the marker [PLAN_READY] on its own line."
+            )
+        else:
+            tool_schemas = self.registry.build_for_agent(agent_config)
+            tool_names = self.registry.get_tool_names(agent_config)
 
         # Warmup: prepend context for scheduled/event/workflow triggers
         # Interactive (TELEGRAM) and SUB_AGENT runs skip warmup — they have
@@ -208,6 +224,9 @@ class AgentRunner:
         max_iterations = agent_config.max_iterations
         if route and route.max_iterations_override is not None:
             max_iterations = min(max_iterations, route.max_iterations_override)
+        # Cap exploration cost in plan mode
+        if readonly_mode:
+            max_iterations = min(max_iterations, 15)
 
         # ── [CHECKPOINT] Resume from checkpoint if requested ──
         resumed_scratchpad = None
