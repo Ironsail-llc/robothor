@@ -158,8 +158,7 @@ class AgentRunner:
         session.run.token_budget = agent_config.token_budget
 
         # Sub-agent: cascade parent's remaining token budget (child can never exceed parent)
-        if spawn_context:
-            if spawn_context.remaining_token_budget > 0:
+        if spawn_context and spawn_context.remaining_token_budget > 0:
                 if agent_config.token_budget > 0:
                     session.run.token_budget = min(
                         agent_config.token_budget, spawn_context.remaining_token_budget
