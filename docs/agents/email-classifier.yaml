@@ -84,6 +84,9 @@ hooks:
   - stream: email
     event_type: email.new
     message: "New email received. Process the triage inbox and classify emails."
+  - stream: email
+    event_type: triage.refreshed
+    message: "Triage inbox refreshed with new items. Process the triage inbox and classify emails."
 
 downstream_agents:
   - email-analyst
@@ -96,6 +99,8 @@ v2:
   token_budget: 200000
 
 changelog:
+  - date: "2026-03-01"
+    change: "Add triage.refreshed hook — classifier now fires on triage prep (not just email.new). Cron is 2h safety net."
   - date: "2026-02-28"
     change: "CRITICAL FIX: Add exec, read_file, write_file, search_memory, get_entity, store_memory — agent was blind without file access. Delivery→none."
   - date: "2026-02-27"

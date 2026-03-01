@@ -19,6 +19,10 @@ git clone https://github.com/Ironsail-llc/robothor.git
 cd robothor
 pip install -e ".[dev]"
 
+# Set up pre-commit hooks
+pip install pre-commit
+pre-commit install
+
 # Run tests
 pytest
 
@@ -26,6 +30,8 @@ pytest
 ruff check .
 mypy robothor/
 ```
+
+> **Pre-commit hooks** run gitleaks (secret scanning), ruff (lint + format), and agent manifest validation automatically on every commit. If a hook fails, fix the issue and re-commit.
 
 ### Full Stack (Docker)
 
@@ -104,7 +110,13 @@ pytest robothor/memory/tests/ -v
 2. **Write tests** for any new functionality
 3. **Run the test suite** and ensure it passes
 4. **Update documentation** if you changed APIs or behavior
-5. **Open a PR** with a clear description of changes
+5. **Open a PR** — the [PR template](.github/PULL_REQUEST_TEMPLATE.md) will guide you through the checklist
+
+All PRs are **squash-merged** into `main` to keep history clean. Write a clear PR title — it becomes the commit message.
+
+### AI-Generated PRs
+
+AI-generated contributions are welcome. We just ask that you check the "AI-assisted" box in the PR template and note which tool you used. This is informational, not a gate.
 
 ### PR Title Format
 
