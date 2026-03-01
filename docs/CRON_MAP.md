@@ -20,7 +20,7 @@ Every 15 min   │ Garmin health sync (crontab) — robothor.health.sync
 Every 30 min   │ Jira sync (crontab, 6-22h M-F) — brain/scripts/jira_sync.py
                │ Cron health check (crontab) — brain/scripts/cron_health_check.py
 
-Hourly         │ Email Classifier (Engine, 6h safety net 6-22, silent, primary: hook email.new) — classify emails, route or escalate
+Hourly         │ Email Classifier (Engine, 2h safety net 6-22, silent, primary: hook email.new + triage.refreshed) — classify emails, route or escalate
                │ Calendar Monitor (Engine, 6h safety net 6-22, silent, primary: hook calendar.*) — detect conflicts, cancellations, changes
                │ Main Heartbeat (Engine, every 4h 6-22, → Telegram) — reads all status files, surfaces decisions
                │ Vision Monitor (Engine, 6h safety net 6-22, silent, primary: hook vision.person_unknown) — check motion events, write status file
@@ -34,6 +34,7 @@ Hourly         │ Email Classifier (Engine, 6h safety net 6-22, silent, primary
 :30            │ Email Analyst (Engine, 6h safety net 8-20, primary: downstream from classifier) — analyze analytical items
 :55            │ Triage prep (crontab) — brain/scripts/triage_prep.py
                │   Extract pending items + enrich with DB contact context (prepares for next hour)
+               │   Publishes triage.refreshed event → triggers email-classifier via hook
 
 03:00 AM       │ Memory maintenance (crontab) — brain/memory_system/maintenance.sh
                │   TTL expiry, archival, stats
@@ -52,7 +53,7 @@ Hourly         │ Email Classifier (Engine, 6h safety net 6-22, silent, primary
 Every 4h 6-22  │ Task Cleanup (crontab) — brain/scripts/task_cleanup.py
                │   Delete test data, resolve past-date calendar tasks, reset stuck IN_PROGRESS, resolve orphan TODOs
 
-Every 4h 8-20  │ Email Responder (Engine, silent) — compose and send replies (substantive for analytical)
+Every 2h 8-20  │ Email Responder (Engine, silent) — compose and send replies (substantive for analytical)
 
 8, 14, 20      │ Conversation Resolver (Engine, silent) — auto-resolve stale conversations (>7d inactive)
 
@@ -159,10 +160,10 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 
 | Agent ID | Schedule | Model | Delivery | Primary Trigger |
 |----------|----------|-------|----------|----------------|
-| email-classifier | `0 6-22/6 * * *` | Kimi K2.5 | none (silent) | hook: email.new |
+| email-classifier | `0 6-22/2 * * *` | Kimi K2.5 | none (silent) | hook: email.new, triage.refreshed |
 | calendar-monitor | `0 6-22/6 * * *` | Kimi K2.5 | none (silent) | hook: calendar.* |
 | email-analyst | `30 8-20/6 * * *` | Kimi K2.5 | none (silent) | downstream from classifier |
-| email-responder | `0 8-20/4 * * *` | Sonnet 4.6 | none (silent) | downstream from classifier |
+| email-responder | `0 8-20/2 * * *` | Sonnet 4.6 | none (silent) | downstream from classifier |
 | main:heartbeat | `0 6-22/4 * * *` | Sonnet 4.6 | announce → Telegram | cron |
 | vision-monitor | `0 6-22/6 * * *` | Kimi K2.5 | none (silent) | hook: vision.person_unknown |
 | conversation-inbox | `0 6-22 * * *` | Kimi K2.5 | none (silent) | cron |
@@ -197,4 +198,4 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 
 ---
 
-**Updated:** 2026-02-28
+**Updated:** 2026-03-01
