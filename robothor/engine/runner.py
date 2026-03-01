@@ -154,18 +154,18 @@ class AgentRunner:
             conversation_history=conversation_history,
         )
 
-        # Copy budget config to run for persistence
-        session.run.token_budget = agent_config.token_budget
+        # Auto-derive token budget from model's context window × max iterations
+        from robothor.engine.model_registry import compute_token_budget
+
+        auto_budget = compute_token_budget(agent_config.model_primary, agent_config.max_iterations)
+        session.run.token_budget = auto_budget
 
         # Sub-agent: cascade parent's remaining token budget (child can never exceed parent)
         if spawn_context and spawn_context.remaining_token_budget > 0:
-                if agent_config.token_budget > 0:
-                    session.run.token_budget = min(
-                        agent_config.token_budget, spawn_context.remaining_token_budget
-                    )
-                else:
-                    session.run.token_budget = spawn_context.remaining_token_budget
-                agent_config.token_budget = session.run.token_budget
+            if auto_budget > 0:
+                session.run.token_budget = min(auto_budget, spawn_context.remaining_token_budget)
+            else:
+                session.run.token_budget = spawn_context.remaining_token_budget
 
         # Record run in database
         try:
@@ -311,7 +311,7 @@ class AgentRunner:
                 correlation_id=session.run.correlation_id or str(uuid.uuid4()),
                 nesting_depth=0,
                 max_nesting_depth=agent_config.max_nesting_depth,
-                remaining_token_budget=agent_config.token_budget,
+                remaining_token_budget=session.run.token_budget,
                 parent_trace_id=trace.trace_id if trace else "",
                 parent_span_id="",
             )
@@ -343,7 +343,7 @@ class AgentRunner:
 
         for _iteration in range(max_iterations):
             # ── [BUDGET] Check token/cost budget ──
-            budget_status = session.check_budget(agent_config.token_budget)
+            budget_status = session.check_budget(session.run.token_budget)
             if budget_status == "exhausted":
                 session.run.budget_exhausted = True
                 session.messages.append(

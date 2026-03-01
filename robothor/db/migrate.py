@@ -60,7 +60,9 @@ def _ensure_table(conn) -> None:
 def _applied(conn) -> dict[str, dict]:
     """Return {version: {filename, applied_at, checksum}} for all applied migrations."""
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT version, filename, applied_at, checksum FROM schema_migrations ORDER BY version")
+    cur.execute(
+        "SELECT version, filename, applied_at, checksum FROM schema_migrations ORDER BY version"
+    )
     return {r["version"]: dict(r) for r in cur.fetchall()}
 
 
@@ -77,19 +79,23 @@ def status(migrations_dir: Path | None = None) -> list[dict]:
         if version in applied:
             db_checksum = applied[version].get("checksum")
             drift = db_checksum and db_checksum != file_checksum
-            rows.append({
-                "version": version,
-                "filename": path.name,
-                "status": "DRIFT" if drift else "applied",
-                "applied_at": applied[version]["applied_at"],
-            })
+            rows.append(
+                {
+                    "version": version,
+                    "filename": path.name,
+                    "status": "DRIFT" if drift else "applied",
+                    "applied_at": applied[version]["applied_at"],
+                }
+            )
         else:
-            rows.append({
-                "version": version,
-                "filename": path.name,
-                "status": "pending",
-                "applied_at": None,
-            })
+            rows.append(
+                {
+                    "version": version,
+                    "filename": path.name,
+                    "status": "pending",
+                    "applied_at": None,
+                }
+            )
     return rows
 
 
