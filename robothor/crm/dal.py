@@ -2082,3 +2082,175 @@ def check_health() -> dict:
         cur.execute("SELECT COUNT(*) FROM crm_conversations")
         conv_count: int = cur.fetchone()[0]  # type: ignore[index]
         return {"status": "ok", "people": people_count, "conversations": conv_count}
+
+
+# ─── Contact Resolution ──────────────────────────────────────────────────
+
+
+def resolve_contact(
+    channel: str,
+    identifier: str,
+    name: str | None = None,
+    tenant_id: str = DEFAULT_TENANT,
+) -> dict:
+    """Resolve a channel identifier to a person_id. Creates person if needed.
+
+    Upserts into ``contact_identifiers`` and returns the resolved row.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Check existing mapping
+        cur.execute(
+            "SELECT * FROM contact_identifiers WHERE channel = %s AND identifier = %s",
+            (channel, identifier),
+        )
+        existing = cur.fetchone()
+
+        person_id = None
+        display = name or (existing["display_name"] if existing else identifier)
+
+        if existing:
+            person_id = existing.get("person_id")
+
+        # If no person_id, search or create
+        if not person_id:
+            search_term = name or identifier
+            people = search_people(search_term, tenant_id=tenant_id)
+            if people:
+                person_id = people[0]["id"]
+            elif name:
+                parts = name.split(None, 1)
+                first = parts[0]
+                last = parts[1] if len(parts) > 1 else ""
+                email = identifier if channel == "email" else None
+                phone = identifier if channel in ("voice", "sms") else None
+                person_id = create_person(first, last, email=email, phone=phone, tenant_id=tenant_id)
+
+        # Upsert the mapping
+        cur.execute(
+            """
+            INSERT INTO contact_identifiers (channel, identifier, display_name, person_id)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (channel, identifier) DO UPDATE SET
+                display_name = COALESCE(EXCLUDED.display_name, contact_identifiers.display_name),
+                person_id = COALESCE(EXCLUDED.person_id, contact_identifiers.person_id),
+                updated_at = NOW()
+            RETURNING *
+            """,
+            (channel, identifier, display, person_id),
+        )
+        result = cur.fetchone()
+        conn.commit()
+
+        _safe_audit(
+            "resolve",
+            "contact",
+            str(person_id) if person_id else None,
+            details={
+                "channel": channel,
+                "identifier": identifier,
+                "name": name,
+                "person_id": str(person_id) if person_id else None,
+                "existed": existing is not None,
+            },
+        )
+
+        return dict(result) if result else {}
+
+
+def get_conversations_for_contact(
+    person_id: str, tenant_id: str = DEFAULT_TENANT
+) -> list[dict]:
+    """Get all conversations for a person, newest first."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            """
+            SELECT * FROM crm_conversations
+            WHERE person_id = %s AND tenant_id = %s
+            ORDER BY last_activity_at DESC NULLS LAST
+            """,
+            (person_id, tenant_id),
+        )
+        return [conversation_to_dict(r) for r in cur.fetchall()]
+
+
+def create_conversation(
+    person_id: str,
+    inbox_name: str = "Robothor Bridge",
+    tenant_id: str = DEFAULT_TENANT,
+) -> dict | None:
+    """Create a new conversation for a person."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute(
+                """
+                INSERT INTO crm_conversations (person_id, status, inbox_name, last_activity_at, tenant_id)
+                VALUES (%s, 'open', %s, NOW(), %s)
+                RETURNING *
+                """,
+                (person_id, inbox_name, tenant_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            if row:
+                _safe_audit(
+                    "create",
+                    "conversation",
+                    str(row["id"]),
+                    details={"person_id": person_id, "inbox_name": inbox_name},
+                )
+            return conversation_to_dict(row) if row else None
+        except Exception as e:
+            conn.rollback()
+            logger.error("Failed to create conversation: %s", e)
+            return None
+
+
+def get_timeline(
+    identifier: str, tenant_id: str = DEFAULT_TENANT
+) -> dict:
+    """Get unified timeline for a contact across CRM data.
+
+    Looks up a contact by identifier (email, phone, name), then gathers
+    their person record and conversation history.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Find all identifiers for this person
+        cur.execute(
+            "SELECT * FROM contact_identifiers WHERE identifier = %s OR display_name ILIKE %s",
+            (identifier, f"%{identifier}%"),
+        )
+        mappings = cur.fetchall()
+
+        timeline: dict[str, Any] = {
+            "identifier": identifier,
+            "mappings": [dict(m) for m in mappings],
+            "conversations": [],
+        }
+
+        if not mappings:
+            return timeline
+
+        # Get person data
+        for m in mappings:
+            pid = m.get("person_id")
+            if pid:
+                person = get_person(str(pid), tenant_id=tenant_id)
+                if person:
+                    timeline["person"] = person
+                    break
+
+        # Get conversations
+        for m in mappings:
+            pid = m.get("person_id")
+            if pid:
+                convos = get_conversations_for_contact(str(pid), tenant_id=tenant_id)
+                timeline["conversations"] = convos
+                break
+
+        return timeline

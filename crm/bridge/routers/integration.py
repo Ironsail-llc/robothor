@@ -35,9 +35,8 @@ async def resolve_contact(body: ResolveContactRequest):
     if not body.channel or not body.identifier:
         return JSONResponse({"error": "channel and identifier required"}, status_code=400)
 
-    # Import DAL functions that handle resolution
-    import crm_dal
-    result = crm_dal.resolve_contact(body.channel, body.identifier, body.name)
+    from robothor.crm.dal import resolve_contact as _resolve
+    result = _resolve(body.channel, body.identifier, body.name)
     for k, v in result.items():
         if hasattr(v, "isoformat"):
             result[k] = v.isoformat()
@@ -46,8 +45,8 @@ async def resolve_contact(body: ResolveContactRequest):
 
 @router.get("/timeline/{identifier}")
 async def timeline(identifier: str):
-    import crm_dal
-    return crm_dal.get_timeline(identifier)
+    from robothor.crm.dal import get_timeline
+    return get_timeline(identifier)
 
 
 # ─── Webhooks ────────────────────────────────────────────────────────────
@@ -55,19 +54,24 @@ async def timeline(identifier: str):
 
 @router.post("/log-interaction")
 async def log_interaction(body: LogInteractionRequest):
-    import crm_dal
+    from robothor.crm.dal import (
+        create_conversation,
+        get_conversations_for_contact,
+        resolve_contact as _resolve,
+        send_message,
+    )
     channel_id = body.channel_identifier or body.contact_name
-    resolved = crm_dal.resolve_contact(body.channel, channel_id, body.contact_name)
+    resolved = _resolve(body.channel, channel_id, body.contact_name)
     person_id = resolved.get("person_id")
     if person_id and body.content_summary:
-        convos = crm_dal.get_conversations_for_contact(str(person_id))
+        convos = get_conversations_for_contact(str(person_id))
         convo_id = convos[0].get("id") if convos else None
         if not convo_id:
-            convo = crm_dal.create_conversation(str(person_id))
+            convo = create_conversation(str(person_id))
             convo_id = convo.get("id") if convo else None
         if convo_id:
             msg_type = "incoming" if body.direction == "incoming" else "outgoing"
-            crm_dal.send_message(convo_id, body.content_summary, msg_type)
+            send_message(convo_id, body.content_summary, msg_type)
 
     log_event(
         "ipc.interaction", f"log_interaction: {body.contact_name} via {body.channel}",

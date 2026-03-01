@@ -1,0 +1,6 @@
+# Default: Philip reviews everything
+* @Ironsail-Philip
+
+# CRM subsystem: Adan as secondary reviewer
+/crm/ @Ironsail-Philip @adan-ironsail
+/robothor/crm/ @Ironsail-Philip @adan-ironsail
