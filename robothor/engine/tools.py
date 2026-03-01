@@ -1825,7 +1825,7 @@ async def _handle_spawn_agents(
     failed = 0
 
     for i, r in enumerate(raw_results):
-        if isinstance(r, Exception):
+        if isinstance(r, BaseException):
             failed += 1
             results.append(
                 {
@@ -1839,7 +1839,10 @@ async def _handle_spawn_agents(
             results.append(r)
         else:
             completed += 1
-            results.append(r)
+            if isinstance(r, dict):
+                results.append(r)
+            else:
+                results.append({"status": "completed", "result": str(r)})
 
     return {
         "results": results,
