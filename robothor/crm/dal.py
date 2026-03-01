@@ -2125,7 +2125,9 @@ def resolve_contact(
                 last = parts[1] if len(parts) > 1 else ""
                 email = identifier if channel == "email" else None
                 phone = identifier if channel in ("voice", "sms") else None
-                person_id = create_person(first, last, email=email, phone=phone, tenant_id=tenant_id)
+                person_id = create_person(
+                    first, last, email=email, phone=phone, tenant_id=tenant_id
+                )
 
         # Upsert the mapping
         cur.execute(
@@ -2159,9 +2161,7 @@ def resolve_contact(
         return dict(result) if result else {}
 
 
-def get_conversations_for_contact(
-    person_id: str, tenant_id: str = DEFAULT_TENANT
-) -> list[dict]:
+def get_conversations_for_contact(person_id: str, tenant_id: str = DEFAULT_TENANT) -> list[dict]:
     """Get all conversations for a person, newest first."""
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -2209,9 +2209,7 @@ def create_conversation(
             return None
 
 
-def get_timeline(
-    identifier: str, tenant_id: str = DEFAULT_TENANT
-) -> dict:
+def get_timeline(identifier: str, tenant_id: str = DEFAULT_TENANT) -> dict:
     """Get unified timeline for a contact across CRM data.
 
     Looks up a contact by identifier (email, phone, name), then gathers

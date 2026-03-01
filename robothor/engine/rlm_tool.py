@@ -119,8 +119,7 @@ def _make_read_file_fn(workspace: str):
             text = p.read_text()
             if len(text) > _READ_FILE_LIMIT:
                 text = (
-                    text[:_READ_FILE_LIMIT]
-                    + f"\n\n... [truncated at {_READ_FILE_LIMIT // 1000}KB,"
+                    text[:_READ_FILE_LIMIT] + f"\n\n... [truncated at {_READ_FILE_LIMIT // 1000}KB,"
                     f" full file is {len(text)} chars]"
                 )
             return text
@@ -175,7 +174,9 @@ def _load_context_source(src: dict[str, Any], workspace: str) -> str | None:
         try:
             text = p.read_text()
             if len(text) > _READ_FILE_LIMIT:
-                text = text[:_READ_FILE_LIMIT] + f"\n... [truncated at {_READ_FILE_LIMIT // 1000}KB]"
+                text = (
+                    text[:_READ_FILE_LIMIT] + f"\n... [truncated at {_READ_FILE_LIMIT // 1000}KB]"
+                )
             return f"## File: {path}\n\n{text}"
         except Exception as e:
             logger.warning("Failed to load file context %s: %s", path, e)

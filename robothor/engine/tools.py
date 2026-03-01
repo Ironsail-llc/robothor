@@ -33,6 +33,7 @@ def _cfg():
 
     return get_config()
 
+
 # Impetus One tools — routed via Bridge MCP passthrough
 IMPETUS_TOOLS = frozenset(
     {
