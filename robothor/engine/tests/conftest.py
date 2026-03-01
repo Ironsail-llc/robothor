@@ -9,7 +9,6 @@ Follows brain/memory_system/conftest.py patterns:
 
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -22,10 +21,7 @@ from robothor.engine.models import (
 )
 
 
-@pytest.fixture
-def test_prefix():
-    """Unique prefix for test isolation."""
-    return f"test_{uuid.uuid4().hex[:8]}"
+# test_prefix is inherited from the root conftest.py
 
 
 @pytest.fixture

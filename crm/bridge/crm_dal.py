@@ -1,10 +1,13 @@
 """
-CRM Data Access Layer — Direct PostgreSQL access for all CRM operations.
+CRM Data Access Layer — DEPRECATED.
 
-All CRM operations via SQL against crm_* tables in robothor_memory.
-Response formats are used by bridge_service.py, mcp_server.py, and crm_fetcher.py.
+This module is superseded by ``robothor.crm.dal`` (the canonical DAL).
+Bridge routers now import from the canonical DAL for contact resolution,
+timelines, and conversation helpers.  This file is kept temporarily for
+bridge-internal tests that still patch ``crm_dal.*``.
 
-Uses psycopg2 + RealDictCursor, matching existing codebase patterns.
+TODO: Remove this file once all bridge tests are migrated to use the
+canonical DAL directly.
 """
 
 import json
