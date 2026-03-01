@@ -238,6 +238,26 @@ class TestChatClear:
         assert len(hist.json()["messages"]) == 0
 
 
+class TestCrosChannelLock:
+    @pytest.mark.asyncio
+    async def test_helm_returns_409_when_session_lock_held_externally(self, client, mock_runner):
+        """Simulates Telegram holding the lock — Helm should return 409."""
+        from robothor.engine.chat import _get_session
+
+        session = _get_session("locked:main:test")
+        # Simulate Telegram holding the lock
+        await session.lock.acquire()
+        try:
+            res = await client.post(
+                "/chat/send",
+                json={"session_key": "locked:main:test", "message": "should fail"},
+            )
+            assert res.status_code == 409
+            assert "busy" in res.json()["error"].lower()
+        finally:
+            session.lock.release()
+
+
 class TestToolEvents:
     @pytest.mark.asyncio
     async def test_sse_includes_tool_start_and_end(self, client, mock_runner):

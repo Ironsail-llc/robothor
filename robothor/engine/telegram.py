@@ -376,85 +376,92 @@ class TelegramBot:
             session_key = self._session_key(chat_id)
             session = get_shared_session(session_key)
 
-            # Wait if the shared session is busy (e.g. Helm webchat is active)
-            if session.lock.locked():
-                with contextlib.suppress(Exception):
-                    await self.bot.edit_message_text(
-                        chat_id=int(chat_id),
-                        message_id=stream_msg_id,
-                        text="One moment \u2014 finishing up in the Helm...",
-                        parse_mode=None,
-                    )
-                await session.lock.acquire()
-                session.lock.release()
-
-            history = list(session.history)
-
             async def run_agent() -> None:
                 nonlocal stream_msg_id
                 try:
-                    run = await self.runner.execute(
-                        agent_id=self.config.default_chat_agent,
-                        message=user_text,
-                        trigger_type=TriggerType.TELEGRAM,
-                        trigger_detail=f"chat:{chat_id}",
-                        on_content=on_content,
-                        model_override=model,
-                        conversation_history=history or None,
-                    )
-
-                    # Save conversation history to shared session
-                    if run.output_text:
-                        session.history.append({"role": "user", "content": user_text})
-                        session.history.append({"role": "assistant", "content": run.output_text})
-                        # Trim from front
-                        if len(session.history) > self._max_history:
-                            session.history[:] = session.history[-self._max_history :]
-
-                        # Persist to DB (fire-and-forget)
-                        asyncio.create_task(
-                            save_exchange_async(
-                                session_key,
-                                user_text,
-                                run.output_text,
-                                channel="telegram",
-                                model_override=model,
-                                tenant_id=self.config.tenant_id,
-                            )
-                        )
-
-                    if run.output_text:
-                        if stream_msg_id is not None:
-                            await self._edit_final(chat_id, stream_msg_id, run.output_text)
-                        else:
-                            await self.send_message(chat_id, run.output_text)
-                    elif run.error_message:
-                        err = f"Error: {run.error_message}"
-                        if stream_msg_id is not None:
-                            await self._edit_final(chat_id, stream_msg_id, err)
-                        else:
-                            await self.send_message(chat_id, err)
-                    else:
-                        if stream_msg_id is not None:
-                            await self._edit_final(
-                                chat_id, stream_msg_id, "Done. No output produced."
-                            )
-                        else:
-                            await self.send_message(chat_id, "Done. No output produced.")
-
-                except asyncio.CancelledError:
-                    # /stop was called
-                    if stream_msg_id is not None:
+                    # UX hint before blocking on lock
+                    if session.lock.locked():
                         with contextlib.suppress(Exception):
                             await self.bot.edit_message_text(
                                 chat_id=int(chat_id),
                                 message_id=stream_msg_id,
-                                text="Stopped.",
+                                text="One moment \u2014 finishing up in the Helm...",
                                 parse_mode=None,
                             )
-                except Exception as e:
-                    logger.error("Failed to process message: %s", e, exc_info=True)
-                    await self.send_message(chat_id, f"Internal error: {html.escape(str(e))}")
+
+                    async with session.lock:
+                        history = list(session.history)
+                        try:
+                            run = await self.runner.execute(
+                                agent_id=self.config.default_chat_agent,
+                                message=user_text,
+                                trigger_type=TriggerType.TELEGRAM,
+                                trigger_detail=f"chat:{chat_id}",
+                                on_content=on_content,
+                                model_override=model,
+                                conversation_history=history or None,
+                            )
+
+                            # Save conversation history to shared session
+                            if run.output_text:
+                                session.history.append({"role": "user", "content": user_text})
+                                session.history.append(
+                                    {"role": "assistant", "content": run.output_text}
+                                )
+                                # Trim from front
+                                if len(session.history) > self._max_history:
+                                    session.history[:] = session.history[-self._max_history :]
+
+                                # Persist to DB (fire-and-forget)
+                                asyncio.create_task(
+                                    save_exchange_async(
+                                        session_key,
+                                        user_text,
+                                        run.output_text,
+                                        channel="telegram",
+                                        model_override=model,
+                                        tenant_id=self.config.tenant_id,
+                                    )
+                                )
+
+                            if run.output_text:
+                                if stream_msg_id is not None:
+                                    await self._edit_final(chat_id, stream_msg_id, run.output_text)
+                                else:
+                                    await self.send_message(chat_id, run.output_text)
+                            elif run.error_message:
+                                err = f"Error: {run.error_message}"
+                                if stream_msg_id is not None:
+                                    await self._edit_final(chat_id, stream_msg_id, err)
+                                else:
+                                    await self.send_message(chat_id, err)
+                            else:
+                                if stream_msg_id is not None:
+                                    await self._edit_final(
+                                        chat_id,
+                                        stream_msg_id,
+                                        "Done. No output produced.",
+                                    )
+                                else:
+                                    await self.send_message(chat_id, "Done. No output produced.")
+
+                        except asyncio.CancelledError:
+                            # /stop was called during execution
+                            if stream_msg_id is not None:
+                                with contextlib.suppress(Exception):
+                                    await self.bot.edit_message_text(
+                                        chat_id=int(chat_id),
+                                        message_id=stream_msg_id,
+                                        text="Stopped.",
+                                        parse_mode=None,
+                                    )
+                        except Exception as e:
+                            logger.error("Failed to process message: %s", e, exc_info=True)
+                            await self.send_message(
+                                chat_id, f"Internal error: {html.escape(str(e))}"
+                            )
+                except asyncio.CancelledError:
+                    pass  # cancelled while waiting for lock
                 finally:
                     nonlocal typing_active
                     typing_active = False
