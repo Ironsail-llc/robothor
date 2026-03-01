@@ -14,7 +14,7 @@ from robothor.engine.config import (
     load_manifest,
     manifest_to_agent_config,
 )
-from robothor.engine.models import AgentConfig, AgentHook, DeliveryMode
+from robothor.engine.models import AgentConfig, AgentHook, DeliveryMode, HeartbeatConfig
 
 
 class TestEngineConfig:
@@ -199,6 +199,85 @@ class TestManifestToAgentConfig:
         """No hooks field produces empty hooks field."""
         config = manifest_to_agent_config({"id": "bare"})
         assert config.hooks == []
+
+    def test_heartbeat_parsed_from_manifest(self):
+        """Heartbeat section creates HeartbeatConfig on AgentConfig."""
+        manifest = {
+            "id": "main",
+            "name": "Robothor",
+            "schedule": {"timezone": "America/New_York"},
+            "heartbeat": {
+                "cron": "0 6-22/4 * * *",
+                "instruction_file": "brain/HEARTBEAT.md",
+                "session_target": "isolated",
+                "max_iterations": 15,
+                "timeout_seconds": 600,
+                "delivery": {
+                    "mode": "announce",
+                    "channel": "telegram",
+                    "to": "7636850023",
+                },
+                "context_files": ["brain/memory/status.md"],
+                "peer_agents": ["email-classifier"],
+                "bootstrap_files": ["brain/AGENTS.md"],
+                "token_budget": 200000,
+                "cost_budget_usd": 0.15,
+            },
+        }
+        config = manifest_to_agent_config(manifest)
+        assert config.heartbeat is not None
+        assert isinstance(config.heartbeat, HeartbeatConfig)
+        assert config.heartbeat.cron_expr == "0 6-22/4 * * *"
+        assert config.heartbeat.instruction_file == "brain/HEARTBEAT.md"
+        assert config.heartbeat.session_target == "isolated"
+        assert config.heartbeat.max_iterations == 15
+        assert config.heartbeat.timeout_seconds == 600
+        assert config.heartbeat.delivery_mode == DeliveryMode.ANNOUNCE
+        assert config.heartbeat.delivery_channel == "telegram"
+        assert config.heartbeat.delivery_to == "7636850023"
+        assert config.heartbeat.warmup_context_files == ["brain/memory/status.md"]
+        assert config.heartbeat.warmup_peer_agents == ["email-classifier"]
+        assert config.heartbeat.bootstrap_files == ["brain/AGENTS.md"]
+        assert config.heartbeat.token_budget == 200000
+        assert config.heartbeat.cost_budget_usd == 0.15
+
+    def test_heartbeat_missing_is_none(self):
+        """No heartbeat key → None."""
+        config = manifest_to_agent_config({"id": "bare"})
+        assert config.heartbeat is None
+
+    def test_heartbeat_without_cron_is_none(self):
+        """Heartbeat without cron → None."""
+        manifest = {
+            "id": "test",
+            "heartbeat": {
+                "instruction_file": "brain/HEARTBEAT.md",
+            },
+        }
+        config = manifest_to_agent_config(manifest)
+        assert config.heartbeat is None
+
+    def test_heartbeat_inherits_timezone(self):
+        """Heartbeat inherits timezone from schedule when not specified."""
+        manifest = {
+            "id": "test",
+            "schedule": {"timezone": "US/Eastern"},
+            "heartbeat": {"cron": "0 * * * *"},
+        }
+        config = manifest_to_agent_config(manifest)
+        assert config.heartbeat is not None
+        assert config.heartbeat.timezone == "US/Eastern"
+
+    def test_heartbeat_overrides_timezone(self):
+        """Heartbeat can override timezone from schedule."""
+        manifest = {
+            "id": "test",
+            "schedule": {"timezone": "US/Eastern"},
+            "heartbeat": {"cron": "0 * * * *", "timezone": "UTC"},
+        }
+        config = manifest_to_agent_config(manifest)
+        assert config.heartbeat is not None
+        assert config.heartbeat.timezone == "UTC"
 
 
 class TestLoadAgentConfig:

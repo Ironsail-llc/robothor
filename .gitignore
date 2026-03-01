@@ -65,3 +65,10 @@ coverage.xml
 secrets.json
 secrets.enc.json
 credentials.json
+
+# RLM trajectory logs
+brain/memory/rlm-traces/
+
+# Runtime state (agent status files, analysis cache)
+status/
+memory/response-analysis.json

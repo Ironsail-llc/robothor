@@ -244,7 +244,7 @@ async def api_update_task(
         if body.status and body.status.upper() == "REVIEW" and x_agent_id:
             send_notification(
                 from_agent=x_agent_id,
-                to_agent="supervisor",
+                to_agent="main",
                 notification_type="review_requested",
                 subject=f"Review requested: {task_id}",
                 task_id=task_id,

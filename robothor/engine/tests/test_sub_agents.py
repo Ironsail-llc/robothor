@@ -88,7 +88,7 @@ def _make_completed_run(agent_id: str = "email-classifier", **kwargs) -> AgentRu
         "duration_ms": 3000,
     }
     defaults.update(kwargs)
-    return AgentRun(**defaults)
+    return AgentRun(**defaults)  # type: ignore[arg-type]
 
 
 # ─── Tool Handler Tests (mock runner.execute, no DB) ──────────────────

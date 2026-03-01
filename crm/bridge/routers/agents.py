@@ -1,8 +1,11 @@
-"""Agent status routes — health tiers and cron job monitoring."""
+"""Agent status routes — health tiers from the Python Agent Engine.
+
+Reads schedule state from the ``agent_schedules`` PostgreSQL table
+(written by ``robothor.engine.scheduler``) and status markdown files.
+"""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -19,26 +22,17 @@ router = APIRouter(prefix="/api", tags=["agents"])
 _cache: dict = {"data": None, "expires": 0.0}
 CACHE_TTL = 30
 
-# Paths (overridable via env for testability)
-JOBS_JSON_PATH = os.getenv(
-    "OPENCLAW_JOBS_JSON",
-    os.path.expanduser("~/.openclaw/cron/jobs.json"),
-)
+# Agent status markdown files
 STATUS_DIR = os.getenv(
     "AGENT_STATUS_DIR",
     os.path.expanduser("~/clawd/memory"),
 )
 
-# Schedule-aware thresholds (seconds): yellow at 1.5x, red at 2x
-SCHEDULE_INTERVALS: dict[str, int] = {
-    "*/10": 600,
-    "*/15": 900,
-    "*/17": 1020,
-    "*/30": 1800,
-    "0": 3600,      # hourly
-    "30": 3600,      # hourly at :30
-    "45": 3600,      # hourly at :45
-}
+# Manifest directory for display names
+MANIFEST_DIR = os.getenv(
+    "AGENT_MANIFEST_DIR",
+    os.path.expanduser("~/robothor/docs/agents"),
+)
 
 
 def _parse_interval_seconds(cron_expr: str) -> int:
@@ -128,74 +122,120 @@ def _read_status_file(name: str) -> str | None:
     try:
         if status_file.exists():
             content = status_file.read_text(encoding="utf-8").strip()
-            # Return first 200 chars as summary
             return content[:200] if content else None
     except Exception as e:
         logger.debug("Failed to read status file %s: %s", status_file, e)
     return None
 
 
+def _load_display_names() -> dict[str, str]:
+    """Load agent display names from YAML manifests."""
+    names: dict[str, str] = {}
+    manifest_dir = Path(MANIFEST_DIR)
+    if not manifest_dir.is_dir():
+        return names
+    try:
+        import yaml
+
+        for f in manifest_dir.glob("*.yaml"):
+            if f.name == "schema.yaml":
+                continue
+            try:
+                data = yaml.safe_load(f.read_text())
+                if data and "id" in data and "name" in data:
+                    names[data["id"]] = data["name"]
+            except Exception:
+                pass
+    except ImportError:
+        logger.debug("PyYAML not available, using agent_id as display name")
+    return names
+
+
 def _build_agent_status() -> dict:
-    """Build agent status from jobs.json and status files."""
+    """Build agent status from the engine's agent_schedules table and status files."""
     agents: list[dict] = []
     summary = {"healthy": 0, "degraded": 0, "failed": 0, "unknown": 0, "total": 0}
 
-    # Read jobs.json
-    jobs: list[dict] = []
+    # Load display names from manifests
+    display_names = _load_display_names()
+
+    # Read schedules from PostgreSQL
+    schedules: list[dict] = []
     try:
-        jobs_path = Path(JOBS_JSON_PATH)
-        if jobs_path.exists():
-            with open(jobs_path) as f:
-                data = json.load(f)
-                jobs = data if isinstance(data, list) else data.get("jobs", [])
+        from robothor.engine.tracking import list_schedules
+
+        schedules = list_schedules(enabled_only=False)
     except Exception as e:
-        logger.warning("Failed to read jobs.json: %s", e)
+        logger.warning("Failed to read agent_schedules: %s", e)
 
-    for job in jobs:
-        name = job.get("name", "unknown")
-        schedule_raw = job.get("schedule", "")
-        enabled = job.get("enabled", True)
+    # Also get recent run counts for health tier (need >= 3 runs)
+    run_counts: dict[str, int] = {}
+    try:
+        from robothor.db.connection import get_connection
+        from psycopg2.extras import RealDictCursor
 
-        # Schedule can be a dict {"kind":"cron","expr":"..."} or a string
-        if isinstance(schedule_raw, dict):
-            cron_expr = schedule_raw.get("expr", "")
-            schedule_display = cron_expr
-        else:
-            cron_expr = str(schedule_raw)
-            schedule_display = cron_expr
+        with get_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                "SELECT agent_id, COUNT(*) as cnt "
+                "FROM agent_runs "
+                "WHERE created_at > NOW() - INTERVAL '7 days' "
+                "GROUP BY agent_id"
+            )
+            for row in cur.fetchall():
+                run_counts[row["agent_id"]] = row["cnt"]
+    except Exception as e:
+        logger.debug("Failed to get run counts: %s", e)
+
+    for schedule in schedules:
+        agent_id = schedule["agent_id"]
+        cron_expr = schedule.get("cron_expr", "")
+        enabled = schedule.get("enabled", True)
+
+        # Skip the interactive "main" agent (no cron schedule)
+        if not cron_expr:
+            continue
 
         interval_s = _parse_interval_seconds(cron_expr)
 
-        # State is nested under "state" key
-        state = job.get("state", {})
-        last_run_ms = state.get("lastRunAtMs")
-        last_run_ts = None
-        last_run_str = None
-        if last_run_ms:
-            last_run_ts = last_run_ms / 1000.0
-            last_run_str = datetime.fromtimestamp(last_run_ts, tz=timezone.utc).isoformat()
+        # Get last run timestamp
+        last_run_at = schedule.get("last_run_at")
+        last_run_ts: float | None = None
+        last_run_str: str | None = None
+        if last_run_at:
+            if isinstance(last_run_at, datetime):
+                last_run_ts = last_run_at.timestamp()
+                last_run_str = last_run_at.astimezone(timezone.utc).isoformat()
+            else:
+                # Already a string
+                last_run_str = str(last_run_at)
 
-        last_duration = state.get("lastDurationMs")
-        consecutive_errors = state.get("consecutiveErrors", 0)
-        run_count = 10  # assume sufficient runs if not tracked
+        last_duration = schedule.get("last_duration_ms")
+        consecutive_errors = schedule.get("consecutive_errors", 0) or 0
+        run_count = run_counts.get(agent_id, 10)  # default high if not found
 
         tier = _compute_health_tier(last_run_ts, interval_s, consecutive_errors, enabled, run_count)
         summary[tier] = summary.get(tier, 0) + 1
         summary["total"] += 1
 
-        # Read status file for summary text (use slug from job name)
-        name_slug = name.lower().replace(" ", "-")
-        status_summary = _read_status_file(name_slug)
+        # Get display name from manifest, fallback to title-case agent_id
+        display_name = display_names.get(agent_id, agent_id.replace("-", " ").title())
+
+        # Read status file
+        status_summary = _read_status_file(agent_id)
 
         agents.append({
-            "name": name,
-            "schedule": schedule_display,
+            "name": display_name,
+            "agentId": agent_id,
+            "schedule": cron_expr,
             "lastRun": last_run_str,
             "lastDuration": last_duration,
+            "lastStatus": schedule.get("last_status"),
             "status": tier,
             "statusSummary": status_summary,
             "errorCount": consecutive_errors,
             "enabled": enabled,
+            "model": schedule.get("model_primary"),
         })
 
     return {"agents": agents, "summary": summary}

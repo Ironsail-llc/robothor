@@ -81,7 +81,7 @@ def check_2_agent_capabilities():
         return False
 
     # Key agents must exist
-    for name in ["email-classifier", "supervisor", "helm-user", "crm-steward"]:
+    for name in ["email-classifier", "main", "helm-user", "crm-steward"]:
         if name not in agents:
             return False
 

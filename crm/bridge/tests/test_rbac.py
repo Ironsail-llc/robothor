@@ -80,7 +80,7 @@ class TestAuthorizedAgent:
     @pytest.mark.asyncio
     async def test_all_agents_access_health(self, client):
         """Every known agent can access /health (not blocked by RBAC)."""
-        for agent_id in ["email-classifier", "supervisor", "crm-steward",
+        for agent_id in ["email-classifier", "main", "crm-steward",
                          "vision-monitor", "helm-user"]:
             resp = await client.get(
                 "/health",
