@@ -127,6 +127,8 @@ class Config:
     helm_port: int = 3004
     engine_port: int = 18800
     tts_port: int = 8880
+    voice_port: int = 8765
+    searxng_port: int = 8888
 
     @property
     def bridge_url(self) -> str:
@@ -139,6 +141,14 @@ class Config:
     @property
     def vision_url(self) -> str:
         return f"http://127.0.0.1:{self.vision_port}"
+
+    @property
+    def voice_url(self) -> str:
+        return f"http://127.0.0.1:{self.voice_port}"
+
+    @property
+    def searxng_url(self) -> str:
+        return f"http://127.0.0.1:{self.searxng_port}"
 
 
 # Singleton
@@ -197,6 +207,8 @@ def _load_from_env() -> Config:
         helm_port=int(os.environ.get("ROBOTHOR_HELM_PORT", "3004")),
         engine_port=int(os.environ.get("ROBOTHOR_ENGINE_PORT", "18800")),
         tts_port=int(os.environ.get("ROBOTHOR_TTS_PORT", "8880")),
+        voice_port=int(os.environ.get("ROBOTHOR_VOICE_PORT", "8765")),
+        searxng_port=int(os.environ.get("ROBOTHOR_SEARXNG_PORT", "8888")),
     )
 
 

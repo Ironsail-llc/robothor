@@ -26,11 +26,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Vision service URL
-VISION_URL = "http://127.0.0.1:8600"
 
-# Bridge service URL (Impetus One passthrough)
-BRIDGE_URL = "http://127.0.0.1:9100"
+def _cfg():
+    """Lazy config access (not module-level to avoid import-time side effects)."""
+    from robothor.config import get_config
+
+    return get_config()
 
 # Impetus One tools — routed via Bridge MCP passthrough
 IMPETUS_TOOLS = frozenset(
@@ -822,13 +823,13 @@ async def _handle_async_tool(
     if name == "look":
         prompt = args.get("prompt", "Describe what you see in this image in detail.")
         async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(f"{VISION_URL}/look", json={"prompt": prompt})
+            resp = await client.post(f"{_cfg().vision_url}/look", json={"prompt": prompt})
             resp.raise_for_status()
             return dict(resp.json())
 
     if name == "who_is_here":
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{VISION_URL}/health")
+            resp = await client.get(f"{_cfg().vision_url}/health")
             resp.raise_for_status()
             data = resp.json()
             return {
@@ -843,7 +844,7 @@ async def _handle_async_tool(
         if not face_name:
             return {"error": "Name is required for face enrollment"}
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(f"{VISION_URL}/enroll", json={"name": face_name})
+            resp = await client.post(f"{_cfg().vision_url}/enroll", json={"name": face_name})
             resp.raise_for_status()
             return dict(resp.json())
 
@@ -852,7 +853,7 @@ async def _handle_async_tool(
         if mode not in ("disarmed", "basic", "armed"):
             return {"error": f"Invalid mode: {mode}. Valid: disarmed, basic, armed"}
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(f"{VISION_URL}/mode", json={"mode": mode})
+            resp = await client.post(f"{_cfg().vision_url}/mode", json={"mode": mode})
             resp.raise_for_status()
             return dict(resp.json())
 
@@ -861,7 +862,7 @@ async def _handle_async_tool(
     if name == "log_interaction":
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
-                "http://127.0.0.1:9100/log-interaction",
+                f"{_cfg().bridge_url}/log-interaction",
                 json={
                     k: args.get(k, "")
                     for k in [
@@ -906,7 +907,7 @@ async def _handle_async_tool(
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(
-                    "http://127.0.0.1:8888/search",
+                    f"{_cfg().searxng_url}/search",
                     params={"q": query, "format": "json", "pageno": 1},
                 )
                 resp.raise_for_status()
@@ -936,7 +937,7 @@ async def _handle_async_tool(
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.post(
-                    "http://127.0.0.1:8765/call",
+                    f"{_cfg().voice_url}/call",
                     json={"to": to_number, "recipient": recipient, "purpose": purpose},
                 )
                 resp.raise_for_status()
@@ -949,7 +950,7 @@ async def _handle_async_tool(
     if name in IMPETUS_TOOLS:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{BRIDGE_URL}/api/impetus/tools/call",
+                f"{_cfg().bridge_url}/api/impetus/tools/call",
                 json={"name": name, "arguments": args},
             )
             resp.raise_for_status()
