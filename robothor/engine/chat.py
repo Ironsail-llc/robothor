@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat")
 
 MAX_HISTORY = 40  # 20 turns (user + assistant)
+SSE_KEEPALIVE_INTERVAL = 15.0  # seconds between keepalive comments
 
 # Module-level references injected by init_chat()
 _runner: AgentRunner | None = None
@@ -54,7 +55,6 @@ class ChatSession:
     history: list[dict[str, Any]] = field(default_factory=list)
     active_task: asyncio.Task[Any] | None = None
     model_override: str | None = None
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 # In-memory session store
@@ -129,102 +129,99 @@ async def chat_send(request: Request) -> StreamingResponse | JSONResponse:
 
     session = _get_session(session_key)
 
-    # Non-blocking busy check
-    if session.lock.locked():
-        return JSONResponse(
-            {"error": "Session is busy processing another request"}, status_code=409
-        )
-
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
     async def run_agent() -> None:
         """Execute agent in background, push events to queue."""
-        async with session.lock:
-            try:
-                last_sent_len = 0
+        try:
+            last_sent_len = 0
 
-                async def on_content(cumulative: str) -> None:
-                    nonlocal last_sent_len
-                    if len(cumulative) > last_sent_len:
-                        delta = cumulative[last_sent_len:]
-                        last_sent_len = len(cumulative)
-                        await queue.put({"event": "delta", "data": {"text": delta}})
+            async def on_content(cumulative: str) -> None:
+                nonlocal last_sent_len
+                if len(cumulative) > last_sent_len:
+                    delta = cumulative[last_sent_len:]
+                    last_sent_len = len(cumulative)
+                    await queue.put({"event": "delta", "data": {"text": delta}})
 
-                async def on_tool(event: dict) -> None:
-                    await queue.put({"event": event["event"], "data": event})
+            async def on_tool(event: dict) -> None:
+                await queue.put({"event": event["event"], "data": event})
 
-                # Determine agent ID from session key or default
-                agent_id = _config.default_chat_agent if _config else "main"
-                parts = session_key.split(":")
-                if len(parts) >= 2:
-                    agent_id = parts[1]
+            # Determine agent ID from session key or default
+            agent_id = _config.default_chat_agent if _config else "main"
+            parts = session_key.split(":")
+            if len(parts) >= 2:
+                agent_id = parts[1]
 
-                run = await _runner.execute(
-                    agent_id=agent_id,
-                    message=message,
-                    trigger_type=TriggerType.WEBCHAT,
-                    trigger_detail=f"webchat:{session_key}",
-                    on_content=on_content,
-                    on_tool=on_tool,
-                    model_override=session.model_override,
-                    conversation_history=list(session.history),
-                )
+            run = await _runner.execute(
+                agent_id=agent_id,
+                message=message,
+                trigger_type=TriggerType.WEBCHAT,
+                trigger_detail=f"webchat:{session_key}",
+                on_content=on_content,
+                on_tool=on_tool,
+                model_override=session.model_override,
+                conversation_history=list(session.history),
+            )
 
-                # Append to session history
-                session.history.append({"role": "user", "content": message})
-                if run.output_text:
-                    session.history.append({"role": "assistant", "content": run.output_text})
+            # Append to session history
+            session.history.append({"role": "user", "content": message})
+            if run.output_text:
+                session.history.append({"role": "assistant", "content": run.output_text})
 
-                # Trim history
-                if len(session.history) > MAX_HISTORY:
-                    session.history = session.history[-MAX_HISTORY:]
+            # Trim history (in-place slice for safety under concurrency)
+            if len(session.history) > MAX_HISTORY:
+                session.history[:] = session.history[-MAX_HISTORY:]
 
-                # Persist to DB (fire-and-forget)
-                if run.output_text and _config:
-                    asyncio.create_task(
-                        save_exchange_async(
-                            session_key,
-                            message,
-                            run.output_text,
-                            channel="webchat",
-                            model_override=session.model_override,
-                            tenant_id=_config.tenant_id,
-                        )
+            # Persist to DB (fire-and-forget)
+            if run.output_text and _config:
+                asyncio.create_task(
+                    save_exchange_async(
+                        session_key,
+                        message,
+                        run.output_text,
+                        channel="webchat",
+                        model_override=session.model_override,
+                        tenant_id=_config.tenant_id,
                     )
-
-                # Signal completion with metadata
-                await queue.put(
-                    {
-                        "event": "done",
-                        "data": {
-                            "text": run.output_text or "",
-                            "model": run.model_used,
-                            "input_tokens": run.input_tokens,
-                            "output_tokens": run.output_tokens,
-                            "duration_ms": run.duration_ms,
-                        },
-                    }
                 )
-            except asyncio.CancelledError:
-                await queue.put({"event": "done", "data": {"text": "", "aborted": True}})
-            except Exception as e:
-                logger.error("Chat agent error: %s", e, exc_info=True)
-                await queue.put({"event": "error", "data": {"error": str(e)}})
-            finally:
-                await queue.put(None)  # Sentinel
-                session.active_task = None
+
+            # Signal completion with metadata
+            await queue.put(
+                {
+                    "event": "done",
+                    "data": {
+                        "text": run.output_text or "",
+                        "model": run.model_used,
+                        "input_tokens": run.input_tokens,
+                        "output_tokens": run.output_tokens,
+                        "duration_ms": run.duration_ms,
+                    },
+                }
+            )
+        except asyncio.CancelledError:
+            await queue.put({"event": "done", "data": {"text": "", "aborted": True}})
+        except Exception as e:
+            logger.error("Chat agent error: %s", e, exc_info=True)
+            await queue.put({"event": "error", "data": {"error": str(e)}})
+        finally:
+            await queue.put(None)  # Sentinel
+            session.active_task = None
 
     # Start agent as background task
     task = asyncio.create_task(run_agent())
     session.active_task = task
 
     async def sse_generator():
-        """Yield SSE events from the queue."""
+        """Yield SSE events from the queue, with keepalive comments."""
         import json
 
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=SSE_KEEPALIVE_INTERVAL)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
                 if item is None:
                     break
                 event = item["event"]

@@ -95,37 +95,34 @@ class TestChatSend:
         assert res.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_busy_returns_409(self, client, mock_runner):
-        """Concurrent request to same session returns 409."""
-        # Simulate a slow agent
-        slow_event = asyncio.Event()
+    async def test_concurrent_requests_both_succeed(self, client, mock_runner):
+        """Two concurrent requests to same session both return 200."""
+        call_count = 0
 
-        async def slow_execute(**kwargs):
-            await slow_event.wait()
-            return AgentRun(status=RunStatus.COMPLETED, output_text="done")
+        async def fake_execute(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            await asyncio.sleep(0.05)
+            return AgentRun(
+                status=RunStatus.COMPLETED,
+                output_text=f"reply-{call_count}",
+                trigger_type=TriggerType.WEBCHAT,
+            )
 
-        mock_runner.execute = AsyncMock(side_effect=slow_execute)
+        mock_runner.execute = AsyncMock(side_effect=fake_execute)
 
-        # Start first request (won't complete until we set the event)
-        task = asyncio.create_task(
+        res1, res2 = await asyncio.gather(
             client.post(
                 "/chat/send",
-                json={"session_key": "busy:main:test", "message": "first"},
-            )
+                json={"session_key": "conc:main:test", "message": "first"},
+            ),
+            client.post(
+                "/chat/send",
+                json={"session_key": "conc:main:test", "message": "second"},
+            ),
         )
-        # Give it a moment to start
-        await asyncio.sleep(0.1)
-
-        # Second request should get 409
-        res2 = await client.post(
-            "/chat/send",
-            json={"session_key": "busy:main:test", "message": "second"},
-        )
-        assert res2.status_code == 409
-
-        # Clean up
-        slow_event.set()
-        await task
+        assert res1.status_code == 200
+        assert res2.status_code == 200
 
 
 class TestChatHistory:
@@ -236,26 +233,6 @@ class TestChatClear:
         # Verify cleared
         hist = await client.get("/chat/history?session_key=clear:main:test")
         assert len(hist.json()["messages"]) == 0
-
-
-class TestCrosChannelLock:
-    @pytest.mark.asyncio
-    async def test_helm_returns_409_when_session_lock_held_externally(self, client, mock_runner):
-        """Simulates Telegram holding the lock — Helm should return 409."""
-        from robothor.engine.chat import _get_session
-
-        session = _get_session("locked:main:test")
-        # Simulate Telegram holding the lock
-        await session.lock.acquire()
-        try:
-            res = await client.post(
-                "/chat/send",
-                json={"session_key": "locked:main:test", "message": "should fail"},
-            )
-            assert res.status_code == 409
-            assert "busy" in res.json()["error"].lower()
-        finally:
-            session.lock.release()
 
 
 class TestToolEvents:
@@ -389,11 +366,73 @@ class TestHistoryTrimming:
         assert len(session.history) <= MAX_HISTORY
 
 
+class TestSSEKeepalive:
+    @pytest.mark.asyncio
+    async def test_keepalive_emitted_during_slow_execution(self, client, mock_runner):
+        """SSE keepalive comments appear when agent execution is slow."""
+
+        async def slow_execute(**kwargs):
+            await asyncio.sleep(0.4)
+            return AgentRun(
+                status=RunStatus.COMPLETED,
+                output_text="done",
+                trigger_type=TriggerType.WEBCHAT,
+            )
+
+        mock_runner.execute = AsyncMock(side_effect=slow_execute)
+
+        with patch("robothor.engine.chat.SSE_KEEPALIVE_INTERVAL", 0.1):
+            res = await client.post(
+                "/chat/send",
+                json={"session_key": "keepalive:main:test", "message": "hi"},
+            )
+
+        assert res.status_code == 200
+        body = res.text
+        # Should contain keepalive comments
+        assert ": keepalive" in body
+        # Should still have a done event
+        events = _parse_sse(body)
+        done_events = [e for e in events if e["event"] == "done"]
+        assert len(done_events) == 1
+
+
+class TestConcurrentExecution:
+    @pytest.mark.asyncio
+    async def test_two_concurrent_requests_both_200(self, client, mock_runner):
+        """Two concurrent requests return 200 — no 409 blocking."""
+
+        async def fake_execute(**kwargs):
+            await asyncio.sleep(0.05)
+            return AgentRun(
+                status=RunStatus.COMPLETED,
+                output_text="ok",
+                trigger_type=TriggerType.WEBCHAT,
+            )
+
+        mock_runner.execute = AsyncMock(side_effect=fake_execute)
+
+        res1, res2 = await asyncio.gather(
+            client.post(
+                "/chat/send",
+                json={"session_key": "dual:main:test", "message": "a"},
+            ),
+            client.post(
+                "/chat/send",
+                json={"session_key": "dual:main:test", "message": "b"},
+            ),
+        )
+        assert res1.status_code == 200
+        assert res2.status_code == 200
+
+
 def _parse_sse(body: str) -> list[dict]:
     """Parse SSE text into a list of {event, data} dicts."""
     events = []
     current_event = ""
     for line in body.split("\n"):
+        if line.startswith(":"):
+            continue  # SSE comment (keepalive)
         if line.startswith("event: "):
             current_event = line[7:].strip()
         elif line.startswith("data: "):
