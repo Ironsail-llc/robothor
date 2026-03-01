@@ -64,7 +64,6 @@ tags_consumed: []
 
 v2:
   token_budget: 100000
-  cost_budget_usd: 0.10
 
 changelog:
   - date: "2026-02-27"

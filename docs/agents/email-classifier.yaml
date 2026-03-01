@@ -17,7 +17,7 @@ model:
   payload_alias: kimi
 
 schedule:
-  cron: "0 6-22/6 * * *"
+  cron: "0 6-22/2 * * *"
   timezone: America/New_York
   timeout_seconds: 600
   max_iterations: 10
@@ -94,7 +94,6 @@ tags_consumed: []
 
 v2:
   token_budget: 200000
-  cost_budget_usd: 0.15
 
 changelog:
   - date: "2026-02-28"

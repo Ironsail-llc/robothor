@@ -17,7 +17,7 @@ model:
   payload_alias: sonnet
 
 schedule:
-  cron: "0 8-20/4 * * *"
+  cron: "0 8-20/2 * * *"
   timezone: America/New_York
   timeout_seconds: 600
   max_iterations: 15
@@ -95,7 +95,6 @@ tags_consumed: [email, reply-needed]
 
 v2:
   token_budget: 300000
-  cost_budget_usd: 0.50
 
 changelog:
   - date: "2026-02-28"

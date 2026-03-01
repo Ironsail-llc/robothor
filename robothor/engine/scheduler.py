@@ -401,7 +401,6 @@ class CronScheduler:
                 warmup_context_files=hb.warmup_context_files,
                 warmup_peer_agents=hb.warmup_peer_agents,
                 token_budget=hb.token_budget,
-                cost_budget_usd=hb.cost_budget_usd,
                 error_feedback=agent_config.error_feedback,
             )
 
