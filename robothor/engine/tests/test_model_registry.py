@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from robothor.engine.model_registry import (
-    ModelLimits,
     _FALLBACK,
+    ModelLimits,
     get_model_limits,
     get_output_tokens,
 )

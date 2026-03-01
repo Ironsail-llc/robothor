@@ -156,11 +156,9 @@ class AgentRunner:
 
         # Copy budget config to run for persistence
         session.run.token_budget = agent_config.token_budget
-        session.run.cost_budget_usd = agent_config.cost_budget_usd
 
-        # Sub-agent: cascade parent's remaining budget (child can never exceed parent)
-        if spawn_context:
-            if spawn_context.remaining_token_budget > 0:
+        # Sub-agent: cascade parent's remaining token budget (child can never exceed parent)
+        if spawn_context and spawn_context.remaining_token_budget > 0:
                 if agent_config.token_budget > 0:
                     session.run.token_budget = min(
                         agent_config.token_budget, spawn_context.remaining_token_budget
@@ -168,15 +166,6 @@ class AgentRunner:
                 else:
                     session.run.token_budget = spawn_context.remaining_token_budget
                 agent_config.token_budget = session.run.token_budget
-
-            if spawn_context.remaining_cost_budget_usd > 0:
-                if agent_config.cost_budget_usd > 0:
-                    session.run.cost_budget_usd = min(
-                        agent_config.cost_budget_usd, spawn_context.remaining_cost_budget_usd
-                    )
-                else:
-                    session.run.cost_budget_usd = spawn_context.remaining_cost_budget_usd
-                agent_config.cost_budget_usd = session.run.cost_budget_usd
 
         # Record run in database
         try:
@@ -323,7 +312,6 @@ class AgentRunner:
                 nesting_depth=0,
                 max_nesting_depth=agent_config.max_nesting_depth,
                 remaining_token_budget=agent_config.token_budget,
-                remaining_cost_budget_usd=agent_config.cost_budget_usd,
                 parent_trace_id=trace.trace_id if trace else "",
                 parent_span_id="",
             )
@@ -355,9 +343,7 @@ class AgentRunner:
 
         for _iteration in range(max_iterations):
             # ── [BUDGET] Check token/cost budget ──
-            budget_status = session.check_budget(
-                agent_config.token_budget, agent_config.cost_budget_usd
-            )
+            budget_status = session.check_budget(agent_config.token_budget)
             if budget_status == "exhausted":
                 session.run.budget_exhausted = True
                 session.messages.append(

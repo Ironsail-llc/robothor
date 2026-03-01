@@ -53,7 +53,6 @@ heartbeat:
   peer_agents: [email-classifier]
   bootstrap_files: [brain/AGENTS.md]
   token_budget: 200000
-  cost_budget_usd: 0.15
 """
     )
     return manifest_dir
@@ -183,7 +182,6 @@ class TestRunHeartbeat:
                 warmup_context_files=["brain/memory/status.md"],
                 bootstrap_files=["brain/AGENTS.md"],
                 token_budget=200000,
-                cost_budget_usd=0.15,
             ),
         )
 
@@ -213,7 +211,6 @@ class TestRunHeartbeat:
         assert override.tools_allowed == ["exec", "read_file", "list_tasks"]
         # Budget overrides
         assert override.token_budget == 200000
-        assert override.cost_budget_usd == 0.15
 
     @pytest.mark.asyncio
     async def test_heartbeat_dedup_key_isolation(self, tmp_path):
