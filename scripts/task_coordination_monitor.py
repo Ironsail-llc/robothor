@@ -50,12 +50,12 @@ def check():
         else:
             log("CHECK 7: WAITING — no responder-resolved tasks yet")
 
-        # Check 8: Any escalation tasks for supervisor?
-        supervisor_tasks = [r for r in rows if r["assigned_to_agent"] == "supervisor"]
-        if supervisor_tasks:
-            log(f"CHECK 8: PASS — {len(supervisor_tasks)} escalation task(s) for supervisor")
+        # Check 8: Any escalation tasks for main?
+        main_tasks = [r for r in rows if r["assigned_to_agent"] == "main"]
+        if main_tasks:
+            log(f"CHECK 8: PASS — {len(main_tasks)} escalation task(s) for main")
         else:
-            log("CHECK 8: WAITING — no supervisor escalation tasks yet")
+            log("CHECK 8: WAITING — no main escalation tasks yet")
     else:
         log("CHECK 6: WAITING — no agent-created tasks yet")
         log("CHECK 7: WAITING — depends on check 6")

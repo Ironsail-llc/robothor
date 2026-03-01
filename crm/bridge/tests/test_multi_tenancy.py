@@ -121,7 +121,7 @@ async def test_send_notification(test_client):
         with patch("routers.notifications.publish"):
             res = await test_client.post("/api/notifications/send", json={
                 "fromAgent": "email-classifier",
-                "toAgent": "supervisor",
+                "toAgent": "main",
                 "notificationType": "task_assigned",
                 "subject": "New task: test",
             })
@@ -146,7 +146,7 @@ async def test_get_inbox(test_client):
     with patch("routers.notifications.get_agent_inbox", return_value=[
         {"id": "123", "subject": "Test", "fromAgent": "test"}
     ]):
-        res = await test_client.get("/api/notifications/inbox/supervisor")
+        res = await test_client.get("/api/notifications/inbox/main")
         assert res.status_code == 200
         assert len(res.json()["notifications"]) == 1
 
@@ -182,7 +182,7 @@ async def test_list_notifications(test_client):
     """GET /api/notifications filters by from/to agent."""
     with patch("routers.notifications.list_notifications", return_value=[]):
         res = await test_client.get(
-            "/api/notifications?fromAgent=test&toAgent=supervisor"
+            "/api/notifications?fromAgent=test&toAgent=main"
         )
         assert res.status_code == 200
 
@@ -192,7 +192,7 @@ async def test_notification_invalid_task_id(test_client):
     """SendNotificationRequest rejects invalid taskId UUID."""
     res = await test_client.post("/api/notifications/send", json={
         "fromAgent": "test",
-        "toAgent": "supervisor",
+        "toAgent": "main",
         "subject": "Test",
         "taskId": "not-a-uuid",
     })

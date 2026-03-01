@@ -19,7 +19,7 @@ from apscheduler.triggers.cron import CronTrigger
 from robothor.engine.config import load_all_manifests, manifest_to_agent_config
 from robothor.engine.dedup import release, try_acquire
 from robothor.engine.delivery import deliver
-from robothor.engine.models import TriggerType
+from robothor.engine.models import AgentConfig, TriggerType
 from robothor.engine.tracking import update_schedule_state, upsert_schedule
 
 # Circuit breaker: skip agent after this many consecutive errors
@@ -27,7 +27,6 @@ CIRCUIT_BREAKER_THRESHOLD = 5
 
 if TYPE_CHECKING:
     from robothor.engine.config import EngineConfig
-    from robothor.engine.models import AgentConfig
     from robothor.engine.runner import AgentRunner
 
 logger = logging.getLogger(__name__)
@@ -54,6 +53,63 @@ class CronScheduler:
 
         for manifest in manifests:
             agent_config = manifest_to_agent_config(manifest)
+
+            # Register heartbeat cron job if present
+            if agent_config.heartbeat and agent_config.heartbeat.cron_expr:
+                try:
+                    hb_trigger = CronTrigger.from_crontab(
+                        agent_config.heartbeat.cron_expr,
+                        timezone=agent_config.heartbeat.timezone,
+                    )
+                    hb_job_id = f"{agent_config.id}:heartbeat"
+                    self.scheduler.add_job(
+                        self._run_heartbeat,
+                        trigger=hb_trigger,
+                        args=[agent_config.id],
+                        id=hb_job_id,
+                        name=f"heartbeat:{agent_config.name}",
+                        max_instances=1,
+                        coalesce=True,
+                        misfire_grace_time=60,
+                    )
+
+                    # Upsert schedule state for heartbeat
+                    try:
+                        upsert_schedule(
+                            agent_id=hb_job_id,
+                            tenant_id=self.config.tenant_id,
+                            enabled=True,
+                            cron_expr=agent_config.heartbeat.cron_expr,
+                            timezone=agent_config.heartbeat.timezone,
+                            timeout_seconds=agent_config.heartbeat.timeout_seconds,
+                            model_primary=agent_config.model_primary,
+                            model_fallbacks=agent_config.model_fallbacks,
+                            delivery_mode=agent_config.heartbeat.delivery_mode.value,
+                            delivery_channel=agent_config.heartbeat.delivery_channel,
+                            delivery_to=agent_config.heartbeat.delivery_to,
+                            session_target=agent_config.heartbeat.session_target,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to upsert heartbeat schedule for %s: %s",
+                            agent_config.id,
+                            e,
+                        )
+
+                    loaded += 1
+                    logger.info(
+                        "Registered heartbeat for %s: %s",
+                        agent_config.id,
+                        agent_config.heartbeat.cron_expr,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Invalid heartbeat cron for %s: %s — %s",
+                        agent_config.id,
+                        agent_config.heartbeat.cron_expr,
+                        e,
+                    )
+
             if not agent_config.cron_expr:
                 continue
 
@@ -244,6 +300,148 @@ class CronScheduler:
 
         finally:
             release(agent_id)
+
+    async def _run_heartbeat(self, agent_id: str) -> None:
+        """Execute a heartbeat run for an agent.
+
+        Uses the heartbeat config overrides (instruction file, delivery,
+        warmup, budget) while inheriting model + tools from the parent agent.
+        Dedup key is {agent_id}:heartbeat so it doesn't block interactive runs.
+        """
+        from robothor.engine.config import load_agent_config
+
+        dedup_key = f"{agent_id}:heartbeat"
+
+        if not try_acquire(dedup_key):
+            logger.info("Heartbeat skipped: %s already running", dedup_key)
+            return
+
+        try:
+            logger.info("Heartbeat trigger: running %s", agent_id)
+
+            agent_config = load_agent_config(agent_id, self.config.manifest_dir)
+            if not agent_config or not agent_config.heartbeat:
+                logger.error("Agent config or heartbeat not found for: %s", agent_id)
+                return
+
+            hb = agent_config.heartbeat
+
+            # Circuit breaker (uses heartbeat-specific schedule key)
+            try:
+                from robothor.engine.tracking import get_schedule
+
+                schedule = get_schedule(dedup_key)
+                if schedule:
+                    errors = schedule.get("consecutive_errors", 0) or 0
+                    if errors >= CIRCUIT_BREAKER_THRESHOLD:
+                        logger.warning(
+                            "Circuit breaker: %s heartbeat has %d consecutive errors, skipping",
+                            agent_id,
+                            errors,
+                        )
+                        try:
+                            from robothor.engine.delivery import get_telegram_sender
+
+                            sender = get_telegram_sender()
+                            if sender and hb.delivery_to:
+                                await sender(
+                                    hb.delivery_to,
+                                    f"*Circuit Breaker*\n\n{agent_config.name} heartbeat "
+                                    f"has {errors} consecutive errors. "
+                                    f"Skipping scheduled run. Check logs.",
+                                )
+                        except Exception:
+                            pass
+                        return
+            except Exception:
+                pass
+
+            # Build override config from heartbeat settings,
+            # inheriting model + tools from parent
+            override_config = AgentConfig(
+                id=agent_config.id,
+                name=agent_config.name,
+                description=agent_config.description,
+                model_primary=agent_config.model_primary,
+                model_fallbacks=agent_config.model_fallbacks,
+                temperature=agent_config.temperature,
+                cron_expr=hb.cron_expr,
+                timezone=hb.timezone,
+                timeout_seconds=hb.timeout_seconds,
+                max_iterations=hb.max_iterations,
+                session_target=hb.session_target,
+                delivery_mode=hb.delivery_mode,
+                delivery_channel=hb.delivery_channel,
+                delivery_to=hb.delivery_to,
+                tools_allowed=agent_config.tools_allowed,
+                tools_denied=agent_config.tools_denied,
+                instruction_file=hb.instruction_file,
+                bootstrap_files=hb.bootstrap_files,
+                reports_to=agent_config.reports_to,
+                department=agent_config.department,
+                task_protocol=agent_config.task_protocol,
+                review_workflow=agent_config.review_workflow,
+                notification_inbox=agent_config.notification_inbox,
+                shared_working_state=agent_config.shared_working_state,
+                warmup_memory_blocks=hb.warmup_memory_blocks,
+                warmup_context_files=hb.warmup_context_files,
+                warmup_peer_agents=hb.warmup_peer_agents,
+                token_budget=hb.token_budget,
+                cost_budget_usd=hb.cost_budget_usd,
+                error_feedback=agent_config.error_feedback,
+            )
+
+            # Build the payload
+            payload = self._build_payload(override_config)
+
+            run = await self.runner.execute(
+                agent_id=agent_id,
+                message=payload,
+                trigger_type=TriggerType.CRON,
+                trigger_detail=f"heartbeat:{hb.cron_expr}",
+                agent_config=override_config,
+            )
+
+            # Deliver with heartbeat's announce mode
+            await deliver(override_config, run)
+
+            # Update schedule state under heartbeat key
+            try:
+                consecutive_errors = 0
+                if run.status.value in ("failed", "timeout"):
+                    prev_schedule = None
+                    with contextlib.suppress(Exception):
+                        prev_schedule = get_schedule(dedup_key)
+                    consecutive_errors = (
+                        (prev_schedule.get("consecutive_errors", 0) + 1) if prev_schedule else 1
+                    )
+
+                update_schedule_state(
+                    agent_id=dedup_key,
+                    last_run_at=run.started_at,
+                    last_run_id=run.id,
+                    last_status=run.status.value,
+                    last_duration_ms=run.duration_ms,
+                    consecutive_errors=consecutive_errors,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to update heartbeat schedule state for %s: %s",
+                    agent_id,
+                    e,
+                )
+
+            logger.info(
+                "Heartbeat complete: %s status=%s duration=%dms tokens=%d/%d",
+                agent_id,
+                run.status.value,
+                run.duration_ms or 0,
+                run.input_tokens,
+                run.output_tokens,
+            )
+
+        finally:
+            release(dedup_key)
 
     async def _run_workflow(self, workflow_id: str) -> None:
         """Execute a workflow as a scheduled cron job."""

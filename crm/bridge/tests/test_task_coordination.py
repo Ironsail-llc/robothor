@@ -186,7 +186,7 @@ async def test_create_task_emits_event(test_client):
         with patch("routers.notes_tasks.publish") as mock_publish:
             r = await test_client.post("/api/tasks", json={
                 "title": "Test event",
-                "assignedToAgent": "supervisor",
+                "assignedToAgent": "main",
                 "priority": "high",
                 "tags": ["escalation"],
             })
@@ -535,7 +535,7 @@ async def test_create_task_no_threadid_skips_dedup(test_client):
         r = await test_client.post("/api/tasks", json={
             "title": "Calendar conflict detected",
             "body": "Meeting overlap on 2026-02-28",
-            "assignedToAgent": "supervisor",
+            "assignedToAgent": "main",
         })
         assert r.status_code == 200
         data = r.json()
