@@ -157,7 +157,6 @@ def manifest_to_agent_config(manifest: dict) -> AgentConfig:
             warmup_memory_blocks=raw_heartbeat.get("memory_blocks", []),
             bootstrap_files=raw_heartbeat.get("bootstrap_files", []),
             token_budget=int(raw_heartbeat.get("token_budget", 0)),
-            cost_budget_usd=float(raw_heartbeat.get("cost_budget_usd", 0.0)),
         )
 
     # v2 enhancement fields
@@ -206,7 +205,6 @@ def manifest_to_agent_config(manifest: dict) -> AgentConfig:
         # v2 enhancements
         error_feedback=v2.get("error_feedback", True),
         token_budget=int(v2.get("token_budget", 0)),
-        cost_budget_usd=float(v2.get("cost_budget_usd", 0.0)),
         planning_enabled=v2.get("planning_enabled", False),
         planning_model=v2.get("planning_model", ""),
         scratchpad_enabled=v2.get("scratchpad_enabled", False),

@@ -84,7 +84,6 @@ tags_consumed: [email, analytical]
 
 v2:
   token_budget: 200000
-  cost_budget_usd: 0.15
 
 changelog:
   - date: "2026-02-28"

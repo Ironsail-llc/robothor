@@ -1,0 +1,19 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: validate-agents
+        name: validate agent manifests
+        entry: python scripts/validate_agents.py
+        language: system
+        files: 'docs/agents/.*\.yaml'
+        pass_filenames: false
