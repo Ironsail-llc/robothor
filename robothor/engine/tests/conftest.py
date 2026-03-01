@@ -20,7 +20,6 @@ from robothor.engine.models import (
     DeliveryMode,
 )
 
-
 # test_prefix is inherited from the root conftest.py
 
 
