@@ -406,6 +406,11 @@ async def plan_start(request: Request) -> StreamingResponse | JSONResponse:
         session.active_plan.status = "expired"
         session.active_plan = None
 
+    # Supersede any pending plan (revision flow — new plan replaces old)
+    if session.active_plan and session.active_plan.status == "pending":
+        session.active_plan.status = "superseded"
+        session.active_plan = None
+
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
     async def run_plan_agent() -> None:
@@ -442,6 +447,24 @@ async def plan_start(request: Request) -> StreamingResponse | JSONResponse:
 
             # Extract plan from output
             plan_text = _extract_plan_text(run.output_text or "")
+
+            # Accumulate history so revisions have full context
+            session.history.append({"role": "user", "content": message})
+            if run.output_text:
+                session.history.append({"role": "assistant", "content": run.output_text})
+            if len(session.history) > MAX_HISTORY:
+                session.history[:] = session.history[-MAX_HISTORY:]
+            if run.output_text and _config:
+                asyncio.create_task(
+                    save_exchange_async(
+                        session_key,
+                        message,
+                        run.output_text,
+                        channel="webchat",
+                        model_override=session.model_override,
+                        tenant_id=_config.tenant_id,
+                    )
+                )
 
             if plan_text:
                 plan = PlanState(

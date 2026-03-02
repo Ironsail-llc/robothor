@@ -127,14 +127,26 @@ class AgentRunner:
             tool_schemas = self.registry.build_readonly_for_agent(agent_config)
             tool_names = self.registry.get_readonly_tool_names(agent_config)
             system_prompt += (
-                "\n\n[PLAN MODE] You are in plan mode. You can explore and read "
-                "but CANNOT make changes. Use the available read-only tools to "
-                "research and gather information.\n\n"
-                "After researching, output a structured plan with:\n"
-                "1. Numbered steps describing each action you will take\n"
-                "2. Any risks or considerations\n"
-                "3. Expected outcome\n\n"
-                "End your plan with the marker [PLAN_READY] on its own line."
+                "\n\n[PLAN MODE — READ-ONLY EXPLORATION]\n\n"
+                "You are in plan mode. You can ONLY read — no writes, no mutations.\n\n"
+                "## Your goal\n"
+                "Understand the user's request, then propose a plan for approval.\n\n"
+                "## How to work\n"
+                "1. **Research first** — use tools to gather context before forming opinions\n"
+                "2. **Ask questions** — if the request is ambiguous, ask for clarification\n"
+                "3. **Propose when ready** — output a structured plan when you have enough context\n\n"
+                "## Proposing a plan\n"
+                "Include:\n"
+                "1. **What you found** — key facts from your research (2-3 bullets)\n"
+                "2. **Steps** — numbered actions with tools/outcomes\n"
+                "3. **Risks** — anything that could go wrong\n"
+                "4. **Verification** — how to confirm success\n\n"
+                "End with [PLAN_READY] on its own line.\n\n"
+                "## If NOT ready to propose\n"
+                "Respond normally WITHOUT [PLAN_READY]. The user will reply and you'll continue.\n\n"
+                "## On revision\n"
+                "If the user gives feedback on a previous plan, refine it — don't start over.\n"
+                "Address their specific feedback while keeping parts they didn't object to."
             )
         else:
             tool_schemas = self.registry.build_for_agent(agent_config)
@@ -226,7 +238,7 @@ class AgentRunner:
             max_iterations = min(max_iterations, route.max_iterations_override)
         # Cap exploration cost in plan mode
         if readonly_mode:
-            max_iterations = min(max_iterations, 15)
+            max_iterations = min(max_iterations, 10)
 
         # ── [CHECKPOINT] Resume from checkpoint if requested ──
         resumed_scratchpad = None
@@ -250,6 +262,7 @@ class AgentRunner:
                     trace=trace,
                     resumed_scratchpad=resumed_scratchpad,
                     spawn_context=spawn_context,
+                    readonly_mode=readonly_mode,
                 )
         except TimeoutError:
             logger.warning("Agent %s timed out after %ds", agent_id, timeout)
@@ -307,6 +320,7 @@ class AgentRunner:
         trace: Any = None,
         resumed_scratchpad: Any = None,
         spawn_context: SpawnContext | None = None,
+        readonly_mode: bool = False,
     ) -> None:
         """Core conversation loop: LLM call → tool execution → repeat."""
         # Track models that hit permanent errors (401/403/429) across iterations
@@ -425,6 +439,21 @@ class AgentRunner:
 
             # Check if we're done (no tool calls)
             if not assistant_msg.tool_calls:
+                # In plan mode, nudge the agent to research if it skipped tools
+                # on the very first iteration (only fires once).
+                if readonly_mode and _iteration == 0:
+                    session.messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "[SYSTEM] You proposed a plan without using any tools to "
+                                "research first. Before finalizing, use at least one tool "
+                                "to verify your assumptions. For example: check current "
+                                "tasks, read relevant memory, or search for context."
+                            ),
+                        }
+                    )
+                    continue
                 return
 
             # ── Execute tool calls ──

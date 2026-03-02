@@ -262,7 +262,7 @@ describe("ChatPanel — Plan Mode", () => {
     expect(screen.getByTestId("plan-revise")).not.toBeDisabled();
   });
 
-  it("Revise sends feedback and re-triggers plan mode", async () => {
+  it("Revise sends feedback text (not original message) to plan/start", async () => {
     render(<ChatPanel />);
 
     await waitFor(() => {
@@ -287,25 +287,19 @@ describe("ChatPanel — Plan Mode", () => {
     });
     fireEvent.click(screen.getByTestId("plan-revise"));
 
-    // Should have called reject with feedback
-    await waitFor(() => {
-      const rejectCall = fetchCalls.find(
-        (c) => c.url === "/api/chat/plan/reject" && c.body?.includes("feedback")
-      );
-      expect(rejectCall).toBeTruthy();
-      const body = JSON.parse(rejectCall!.body!);
-      expect(body.feedback).toBe("Add error handling step");
-      expect(body.plan_id).toBe("plan-1");
-    });
-
-    // Should have re-triggered plan/start with the original message
+    // Should NOT have called reject — supersede is implicit
     await waitFor(() => {
       const planCalls = fetchCalls.filter((c) => c.url === "/api/chat/plan/start");
       expect(planCalls.length).toBeGreaterThanOrEqual(2);
-      const lastCall = planCalls[planCalls.length - 1];
-      const body = JSON.parse(lastCall.body!);
-      expect(body.message).toBe("check email");
     });
+    const rejectCalls = fetchCalls.filter((c) => c.url === "/api/chat/plan/reject");
+    expect(rejectCalls).toHaveLength(0);
+
+    // Should have re-triggered plan/start with the FEEDBACK text
+    const planCalls = fetchCalls.filter((c) => c.url === "/api/chat/plan/start");
+    const lastCall = planCalls[planCalls.length - 1];
+    const body = JSON.parse(lastCall.body!);
+    expect(body.message).toBe("Add error handling step");
   });
 
   it("plan status recovery on mount restores approval card", async () => {
@@ -436,6 +430,202 @@ describe("ChatPanel — Plan Mode", () => {
     resolveStream!();
 
     // After stream completes, plan card appears
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-card")).toBeTruthy();
+    });
+  });
+
+  it("plan mode badge persists after sending (not cleared on first send)", async () => {
+    // Use a delayed stream so we can observe the badge during planning
+    fetchCalls = [];
+    let resolveStream: (() => void) | undefined;
+    const streamPromise = new Promise<void>((r) => { resolveStream = r; });
+
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body as string | undefined });
+      if (url === "/api/chat/history") {
+        return { ok: true, json: async () => ({ messages: [] }) };
+      }
+      if (url === "/api/chat/plan/status") {
+        return { ok: true, json: async () => ({ active: false }) };
+      }
+      if (url === "/api/chat/plan/start") {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            await streamPromise;
+            controller.enqueue(
+              encoder.encode(
+                `event: done\ndata: ${JSON.stringify({ text: "A question for you" })}\n\n`
+              )
+            );
+            controller.close();
+          },
+        });
+        return { ok: true, body: stream };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    render(<ChatPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-toggle")).toBeTruthy();
+    });
+
+    // Enable plan mode
+    fireEvent.click(screen.getByTestId("plan-toggle"));
+    expect(screen.getByTestId("plan-mode-badge")).toBeTruthy();
+
+    // Send a message
+    fireEvent.change(screen.getByTestId("chat-input"), {
+      target: { value: "test" },
+    });
+    fireEvent.click(screen.getByTestId("send-button"));
+
+    // Badge should still be visible during planning
+    expect(screen.getByTestId("plan-mode-badge")).toBeTruthy();
+
+    // Resolve and clean up
+    resolveStream!();
+
+    // After stream completes, badge should still be there (no gotPlanEvent)
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-mode-badge")).toBeTruthy();
+    });
+  });
+
+  it("non-PLAN_READY response keeps plan mode active for multi-turn", async () => {
+    // Return a response without [PLAN_READY] (a question or clarification)
+    fetchCalls = [];
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body as string | undefined });
+      if (url === "/api/chat/history") {
+        return { ok: true, json: async () => ({ messages: [] }) };
+      }
+      if (url === "/api/chat/plan/status") {
+        return { ok: true, json: async () => ({ active: false }) };
+      }
+      if (url === "/api/chat/plan/start") {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            // No plan event — just a done with text (agent asking a question)
+            controller.enqueue(
+              encoder.encode(
+                `event: done\ndata: ${JSON.stringify({ text: "What kind of tasks?" })}\n\n`
+              )
+            );
+            controller.close();
+          },
+        });
+        return { ok: true, body: stream };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    render(<ChatPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-toggle")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("plan-toggle"));
+    fireEvent.change(screen.getByTestId("chat-input"), {
+      target: { value: "check tasks" },
+    });
+    fireEvent.click(screen.getByTestId("send-button"));
+
+    // Wait for response to complete
+    await waitFor(() => {
+      const msgs = screen.getAllByTestId("message-assistant");
+      expect(msgs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Plan mode badge should still be active (agent asked a question, no PLAN_READY)
+    expect(screen.getByTestId("plan-mode-badge")).toBeTruthy();
+
+    // No plan card should appear (no plan event)
+    expect(screen.queryByTestId("plan-card")).toBeNull();
+  });
+
+  it("tool activity indicator shows tool name during tool_start events", async () => {
+    fetchCalls = [];
+    let resolveStream: (() => void) | undefined;
+    const streamPromise = new Promise<void>((r) => { resolveStream = r; });
+
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      fetchCalls.push({ url, method: init?.method, body: init?.body as string | undefined });
+      if (url === "/api/chat/history") {
+        return { ok: true, json: async () => ({ messages: [] }) };
+      }
+      if (url === "/api/chat/plan/status") {
+        return { ok: true, json: async () => ({ active: false }) };
+      }
+      if (url === "/api/chat/plan/start") {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            // Send a tool_start event
+            controller.enqueue(
+              encoder.encode(
+                `event: tool_start\ndata: ${JSON.stringify({ tool: "list_tasks" })}\n\n`
+              )
+            );
+            // Wait so we can observe the state
+            await streamPromise;
+            controller.enqueue(
+              encoder.encode(
+                `event: tool_end\ndata: ${JSON.stringify({ tool: "list_tasks" })}\n\n`
+              )
+            );
+            controller.enqueue(
+              encoder.encode(
+                `event: plan\ndata: ${JSON.stringify({
+                  plan_id: "plan-t",
+                  plan_text: "Tool plan",
+                  original_message: "test",
+                  status: "pending",
+                })}\n\n`
+              )
+            );
+            controller.enqueue(
+              encoder.encode(
+                `event: done\ndata: ${JSON.stringify({ text: "Tool plan" })}\n\n`
+              )
+            );
+            controller.close();
+          },
+        });
+        return { ok: true, body: stream };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    render(<ChatPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-toggle")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("plan-toggle"));
+    fireEvent.change(screen.getByTestId("chat-input"), {
+      target: { value: "test" },
+    });
+    fireEvent.click(screen.getByTestId("send-button"));
+
+    // Planning indicator should show tool name
+    await waitFor(() => {
+      expect(screen.getByTestId("planning-indicator")).toBeTruthy();
+      expect(screen.getByTestId("planning-indicator").textContent).toContain(
+        "Checking list_tasks..."
+      );
+    });
+
+    // Resolve stream
+    resolveStream!();
+
+    // After completion, plan card should appear
     await waitFor(() => {
       expect(screen.getByTestId("plan-card")).toBeTruthy();
     });

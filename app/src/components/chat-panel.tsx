@@ -55,6 +55,7 @@ export function ChatPanel() {
   const [isPlanning, setIsPlanning] = useState(false);
   const [showFeedbackInput, setShowFeedbackInput] = useState(false);
   const [planFeedback, setPlanFeedback] = useState("");
+  const [activeToolName, setActiveToolName] = useState<string | null>(null);
   const throttledStreamingText = useThrottle(streamingText, 100);
   const scrollEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -147,7 +148,6 @@ export function ChatPanel() {
     };
     setMessages((prev) => [...prev, userMsg]);
     if (!overrideText) setInput("");
-    setPlanMode(false);
     setIsPlanning(true);
     setStreamingText("");
 
@@ -199,6 +199,10 @@ export function ChatPanel() {
               original_message: parsed.original_message,
               status: parsed.status,
             });
+          } else if (eventType === "tool_start") {
+            setActiveToolName(parsed.tool || null);
+          } else if (eventType === "tool_end") {
+            setActiveToolName(null);
           } else if (eventType === "done") {
             fullResponse = parsed.text || fullResponse;
           }
@@ -256,6 +260,7 @@ export function ChatPanel() {
     } finally {
       setIsPlanning(false);
       setStreamingText("");
+      setActiveToolName(null);
       abortRef.current = null;
     }
   }, [input, isStreaming, isPlanning]);
@@ -433,6 +438,7 @@ export function ChatPanel() {
 
   const handlePlanApprove = useCallback(async () => {
     if (!activePlan) return;
+    setPlanMode(false);
     setIsPlanExecuting(true);
     setStreamingText("");
 
@@ -521,6 +527,7 @@ export function ChatPanel() {
 
   const handlePlanReject = useCallback(async () => {
     if (!activePlan) return;
+    setPlanMode(false);
     try {
       await fetch("/api/chat/plan/reject", {
         method: "POST",
@@ -537,24 +544,13 @@ export function ChatPanel() {
 
   const handlePlanRevise = useCallback(async () => {
     if (!activePlan || !planFeedback.trim()) return;
-    const originalMessage = activePlan.original_message;
-    try {
-      await fetch("/api/chat/plan/reject", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan_id: activePlan.plan_id,
-          feedback: planFeedback.trim(),
-        }),
-      });
-    } catch {
-      // ignore
-    }
+    const feedback = planFeedback.trim();
+    // Backend's implicit supersede clears the old plan when plan/start is called
     setActivePlan(null);
     setShowFeedbackInput(false);
     setPlanFeedback("");
-    // Re-submit through plan mode with the original message
-    sendPlanMessage(originalMessage);
+    // Send feedback as the new message — history already has the previous plan
+    sendPlanMessage(feedback);
   }, [activePlan, planFeedback, sendPlanMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -723,7 +719,9 @@ export function ChatPanel() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-amber-400" data-testid="planning-indicator">
                       <ClipboardList className="w-3.5 h-3.5 animate-pulse" />
-                      <span className="text-xs font-medium">Exploring...</span>
+                      <span className="text-xs font-medium">
+                        {activeToolName ? `Checking ${activeToolName}...` : "Exploring..."}
+                      </span>
                     </div>
                     {throttledStreamingText && (
                       <div className="prose prose-sm prose-invert max-w-none">

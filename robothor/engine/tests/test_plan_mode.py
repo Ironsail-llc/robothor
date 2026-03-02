@@ -256,6 +256,70 @@ class TestPlanStart:
         res = await client.post("/chat/plan/start", json={"session_key": "x"})
         assert res.status_code == 400
 
+    @pytest.mark.asyncio
+    async def test_plan_start_accumulates_history(self, client, mock_runner):
+        """plan/start appends exchange to session.history."""
+        run = AgentRun(
+            status=RunStatus.COMPLETED,
+            output_text="1. Do X\n\n[PLAN_READY]",
+            trigger_type=TriggerType.WEBCHAT,
+        )
+
+        async def fake_execute(**kwargs):
+            return run
+
+        mock_runner.execute = AsyncMock(side_effect=fake_execute)
+
+        session = _get_session("hist:main:test")
+        assert len(session.history) == 0
+
+        res = await client.post(
+            "/chat/plan/start",
+            json={"session_key": "hist:main:test", "message": "plan something"},
+        )
+        assert res.status_code == 200
+        # Consume the SSE stream
+        _ = res.text
+
+        assert len(session.history) == 2
+        assert session.history[0]["role"] == "user"
+        assert session.history[0]["content"] == "plan something"
+        assert session.history[1]["role"] == "assistant"
+        assert "Do X" in session.history[1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_plan_start_supersedes_pending_plan(self, client, mock_runner):
+        """plan/start with a pending active_plan supersedes it."""
+        session = _get_session("super:main:test")
+        old_plan = PlanState(
+            plan_id="old-plan",
+            plan_text="Old plan",
+            original_message="old msg",
+            status="pending",
+            created_at=datetime.now(UTC).isoformat(),
+        )
+        session.active_plan = old_plan
+
+        run = AgentRun(
+            status=RunStatus.COMPLETED,
+            output_text="New plan\n\n[PLAN_READY]",
+            trigger_type=TriggerType.WEBCHAT,
+        )
+        mock_runner.execute = AsyncMock(return_value=run)
+
+        res = await client.post(
+            "/chat/plan/start",
+            json={"session_key": "super:main:test", "message": "revised feedback"},
+        )
+        assert res.status_code == 200
+        _ = res.text
+
+        # Old plan should be superseded
+        assert old_plan.status == "superseded"
+        # New plan should be active
+        assert session.active_plan is not None
+        assert session.active_plan.plan_text == "New plan"
+
 
 class TestPlanApprove:
     @pytest.mark.asyncio
@@ -462,3 +526,284 @@ def _parse_sse(body: str) -> list[dict]:
                 data = line[6:]
             events.append({"event": current_event, "data": data})
     return events
+
+
+# ─── Runner Plan Mode Tests ─────────────────────────────────────────
+
+
+@pytest.fixture
+def runner(engine_config):
+    """Create an AgentRunner with mocked registry."""
+    with patch("robothor.engine.runner.get_registry") as mock_reg:
+        mock_registry = MagicMock()
+        mock_registry.build_for_agent.return_value = []
+        mock_registry.get_tool_names.return_value = []
+        mock_registry.build_readonly_for_agent.return_value = []
+        mock_registry.get_readonly_tool_names.return_value = []
+        mock_reg.return_value = mock_registry
+        from robothor.engine.runner import AgentRunner
+
+        r = AgentRunner(engine_config)
+        r.registry = mock_registry
+        yield r
+
+
+class TestPlanModeSystemPrompt:
+    """Verify the conversational plan-mode system prompt."""
+
+    @pytest.mark.asyncio
+    async def test_plan_prompt_includes_conversational_flow(
+        self, runner, sample_agent_config, mock_litellm_response
+    ):
+        """readonly_mode=True injects the conversational plan prompt."""
+        response = mock_litellm_response(content="Here is my plan\n\n[PLAN_READY]")
+
+        with patch("robothor.engine.runner.create_run"):
+            with patch("robothor.engine.runner.update_run"):
+                with patch("robothor.engine.runner.create_step"):
+                    with patch(
+                        "litellm.acompletion", new_callable=AsyncMock, return_value=response
+                    ) as mock_llm:
+                        await runner.execute(
+                            "test-agent",
+                            "check tasks",
+                            agent_config=sample_agent_config,
+                            readonly_mode=True,
+                        )
+
+        # Extract system prompt from the first LLM call
+        call_args = mock_llm.call_args
+        messages = call_args.kwargs["messages"]
+        system_msg = messages[0]["content"]
+
+        assert "[PLAN MODE — READ-ONLY EXPLORATION]" in system_msg
+        assert "Ask questions" in system_msg
+        assert "Propose when ready" in system_msg
+        assert "[PLAN_READY]" in system_msg
+        assert "On revision" in system_msg
+        assert "refine it" in system_msg
+
+    @pytest.mark.asyncio
+    async def test_normal_mode_no_plan_prompt(
+        self, runner, sample_agent_config, mock_litellm_response
+    ):
+        """Non-plan mode does NOT inject plan prompt."""
+        response = mock_litellm_response(content="Done")
+
+        with patch("robothor.engine.runner.create_run"):
+            with patch("robothor.engine.runner.update_run"):
+                with patch("robothor.engine.runner.create_step"):
+                    with patch(
+                        "litellm.acompletion", new_callable=AsyncMock, return_value=response
+                    ) as mock_llm:
+                        await runner.execute(
+                            "test-agent",
+                            "hello",
+                            agent_config=sample_agent_config,
+                        )
+
+        system_msg = mock_llm.call_args.kwargs["messages"][0]["content"]
+        assert "PLAN MODE" not in system_msg
+
+
+class TestPlanModeResearchNudge:
+    """Verify the research nudge fires on first no-tool-call iteration."""
+
+    @pytest.mark.asyncio
+    async def test_nudge_fires_when_no_tools_on_first_iteration(
+        self, runner, sample_agent_config, mock_litellm_response
+    ):
+        """If the agent proposes a plan without tool calls on iteration 0,
+        a nudge message is injected and the loop continues."""
+        # First call: text only (no tool calls) — triggers nudge
+        response1 = mock_litellm_response(content="Here's my plan without research")
+        # Second call: text with PLAN_READY (after nudge) — loop ends
+        response2 = mock_litellm_response(content="After checking, here's the plan\n\n[PLAN_READY]")
+
+        call_count = 0
+
+        async def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return response1 if call_count == 1 else response2
+
+        with patch("robothor.engine.runner.create_run"):
+            with patch("robothor.engine.runner.update_run"):
+                with patch("robothor.engine.runner.create_step"):
+                    with patch("litellm.acompletion", side_effect=mock_completion) as mock_llm:
+                        run = await runner.execute(
+                            "test-agent",
+                            "check tasks",
+                            agent_config=sample_agent_config,
+                            readonly_mode=True,
+                        )
+
+        assert run.status == RunStatus.COMPLETED
+        # LLM was called twice (first attempt + after nudge)
+        assert call_count == 2
+
+        # The nudge message was injected between calls
+        second_call_messages = mock_llm.call_args_list[1].kwargs["messages"]
+        nudge_msgs = [
+            m
+            for m in second_call_messages
+            if m.get("role") == "user" and "without using any tools" in m.get("content", "")
+        ]
+        assert len(nudge_msgs) == 1
+
+    @pytest.mark.asyncio
+    async def test_nudge_does_not_fire_in_normal_mode(
+        self, runner, sample_agent_config, mock_litellm_response
+    ):
+        """In normal (non-plan) mode, text-only response ends the loop immediately."""
+        response = mock_litellm_response(content="Done!")
+
+        call_count = 0
+
+        async def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return response
+
+        with patch("robothor.engine.runner.create_run"):
+            with patch("robothor.engine.runner.update_run"):
+                with patch("robothor.engine.runner.create_step"):
+                    with patch("litellm.acompletion", side_effect=mock_completion):
+                        run = await runner.execute(
+                            "test-agent",
+                            "hello",
+                            agent_config=sample_agent_config,
+                        )
+
+        assert run.status == RunStatus.COMPLETED
+        # Only one LLM call — no nudge
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_nudge_only_fires_once(self, runner, sample_agent_config, mock_litellm_response):
+        """The nudge only fires on iteration 0; subsequent text-only responses end the loop."""
+        # First call: text only → nudge
+        response1 = mock_litellm_response(content="My plan without research")
+        # Second call: text only again → loop ends (iteration 1, no nudge)
+        response2 = mock_litellm_response(content="Fine, here's my plan\n\n[PLAN_READY]")
+
+        call_count = 0
+
+        async def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return response1 if call_count == 1 else response2
+
+        with patch("robothor.engine.runner.create_run"):
+            with patch("robothor.engine.runner.update_run"):
+                with patch("robothor.engine.runner.create_step"):
+                    with patch("litellm.acompletion", side_effect=mock_completion):
+                        run = await runner.execute(
+                            "test-agent",
+                            "check tasks",
+                            agent_config=sample_agent_config,
+                            readonly_mode=True,
+                        )
+
+        assert run.status == RunStatus.COMPLETED
+        # Exactly two calls: first attempt + one retry after nudge
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_nudge_when_tools_used_on_first_iteration(
+        self, runner, sample_agent_config, mock_litellm_response
+    ):
+        """If the agent uses tools on iteration 0, no nudge is needed."""
+        # First call: tool call (agent researches)
+        tc = MagicMock()
+        tc.id = "call_1"
+        tc.function.name = "list_tasks"
+        tc.function.arguments = json.dumps({"status": "TODO"})
+        response1 = mock_litellm_response(content=None, tool_calls=[tc])
+        response1.choices[0].message.content = None
+
+        # Second call: plan output
+        response2 = mock_litellm_response(content="Found tasks. Plan:\n1. Do X\n\n[PLAN_READY]")
+
+        call_count = 0
+
+        async def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return response1 if call_count == 1 else response2
+
+        runner.registry.execute = AsyncMock(return_value={"tasks": [], "count": 0})
+        runner.registry.build_readonly_for_agent.return_value = [
+            {"type": "function", "function": {"name": "list_tasks"}}
+        ]
+        runner.registry.get_readonly_tool_names.return_value = ["list_tasks"]
+
+        with patch("robothor.engine.runner.create_run"):
+            with patch("robothor.engine.runner.update_run"):
+                with patch("robothor.engine.runner.create_step"):
+                    with patch("litellm.acompletion", side_effect=mock_completion) as mock_llm:
+                        run = await runner.execute(
+                            "test-agent",
+                            "check tasks",
+                            agent_config=sample_agent_config,
+                            readonly_mode=True,
+                        )
+
+        assert run.status == RunStatus.COMPLETED
+        assert call_count == 2
+        # No nudge in the messages — second call should not contain nudge text
+        second_call_messages = mock_llm.call_args_list[1].kwargs["messages"]
+        nudge_msgs = [
+            m
+            for m in second_call_messages
+            if m.get("role") == "user" and "without using any tools" in m.get("content", "")
+        ]
+        assert len(nudge_msgs) == 0
+
+
+class TestPlanModeIterationCap:
+    """Verify plan mode caps max_iterations at 10."""
+
+    @pytest.mark.asyncio
+    async def test_plan_mode_caps_at_10(self, runner, sample_agent_config, mock_litellm_response):
+        """readonly_mode=True caps iterations at 10 regardless of agent config."""
+        sample_agent_config.max_iterations = 20
+
+        # Create a tool call that loops so we can count iterations
+        tc = MagicMock()
+        tc.id = "call_1"
+        tc.function.name = "list_tasks"
+        tc.function.arguments = json.dumps({})
+
+        response_with_tool = mock_litellm_response(content=None, tool_calls=[tc])
+        response_with_tool.choices[0].message.content = None
+
+        call_count = 0
+
+        async def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Always return tool calls — loop runs until max_iterations
+            return response_with_tool
+
+        runner.registry.execute = AsyncMock(return_value={"tasks": []})
+        runner.registry.build_readonly_for_agent.return_value = [
+            {"type": "function", "function": {"name": "list_tasks"}}
+        ]
+        runner.registry.get_readonly_tool_names.return_value = ["list_tasks"]
+
+        # Disable routing so it doesn't interfere with the iteration cap
+        with patch("robothor.engine.runner.create_run"):
+            with patch("robothor.engine.runner.update_run"):
+                with patch("robothor.engine.runner.create_step"):
+                    with patch("litellm.acompletion", side_effect=mock_completion):
+                        with patch.object(runner, "_apply_routing", return_value=None):
+                            await runner.execute(
+                                "test-agent",
+                                "check tasks",
+                                agent_config=sample_agent_config,
+                                readonly_mode=True,
+                            )
+
+        # Should be capped at 10, not 20
+        assert call_count == 10

@@ -398,18 +398,11 @@ class TelegramBot:
                         session.active_plan = None
                         await message.answer("Plan rejected.")
                         return
-                    # Any other text = rejection with feedback, re-plan
+                    # Any other text = feedback, re-plan with feedback as the message
                     session.active_plan.rejection_feedback = user_text
-                    original_msg = session.active_plan.original_message
-                    session.active_plan.status = "rejected"
+                    session.active_plan.status = "superseded"
                     session.active_plan = None
-                    session.history.append(
-                        {
-                            "role": "system",
-                            "content": f"[PLAN REJECTED] Feedback: {user_text}",
-                        }
-                    )
-                    await self._run_plan_mode(chat_id, session_key, session, original_msg, message)
+                    await self._run_plan_mode(chat_id, session_key, session, user_text, message)
                     return
                 else:
                     session.active_plan.status = "expired"
@@ -657,6 +650,13 @@ class TelegramBot:
             )
 
             plan_text = _extract_plan_text(run.output_text or "")
+
+            # Accumulate history so revisions have full context
+            session.history.append({"role": "user", "content": user_text})
+            if run.output_text:
+                session.history.append({"role": "assistant", "content": run.output_text})
+            if len(session.history) > self._max_history:
+                session.history[:] = session.history[-self._max_history :]
 
             if plan_text:
                 plan = PlanState(
