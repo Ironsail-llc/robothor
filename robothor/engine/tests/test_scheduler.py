@@ -15,6 +15,7 @@ def _mock_tracking():
     with (
         patch("robothor.engine.scheduler.upsert_schedule"),
         patch("robothor.engine.scheduler.update_schedule_state"),
+        patch("robothor.engine.scheduler.delete_stale_schedules", return_value=[]),
     ):
         yield
 
@@ -249,3 +250,38 @@ class TestRunHeartbeat:
             await scheduler._run_heartbeat("main")
 
         runner.execute.assert_not_called()
+
+
+class TestStaleSchedulePruning:
+    """Stale agent_schedules rows are pruned on startup."""
+
+    @pytest.mark.asyncio
+    async def test_stale_schedules_pruned(self, no_heartbeat_manifest):
+        """Removed agents get their schedule rows deleted on startup."""
+        from robothor.engine.config import EngineConfig
+        from robothor.engine.scheduler import CronScheduler
+
+        config = EngineConfig(
+            manifest_dir=no_heartbeat_manifest,
+            workspace=no_heartbeat_manifest.parent.parent,
+        )
+        runner = MagicMock()
+        scheduler = CronScheduler(config, runner)
+
+        mock_delete = MagicMock(return_value=["supervisor"])
+        with (
+            patch("robothor.engine.scheduler.upsert_schedule"),
+            patch("robothor.engine.scheduler.update_schedule_state"),
+            patch("robothor.engine.scheduler.delete_stale_schedules", mock_delete),
+            patch.object(scheduler.scheduler, "start"),
+        ):
+            import asyncio
+
+            with patch("asyncio.sleep", side_effect=asyncio.CancelledError):
+                with pytest.raises(asyncio.CancelledError):
+                    await scheduler.start()
+
+        # Should have been called with the set of active IDs
+        mock_delete.assert_called_once()
+        active_ids = mock_delete.call_args[0][0]
+        assert "worker" in active_ids

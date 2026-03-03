@@ -415,6 +415,30 @@ def list_schedules(
         return [dict(r) for r in cur.fetchall()]
 
 
+def delete_stale_schedules(
+    active_agent_ids: set[str],
+    tenant_id: str = DEFAULT_TENANT,
+) -> list[str]:
+    """Delete schedule rows for agents that no longer have manifests.
+
+    Returns list of deleted agent_ids.
+    """
+    if not active_agent_ids:
+        return []
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        placeholders = ",".join(["%s"] * len(active_agent_ids))
+        cur.execute(
+            f"DELETE FROM agent_schedules WHERE tenant_id = %s "
+            f"AND agent_id NOT IN ({placeholders}) "
+            f"RETURNING agent_id",
+            [tenant_id, *active_agent_ids],
+        )
+        deleted = [row[0] for row in cur.fetchall()]
+        return deleted
+
+
 def get_agent_stats(
     agent_id: str,
     hours: int = 24,
