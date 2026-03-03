@@ -12,6 +12,7 @@ from robothor.engine.tracking import (
     _truncate_json,
     create_run,
     create_step,
+    delete_stale_schedules,
     get_agent_stats,
     get_run,
     list_runs,
@@ -222,6 +223,20 @@ class TestSchedules:
         list_schedules(enabled_only=True)
         sql = mock_db["cursor"].execute.call_args[0][0]
         assert "enabled = TRUE" in sql
+
+    def test_delete_stale_schedules(self, mock_db):
+        mock_db["cursor"].fetchall.return_value = [("supervisor",), ("old-agent",)]
+        deleted = delete_stale_schedules({"main:heartbeat", "email-classifier"})
+        sql = mock_db["cursor"].execute.call_args[0][0]
+        assert "DELETE FROM agent_schedules" in sql
+        assert "NOT IN" in sql
+        assert "RETURNING agent_id" in sql
+        assert deleted == ["supervisor", "old-agent"]
+
+    def test_delete_stale_schedules_empty_set(self, mock_db):
+        deleted = delete_stale_schedules(set())
+        assert deleted == []
+        mock_db["cursor"].execute.assert_not_called()
 
 
 class TestAgentStats:

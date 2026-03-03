@@ -20,7 +20,7 @@ from robothor.engine.config import load_all_manifests, manifest_to_agent_config
 from robothor.engine.dedup import release, try_acquire
 from robothor.engine.delivery import deliver
 from robothor.engine.models import AgentConfig, TriggerType
-from robothor.engine.tracking import update_schedule_state, upsert_schedule
+from robothor.engine.tracking import delete_stale_schedules, update_schedule_state, upsert_schedule
 
 # Circuit breaker: skip agent after this many consecutive errors
 CIRCUIT_BREAKER_THRESHOLD = 5
@@ -50,6 +50,7 @@ class CronScheduler:
         """Load manifests and start the scheduler."""
         manifests = load_all_manifests(self.config.manifest_dir)
         loaded = 0
+        active_schedule_ids: set[str] = set()
 
         for manifest in manifests:
             agent_config = manifest_to_agent_config(manifest)
@@ -89,6 +90,7 @@ class CronScheduler:
                             delivery_to=agent_config.heartbeat.delivery_to,
                             session_target=agent_config.heartbeat.session_target,
                         )
+                        active_schedule_ids.add(hb_job_id)
                     except Exception as e:
                         logger.warning(
                             "Failed to upsert heartbeat schedule for %s: %s",
@@ -156,12 +158,24 @@ class CronScheduler:
                     delivery_to=agent_config.delivery_to,
                     session_target=agent_config.session_target,
                 )
+                active_schedule_ids.add(agent_config.id)
             except Exception as e:
                 logger.warning("Failed to upsert schedule for %s: %s", agent_config.id, e)
 
             loaded += 1
 
         logger.info("Loaded %d scheduled agents from %d manifests", loaded, len(manifests))
+
+        # Clean up stale schedule rows for removed agents
+        if active_schedule_ids:
+            try:
+                deleted = delete_stale_schedules(
+                    active_schedule_ids, tenant_id=self.config.tenant_id
+                )
+                if deleted:
+                    logger.info("Pruned %d stale schedule(s): %s", len(deleted), deleted)
+            except Exception as e:
+                logger.warning("Failed to prune stale schedules: %s", e)
 
         # Register workflow cron jobs
         wf_loaded = 0
