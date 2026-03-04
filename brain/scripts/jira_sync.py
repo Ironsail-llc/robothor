@@ -30,8 +30,8 @@ JIRA_TOKEN = os.environ.get(
     "ATATT3xFfGF0LQ7h0Fqs-fESxJ6szZaIynxoxTwd4KHgY_Kwr8zsuM6wQgqfrOn_RUBqOuK8E-qt8fPzHONv8Y2_Yt8OItu7COOEsDM6XiTpvzhi9y4ByhUc3X-VVZjMX_89NNxlAxnPqisHK_Ky_zz9Rw9DE_EMjGOjN-CXvR-MYKFV33_GRCc=723E9D3C",
 )
 
-JIRA_LOG = Path("/home/philip/clawd/memory/jira-log.json")
-TASKS_FILE = Path("/home/philip/clawd/memory/tasks.json")
+JIRA_LOG = Path("/home/philip/robothor/brain/memory/jira-log.json")
+TASKS_FILE = Path("/home/philip/robothor/brain/memory/tasks.json")
 
 # JQL: Only Philip's tickets
 JQL_PHILIP = "assignee = currentUser() AND status != Done ORDER BY priority DESC, updated DESC"
