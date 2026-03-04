@@ -333,6 +333,57 @@ async def get_embedding_async(text: str, model: str | None = None) -> list[float
         return embeddings
 
 
+async def get_embeddings_batch_async(
+    texts: list[str],
+    model: str | None = None,
+) -> list[list[float]]:
+    """Get embedding vectors for multiple texts in one Ollama call.
+
+    Ollama's /api/embed supports batch input via ``"input": [text1, text2, ...]``.
+    Falls back to sequential single-text calls if the batch request fails.
+
+    Args:
+        texts: List of texts to embed.
+        model: Override the default embedding model.
+
+    Returns:
+        List of embedding vectors (one per input text).
+    """
+    if not texts:
+        return []
+    if len(texts) == 1:
+        emb = await get_embedding_async(texts[0], model=model)
+        return [emb]
+
+    payload = {
+        "model": model or _embedding_model(),
+        "input": texts,
+    }
+    url = _ollama_url()
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{url}/api/embed", json=payload)
+            resp.raise_for_status()
+            embeddings = resp.json()["embeddings"]
+            if len(embeddings) == len(texts):
+                logger.info("batch embed: %d texts in one call", len(texts))
+                return embeddings
+            logger.warning(
+                "batch embed returned %d embeddings for %d texts, falling back",
+                len(embeddings),
+                len(texts),
+            )
+    except Exception as e:
+        logger.warning("batch embed failed (%s), falling back to sequential", e)
+
+    # Fallback: sequential single-text calls
+    results = []
+    for text in texts:
+        emb = await get_embedding_async(text, model=model)
+        results.append(emb)
+    return results
+
+
 async def check_model_available(model: str | None = None) -> bool:
     """Check if a model is available in Ollama."""
     try:

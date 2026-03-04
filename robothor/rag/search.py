@@ -2,7 +2,7 @@
 RAG Search — high-level query interface for the RAG pipeline.
 
 Provides the full RAG query flow: search memory → inject context → generate.
-For the underlying memory search, see robothor.memory.tiers.
+For the underlying memory search, see robothor.memory.facts.
 
 Usage:
     from robothor.rag.search import rag_query, query_sync
@@ -47,16 +47,14 @@ async def rag_query(
         Dict with 'answer', 'context_used', 'memories_found', 'timing'.
     """
     from robothor.llm.ollama import generate
-    from robothor.memory.tiers import search_all_memory
+    from robothor.memory.facts import search_facts_compat
 
     t0 = time.time()
 
     # Step 1: Search memory (over-retrieve for reranking)
-    results = search_all_memory(
+    results = search_facts_compat(
         question,
         limit=memory_limit,
-        include_short=include_short,
-        include_long=include_long,
     )
     t_search = time.time() - t0
 
@@ -137,7 +135,7 @@ async def rag_chat(
         Dict with 'answer', 'memories_found', 'timing'.
     """
     from robothor.llm.ollama import chat
-    from robothor.memory.tiers import search_all_memory
+    from robothor.memory.facts import search_facts_compat
 
     # Extract the latest user message for search
     last_user_msg = ""
@@ -151,7 +149,7 @@ async def rag_chat(
 
     t0 = time.time()
 
-    results = search_all_memory(last_user_msg, limit=memory_limit)
+    results = search_facts_compat(last_user_msg, limit=memory_limit)
     t_search = time.time() - t0
 
     if use_reranker and len(results) > rerank_top_k:
