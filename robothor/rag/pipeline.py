@@ -49,7 +49,7 @@ async def run_pipeline(
         Dict with 'answer', 'profile', 'sources', 'timing'.
     """
     from robothor.llm.ollama import chat, generate
-    from robothor.memory.tiers import search_all_memory
+    from robothor.memory.facts import search_facts_compat as search_all_memory
 
     t0 = time.time()
 

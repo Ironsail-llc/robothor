@@ -283,10 +283,68 @@ async def store_fact(
     return fact_id
 
 
+async def store_facts_batch(
+    facts: list[dict],
+    source_content: str,
+    source_type: str,
+    metadata: dict | None = None,
+) -> list[int]:
+    """Store multiple facts with batch-embedded vectors.
+
+    Embeds all fact texts in a single Ollama call, then inserts each fact
+    with its pre-computed embedding.
+
+    Args:
+        facts: List of fact dicts with fact_text, category, entities, confidence.
+        source_content: Original content the facts were extracted from.
+        source_type: Type of source (conversation, email, etc.).
+        metadata: Optional additional metadata.
+
+    Returns:
+        List of database IDs for the stored facts.
+    """
+    if not facts:
+        return []
+
+    texts = [f["fact_text"] for f in facts]
+    embeddings = await llm_client.get_embeddings_batch_async(texts)
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        ids = []
+
+        for fact, embedding in zip(facts, embeddings, strict=True):
+            cur.execute(
+                """
+                INSERT INTO memory_facts
+                (fact_text, category, entities, confidence, source_content, source_type,
+                 embedding, metadata)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    fact["fact_text"],
+                    fact["category"],
+                    fact.get("entities", []),
+                    fact.get("confidence", 1.0),
+                    source_content,
+                    source_type,
+                    embedding,
+                    json.dumps(metadata or {}),
+                ),
+            )
+            ids.append(cur.fetchone()[0])
+
+    logger.info("store_facts_batch: stored %d facts with batch embeddings", len(ids))
+    return ids
+
+
 async def search_facts(
     query: str,
     limit: int = 10,
     active_only: bool = True,
+    use_reranker: bool = False,
+    expand_entities: bool = False,
 ) -> list[dict]:
     """Hybrid search: vector similarity + BM25 keyword matching with RRF fusion.
 
@@ -294,11 +352,15 @@ async def search_facts(
         1. Vector search: top 30 by cosine similarity (semantic)
         2. BM25 search: top 30 by ts_rank (keyword)
         3. Reciprocal Rank Fusion: score = 1/(60+rank_vector) + 1/(60+rank_bm25)
+        4. Optional: entity-graph expansion for associated facts
+        5. Optional: reranker (cross-encoder) for precision
 
     Args:
         query: Search query text.
         limit: Maximum number of results.
         active_only: If True, only return active (non-superseded) facts.
+        use_reranker: If True, run reranker on candidates.
+        expand_entities: If True, pull related entity facts.
 
     Returns:
         List of matching fact dictionaries sorted by relevance.
@@ -363,10 +425,140 @@ async def search_facts(
         rrf_scores[fact_id] = score
 
     sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)
-    results = []
-    for fact_id in sorted_ids[:limit]:
+    candidates = []
+    for fact_id in sorted_ids:
         r = all_results_by_id[fact_id]
         r["rrf_score"] = round(rrf_scores[fact_id], 6)
-        results.append(r)
+        candidates.append(r)
 
-    return results
+    # Entity-graph expansion (best-effort)
+    if expand_entities and candidates:
+        try:
+            from robothor.memory.entities import get_entity
+
+            mentioned_entities: set[str] = set()
+            for r in candidates[:5]:
+                for e in r.get("entities") or []:
+                    mentioned_entities.add(e)
+
+            expansion_ids = {r["id"] for r in candidates}
+            for entity_name in list(mentioned_entities)[:3]:
+                entity = await get_entity(entity_name)
+                if entity and entity.get("relations"):
+                    for rel in entity["relations"][:3]:
+                        related_name = rel.get("target") or rel.get("source", "")
+                        if related_name:
+                            with get_connection() as conn:
+                                cur = conn.cursor(cursor_factory=RealDictCursor)
+                                cur.execute(
+                                    """
+                                    SELECT id, fact_text, category, entities, confidence,
+                                           source_type, metadata, created_at, importance_score
+                                    FROM memory_facts
+                                    WHERE is_active = TRUE AND %s = ANY(entities)
+                                      AND importance_score > 0.5
+                                      AND id != ALL(%s)
+                                    ORDER BY importance_score DESC, created_at DESC
+                                    LIMIT 2
+                                    """,
+                                    (related_name, list(expansion_ids)),
+                                )
+                                for r in cur.fetchall():
+                                    r = dict(r)
+                                    r["rrf_score"] = 0.005
+                                    r["source"] = "entity_expansion"
+                                    candidates.append(r)
+                                    expansion_ids.add(r["id"])
+        except Exception:
+            pass  # Entity expansion is best-effort
+
+    # Reranker (optional)
+    if use_reranker and candidates:
+        try:
+            from brain.memory_system.reranker import rerank_with_fallback
+
+            for c in candidates:
+                c["content"] = c.get("fact_text", "")
+            reranked = await rerank_with_fallback(query, candidates, top_k=limit)
+            return reranked
+        except Exception:
+            pass  # Fall through to return without reranker
+
+    return candidates[:limit]
+
+
+def get_memory_stats() -> dict:
+    """Get memory system statistics from the facts-based memory system.
+
+    Returns counts for total facts, active facts, superseded facts,
+    scored facts, entities, and relations.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("SELECT COUNT(*) as count FROM memory_facts")
+        total_facts = cur.fetchone()["count"]
+
+        cur.execute("SELECT COUNT(*) as count FROM memory_facts WHERE is_active = TRUE")
+        active_facts = cur.fetchone()["count"]
+
+        cur.execute(
+            "SELECT COUNT(*) as count FROM memory_facts "
+            "WHERE is_active = FALSE AND superseded_by IS NOT NULL"
+        )
+        superseded_count = cur.fetchone()["count"]
+
+        cur.execute(
+            "SELECT COUNT(*) as count FROM memory_facts "
+            "WHERE importance_score != 0.5 AND is_active = TRUE"
+        )
+        scored_count = cur.fetchone()["count"]
+
+        cur.execute("SELECT COUNT(*) as count FROM memory_entities")
+        entity_count = cur.fetchone()["count"]
+
+        cur.execute("SELECT COUNT(*) as count FROM memory_relations")
+        relation_count = cur.fetchone()["count"]
+
+    return {
+        "total_facts": total_facts,
+        "active_facts": active_facts,
+        "superseded_count": superseded_count,
+        "scored_count": scored_count,
+        "entity_count": entity_count,
+        "relation_count": relation_count,
+    }
+
+
+def search_facts_compat(
+    query: str,
+    limit: int = 10,
+    **kwargs,
+) -> list[dict]:
+    """Sync compatibility wrapper for search_facts, matching the old tiers API.
+
+    Maps fact fields to the RAG pipeline's expected format:
+        fact_text -> content, source_type -> content_type, adds tier: "facts"
+
+    Args:
+        query: Search query text.
+        limit: Maximum number of results.
+
+    Returns:
+        List of result dicts with 'content', 'content_type', 'tier' keys.
+    """
+    import asyncio
+
+    results = asyncio.run(search_facts(query, limit=limit))
+    compat_results = []
+    for r in results:
+        compat_results.append(
+            {
+                **r,
+                "content": r.get("fact_text", ""),
+                "content_type": r.get("source_type", "unknown"),
+                "tier": "facts",
+                "similarity": r.get("rrf_score", 0.0),
+            }
+        )
+    return compat_results

@@ -1134,7 +1134,7 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, An
         return {"id": fact_id, "facts_stored": 1}
 
     elif name == "get_stats":
-        from robothor.memory.tiers import get_memory_stats
+        from robothor.memory.facts import get_memory_stats
 
         return get_memory_stats()
 
