@@ -1268,7 +1268,7 @@ def _handle_sync_tool(
     # ── Memory stats (sync) ──
 
     if name == "get_stats":
-        from robothor.memory.tiers import get_memory_stats
+        from robothor.memory.facts import get_memory_stats
 
         return get_memory_stats()
 

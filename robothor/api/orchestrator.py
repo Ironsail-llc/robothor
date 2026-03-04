@@ -263,7 +263,7 @@ async def list_profiles():
 @app.get("/stats")
 async def stats():
     """Memory system statistics."""
-    from robothor.memory.tiers import get_memory_stats
+    from robothor.memory.facts import get_memory_stats
 
     return get_memory_stats()
 

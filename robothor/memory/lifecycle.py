@@ -7,7 +7,7 @@ or marked as important resist decay.
 
 Architecture:
     Decay formula considers: recency, access frequency, reinforcement, importance
-    Maintenance: score importance -> compute decay -> consolidate similar -> prune
+    Maintenance: score importance -> compute decay -> prune low-quality -> consolidate
 """
 
 from __future__ import annotations
@@ -158,7 +158,6 @@ async def find_consolidation_candidates(
 
         with get_connection() as conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute("SET ivfflat.probes = 10")
             cur.execute(
                 """
                 SELECT id, fact_text, category, entities,
@@ -220,12 +219,72 @@ Return ONLY the consolidated statement, nothing else."""
         }
 
 
+async def prune_low_quality_facts() -> dict:
+    """Deactivate facts that are low-quality garbage.
+
+    Targets:
+        - decay_score < 0.1 AND importance_score < 0.3 AND access_count = 0
+        - fact_text < 15 characters (garbage that got in before quality gate)
+
+    Never prunes: decisions, preferences (category-protected).
+
+    Returns:
+        Dict with pruning statistics.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Prune short garbage
+        cur.execute(
+            """
+            UPDATE memory_facts SET is_active = false, updated_at = NOW()
+            WHERE is_active = true
+              AND length(fact_text) < 15
+              AND category NOT IN ('decision', 'preference')
+            RETURNING id, fact_text
+            """
+        )
+        short_pruned = cur.fetchall()
+
+        # Prune decayed, unimportant, never-accessed facts
+        cur.execute(
+            """
+            UPDATE memory_facts SET is_active = false, updated_at = NOW()
+            WHERE is_active = true
+              AND decay_score < 0.1
+              AND importance_score < 0.3
+              AND access_count = 0
+              AND category NOT IN ('decision', 'preference')
+            RETURNING id, fact_text
+            """
+        )
+        decay_pruned = cur.fetchall()
+
+    total = len(short_pruned) + len(decay_pruned)
+    if total > 0:
+        logger.info(
+            "Pruned %d facts (%d short, %d decayed)", total, len(short_pruned), len(decay_pruned)
+        )
+        for f in (short_pruned + decay_pruned)[:5]:
+            logger.info("  Pruned: %s", f["fact_text"][:80])
+
+    return {
+        "total_pruned": total,
+        "short_pruned": len(short_pruned),
+        "decay_pruned": len(decay_pruned),
+    }
+
+
 async def run_lifecycle_maintenance() -> dict:
     """Run full lifecycle maintenance on the fact store.
 
     Steps:
-        1. Score importance for unscored facts
+        1. Score importance for unscored facts (200 per run)
+           - Fast-path: events older than 30 days auto-score 0.3
+           - Each judge_importance() wrapped in try/except
         2. Compute and update decay scores for all active facts
+        3. Prune low-quality facts (garbage collection)
+        4. Find and consolidate similar fact groups
 
     Returns:
         Dict with maintenance statistics.
@@ -234,23 +293,38 @@ async def run_lifecycle_maintenance() -> dict:
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
         # Step 1: Score importance for facts with default importance (0.5)
+        # Fast-path: events older than 30 days auto-score 0.3 (skip LLM call)
+        cur.execute(
+            """
+            UPDATE memory_facts SET importance_score = 0.3
+            WHERE is_active = TRUE AND importance_score = 0.5
+              AND category = 'event'
+              AND created_at < NOW() - INTERVAL '30 days'
+            """
+        )
+        auto_scored = cur.rowcount
+
         cur.execute(
             """
             SELECT id, fact_text FROM memory_facts
             WHERE is_active = TRUE AND importance_score = 0.5
             ORDER BY created_at DESC
-            LIMIT 50
+            LIMIT 200
             """
         )
         unscored = cur.fetchall()
         facts_scored = 0
 
         for fact in unscored:
-            score = await judge_importance(fact["fact_text"])
-            cur.execute(
-                "UPDATE memory_facts SET importance_score = %s WHERE id = %s", (score, fact["id"])
-            )
-            facts_scored += 1
+            try:
+                score = await judge_importance(fact["fact_text"])
+                cur.execute(
+                    "UPDATE memory_facts SET importance_score = %s WHERE id = %s",
+                    (score, fact["id"]),
+                )
+                facts_scored += 1
+            except Exception as e:
+                logger.warning("Failed to score fact %d: %s", fact["id"], e)
 
         # Step 2: Update decay scores
         cur.execute(
@@ -275,7 +349,49 @@ async def run_lifecycle_maintenance() -> dict:
             )
             decay_updated += 1
 
+    # Step 3: Prune low-quality facts
+    prune_result = await prune_low_quality_facts()
+
+    # Step 4: Consolidation — merge groups of 3+ similar facts
+    consolidation_groups = 0
+    try:
+        groups = await find_consolidation_candidates(min_group_size=3, similarity_threshold=0.8)
+        for group in groups:
+            result = await consolidate_facts(group)
+            if result and result.get("consolidated_text"):
+                from robothor.memory.facts import store_fact
+
+                consolidated_fact = {
+                    "fact_text": result["consolidated_text"],
+                    "category": group[0].get("category", "personal"),
+                    "entities": list(set(e for f in group for e in (f.get("entities") or []))),
+                    "confidence": 0.9,
+                }
+                new_id = await store_fact(
+                    consolidated_fact,
+                    source_content="[consolidated from similar facts]",
+                    source_type="consolidation",
+                )
+                # Supersede originals
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    for source_id in result["source_ids"]:
+                        cur.execute(
+                            """
+                            UPDATE memory_facts
+                            SET is_active = FALSE, superseded_by = %s, updated_at = NOW()
+                            WHERE id = %s AND is_active = TRUE
+                            """,
+                            (new_id, source_id),
+                        )
+                consolidation_groups += 1
+    except Exception as e:
+        logger.warning("Consolidation failed: %s", e)
+
     return {
         "facts_scored": facts_scored,
+        "auto_scored": auto_scored,
         "decay_updated": decay_updated,
+        "facts_pruned": prune_result.get("total_pruned", 0),
+        "consolidation_groups": consolidation_groups,
     }

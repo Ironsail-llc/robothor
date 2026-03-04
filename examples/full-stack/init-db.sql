@@ -19,40 +19,6 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- MEMORY SYSTEM
 -- ════════════════════════════════════════════════════════════════════════════
 
--- ── Short-Term Memory (48h TTL, auto-expires) ──────────────────────────────
-
-CREATE TABLE IF NOT EXISTS short_term_memory (
-    id SERIAL PRIMARY KEY,
-    content TEXT NOT NULL,
-    content_type VARCHAR(50) NOT NULL,
-    embedding vector(1024),
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '48 hours'),
-    accessed_at TIMESTAMPTZ DEFAULT NOW(),
-    access_count INTEGER DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_stm_expires ON short_term_memory (expires_at);
-CREATE INDEX IF NOT EXISTS idx_stm_content_type ON short_term_memory (content_type);
-
--- ── Long-Term Memory (permanent, importance-scored) ────────────────────────
-
-CREATE TABLE IF NOT EXISTS long_term_memory (
-    id SERIAL PRIMARY KEY,
-    content TEXT NOT NULL,
-    summary TEXT,
-    content_type VARCHAR(50) NOT NULL,
-    embedding vector(1024),
-    metadata JSONB DEFAULT '{}',
-    original_date TIMESTAMPTZ,
-    archived_at TIMESTAMPTZ DEFAULT NOW(),
-    source_tier2_ids INTEGER[]
-);
-
-CREATE INDEX IF NOT EXISTS idx_ltm_content_type ON long_term_memory (content_type);
-CREATE INDEX IF NOT EXISTS idx_ltm_archived_at ON long_term_memory (archived_at);
-
 -- ── Fact Store (structured facts with lifecycle) ───────────────────────────
 
 CREATE TABLE IF NOT EXISTS memory_facts (
@@ -75,7 +41,9 @@ CREATE TABLE IF NOT EXISTS memory_facts (
     last_accessed TIMESTAMPTZ DEFAULT NOW(),
     importance_score FLOAT DEFAULT 0.5,
     decay_score FLOAT DEFAULT 1.0,
-    reinforcement_count INTEGER DEFAULT 0
+    reinforcement_count INTEGER DEFAULT 0,
+    -- BM25 full-text search column
+    tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', fact_text)) STORED
 );
 
 CREATE INDEX IF NOT EXISTS idx_facts_category ON memory_facts (category);
@@ -83,6 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_facts_active ON memory_facts (is_active);
 CREATE INDEX IF NOT EXISTS idx_facts_importance ON memory_facts (importance_score DESC);
 CREATE INDEX IF NOT EXISTS idx_facts_entities ON memory_facts USING GIN (entities);
 CREATE INDEX IF NOT EXISTS idx_facts_created ON memory_facts (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_facts_tsv ON memory_facts USING GIN(tsv);
 
 -- ── Entity Knowledge Graph ─────────────────────────────────────────────────
 
@@ -370,69 +339,10 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON telemetry (timestamp DESC)
 CREATE INDEX IF NOT EXISTS idx_telemetry_service_metric ON telemetry (service, metric, timestamp DESC);
 
 -- ════════════════════════════════════════════════════════════════════════════
--- VECTOR INDEXES (IVFFlat)
+-- VECTOR INDEXES (HNSW)
 -- ════════════════════════════════════════════════════════════════════════════
-
-CREATE INDEX IF NOT EXISTS idx_stm_embedding
-    ON short_term_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-
-CREATE INDEX IF NOT EXISTS idx_ltm_embedding
-    ON long_term_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 CREATE INDEX IF NOT EXISTS idx_facts_embedding
-    ON memory_facts USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-
--- ════════════════════════════════════════════════════════════════════════════
--- SEARCH FUNCTION
--- ════════════════════════════════════════════════════════════════════════════
-
-CREATE OR REPLACE FUNCTION search_memories(
-    query_embedding vector(1024),
-    limit_count INTEGER DEFAULT 10,
-    search_short_term BOOLEAN DEFAULT TRUE,
-    search_long_term BOOLEAN DEFAULT TRUE
-)
-RETURNS TABLE(
-    id INTEGER,
-    content TEXT,
-    content_type VARCHAR(50),
-    similarity FLOAT,
-    source_tier VARCHAR(20),
-    created_at TIMESTAMPTZ
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT * FROM (
-        SELECT
-            stm.id,
-            stm.content,
-            stm.content_type,
-            1 - (stm.embedding <=> query_embedding) AS similarity,
-            'short_term'::VARCHAR(20) AS source_tier,
-            stm.created_at
-        FROM short_term_memory stm
-        WHERE search_short_term AND stm.embedding IS NOT NULL
-            AND stm.expires_at > NOW()
-        ORDER BY stm.embedding <=> query_embedding
-        LIMIT limit_count
-
-        UNION ALL
-
-        SELECT
-            ltm.id,
-            ltm.content,
-            ltm.content_type,
-            1 - (ltm.embedding <=> query_embedding) AS similarity,
-            'long_term'::VARCHAR(20) AS source_tier,
-            ltm.archived_at AS created_at
-        FROM long_term_memory ltm
-        WHERE search_long_term AND ltm.embedding IS NOT NULL
-        ORDER BY ltm.embedding <=> query_embedding
-        LIMIT limit_count
-    ) combined
-    ORDER BY similarity DESC
-    LIMIT limit_count;
-END;
-$$ LANGUAGE plpgsql;
+    ON memory_facts USING hnsw (embedding vector_cosine_ops) WITH (m=16, ef_construction=200);
 
 COMMIT;

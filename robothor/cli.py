@@ -253,8 +253,6 @@ REQUIRED_TABLES = [
     "memory_facts",
     "memory_entities",
     "memory_relations",
-    "short_term_memory",
-    "long_term_memory",
     "agent_memory_blocks",
     "contact_identifiers",
     "ingested_items",
