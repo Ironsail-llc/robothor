@@ -26,15 +26,8 @@ Hourly         │ Email Classifier (Engine, 2h safety net 6-22, silent, primary
                │ Vision Monitor (Engine, 6h safety net 6-22, silent, primary: hook vision.person_unknown) — check motion events, write status file
                │ Conversation Inbox Monitor (Engine, hourly 6-22, silent) — check urgent messages, write status file
                │ System health check (crontab) — brain/scripts/system_health_check.py
-:10            │ Triage cleanup (crontab) — brain/scripts/triage_cleanup.py [DISABLED — classifier now self-manages categorizedAt]
-               │   (commented out in crontab since Feb 22 — classifier writes categorizedAt directly)
 :20            │ Email analysis cleanup (crontab) — clear stale response-analysis.json
-:25            │ Email response prep (crontab) — brain/scripts/email_response_prep.py
-               │   Enrich queued emails with thread + contact + topic RAG + calendar + CRM history + depth tag
 :30            │ Email Analyst (Engine, 6h safety net 8-20, primary: downstream from classifier) — analyze analytical items
-:55            │ Triage prep (crontab) — brain/scripts/triage_prep.py
-               │   Extract pending items + enrich with DB contact context (prepares for next hour)
-               │   Publishes triage.refreshed event → triggers email-classifier via hook
 
 03:00 AM       │ Memory maintenance (crontab) — brain/memory_system/maintenance.sh
                │   TTL expiry, archival, stats
@@ -143,12 +136,6 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 # Cron Agent Health Check - every 30 min
 */30 * * * * cd /home/philip/clawd && /home/philip/clawd/memory_system/venv/bin/python scripts/cron_health_check.py >> memory_system/logs/cron-health-check.log 2>&1
 
-# Triage Prep - extract pending items (hourly, prepares for next hour's Classifier)
-55 * * * * cd /home/philip/clawd && /home/philip/clawd/memory_system/venv/bin/python scripts/triage_prep.py >> memory_system/logs/triage-prep.log 2>&1
-
-# Triage Cleanup - mark processed items (hourly, 10 min after Classifier)
-10 * * * * cd /home/philip/clawd && /home/philip/clawd/memory_system/venv/bin/python scripts/triage_cleanup.py >> memory_system/logs/triage-cleanup.log 2>&1
-
 # Supervisor Relay - meeting alerts + stale/CRM checks (6-23 ET)
 */10 6-23 * * * cd /home/philip/clawd && /home/philip/clawd/memory_system/venv/bin/python scripts/supervisor_relay.py >> memory_system/logs/supervisor-relay.log 2>&1
 
@@ -194,9 +181,9 @@ The wrapper sources `/run/robothor/secrets.env` (SOPS-decrypted at boot) before 
 - Main session has `activeHours: 06:00-22:00 ET` — no wakeups during quiet hours (10 PM - 6 AM).
 - **Event-driven hooks are the primary trigger** for email, calendar, and vision agents. Crons are 6h safety nets.
 - **Declarative workflow engine** (`robothor/engine/workflow.py`) provides multi-step agent pipelines with conditional routing. Workflows are defined in `docs/workflows/*.yaml`.
-- Hourly email timeline: :10 cleanup (deprecated) → :20 analysis reset → :25 enrichment → :30 Analyst → :55 triage prep
-- Email classifier now self-manages `categorizedAt` in email-log.json — `triage_cleanup.py` is deprecated (cron entry remains but is redundant)
-- Duplicate prevention: filter_already_replied() in response prep, actionCompletedAt guard in cleanup, 5-min cooldown in sync
+- Hourly email timeline: :20 analysis reset → :30 Analyst
+- Email classifier now self-manages `categorizedAt` in email-log.json
+- Duplicate prevention: actionCompletedAt guard, 5-min cooldown in sync
 - Supervisor Relay is Python (not LLM) — handles meeting alerts and stale/CRM checks
 - CRM Steward spawns research sub-agents for contact enrichment (max 3 per run)
 - System timezone is America/New_York (ET)
