@@ -88,6 +88,17 @@ v2:
   guardrails:
     - no_main_branch_push
     - no_destructive_writes
+    - exec_allowlist
+    - write_path_restrict
+  exec_allowlist:
+    - "^git "
+    - "^python -m pytest"
+    - "^python scripts/validate"
+  write_path_allowlist:
+    - "docs/agents/*"
+    - "brain/agents/*"
+    - "robothor/*"
+    - "brain/memory/overnight-pr-status.md"
 
 changelog:
   - date: "2026-03-04"

@@ -78,6 +78,9 @@ v2:
   cost_budget_usd: 0.50
   guardrails:
     - no_destructive_writes
+    - write_path_restrict
+  write_path_allowlist:
+    - "brain/memory/improvement-analyst-status.md"
 
 changelog:
   - date: "2026-03-04"
