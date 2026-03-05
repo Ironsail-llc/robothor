@@ -1182,11 +1182,15 @@ async def _handle_async_tool(
             async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
+                # Strip HTML comments (potential injection vector)
+                import re as _re
+
+                cleaned = _re.sub(r"<!--.*?-->", "", resp.text, flags=_re.DOTALL)
                 h = html2text.HTML2Text()
                 h.ignore_links = False
                 h.body_width = 0
-                text = h.handle(resp.text)
-                return {"content": text[:20000], "url": str(resp.url), "status": resp.status_code}
+                text = h.handle(cleaned)
+                return {"content": text[:8000], "url": str(resp.url), "status": resp.status_code}
         except ImportError:
             return {"error": "html2text not installed"}
         except Exception as e:
