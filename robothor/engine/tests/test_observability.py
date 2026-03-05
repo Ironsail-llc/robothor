@@ -12,26 +12,26 @@ from robothor.engine.models import AgentConfig, AgentRun, DeliveryMode, RunStatu
 # ─── Helpers ────────────────────────────────────────────────────────
 
 
-def _make_run(**kwargs) -> AgentRun:
-    defaults = {
+def _make_run(**kwargs: object) -> AgentRun:
+    defaults: dict[str, object] = {
         "id": "run-1",
         "agent_id": "test",
         "status": RunStatus.COMPLETED,
         "output_text": "Hello",
     }
     defaults.update(kwargs)
-    return AgentRun(**defaults)
+    return AgentRun(**defaults)  # type: ignore[arg-type]
 
 
-def _make_config(**kwargs) -> AgentConfig:
-    defaults = {
+def _make_config(**kwargs: object) -> AgentConfig:
+    defaults: dict[str, object] = {
         "id": "test",
         "name": "Test",
         "delivery_mode": DeliveryMode.ANNOUNCE,
         "delivery_to": "12345",
     }
     defaults.update(kwargs)
-    return AgentConfig(**defaults)
+    return AgentConfig(**defaults)  # type: ignore[arg-type]
 
 
 # ─── delivery_status Tests ──────────────────────────────────────────
