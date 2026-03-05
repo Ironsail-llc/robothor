@@ -96,6 +96,10 @@ tags_consumed: [crm-hygiene]
 
 v2:
   error_feedback: true
+  guardrails:
+    - write_path_restrict
+  write_path_allowlist:
+    - "brain/memory/crm-steward-status.md"
 
 changelog:
   - date: "2026-02-28"
