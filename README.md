@@ -15,22 +15,22 @@ One repo. One CLI. Your hardware.
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/tests-1%2C800%2B%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-2%2C000%2B%20passing-brightgreen.svg" alt="Tests">
 </p>
 
 ---
 
 ## Highlights
 
-**Platform** — 16 agents defined by declarative YAML manifests. A workflow engine with conditional branching. 78 registered tools with per-agent allow/deny lists. Nested sub-agents (agents spawning focused sub-tasks mid-run). 5 guardrail policies (destructive writes, external HTTP, branch protection, rate limiting, secret scanning). OTel-compatible tracing. Redis Streams event bus with consumer groups and RBAC.
+**Platform** — 16 agents defined by declarative YAML manifests. A workflow engine with conditional branching. 93 registered tools with per-agent allow/deny lists. Nested sub-agents (agents spawning focused sub-tasks mid-run). Deep reasoning (RLM) with custom tool REPL and context pre-loading. 7 guardrail policies (destructive writes, external HTTP, branch protection, rate limiting, secret scanning, exec allowlist, write path restriction). OTel-compatible tracing. Redis Streams event bus with consumer groups and RBAC.
 
-**The Helm** — Not a dashboard, a control plane. Next.js 16 + Dockview with 20 lazy-loaded components. Chat with agents, manage tasks on a Kanban board, watch event streams in real time, monitor service health. Fully extensible component registry.
+**The Helm** — Not a dashboard, a control plane. Next.js 16 + Dockview with 45 lazy-loaded components. Chat with agents, manage tasks on a Kanban board, watch event streams in real time, monitor service health. Fully extensible component registry.
 
 **Intelligence** — Two-tier memory: working context and long-term facts with hybrid search (HNSW vectors + BM25 keyword matching, fused by Reciprocal Rank Fusion). Knowledge graph that grows autonomously. Local RAG stack with embeddings, reranking, and generation. Facts have confidence scores, categories, and lifecycle states — they decay, consolidate, and get pruned by quality gates. Interactive warmup with entity-aware context injection for conversational sessions.
 
 **Physical** — YOLOv8 nano + InsightFace ArcFace, loaded once at startup. Three runtime modes: disarmed, basic (motion-triggered smart detection), armed (per-frame tracking). Any RTSP camera. Pluggable alert targets. Scene analysis via vision LLM. Telegram file handling — PDFs, images, and documents processed inline. All local, no cloud.
 
-**Operations** — Outbound voice calling (Twilio + Gemini Live). Built-in CRM with cross-channel identity resolution and multi-tenancy. Task state machine (TODO &rarr; IN_PROGRESS &rarr; REVIEW &rarr; DONE) with SLA tracking and agent notifications. Fleet analytics with anomaly detection. Nightwatch: overnight self-improving pipeline (failure analysis &rarr; improvement proposals &rarr; draft PRs). MCP server exposes 65 tools over stdio. Encrypted secrets (SOPS + age), systemd services, Cloudflare tunnel, self-healing watchdogs.
+**Operations** — Outbound voice calling (Twilio + Gemini Live). Built-in CRM with cross-channel identity resolution and multi-tenancy. Task state machine (TODO &rarr; IN_PROGRESS &rarr; REVIEW &rarr; DONE) with SLA tracking and agent notifications. Fleet analytics with anomaly detection. Nightwatch: overnight self-improving pipeline (failure analysis &rarr; improvement proposals &rarr; draft PRs). sd_notify watchdog with DB/Redis health pings, zombie run reaping, and stale session cleanup. MCP server exposes 64 tools over stdio. Encrypted secrets (SOPS + age), systemd services, Cloudflare tunnel.
 
 ## Getting Started
 
@@ -90,7 +90,7 @@ Every agent is defined by a YAML manifest and an optional instruction file. Scaf
 robothor agent scaffold support-triage --description "Classify incoming support tickets"
 ```
 
-This creates `docs/agents/support-triage.yaml` (manifest) and `brain/SUPPORT_TRIAGE.md` (instruction file) from templates. Edit them to fit your needs:
+This creates `docs/agents/support-triage.yaml` (manifest) and `brain/SUPPORT_TRIAGE.md` (instruction file) from templates. For a guided experience, use the Agent Builder wizard (`robothor agent build`) — it captures your intent, generates the manifest and instructions, and scaffolds an eval framework. Edit the result to fit your needs:
 
 ```yaml
 # docs/agents/support-triage.yaml
@@ -186,7 +186,7 @@ robothor engine history        # Recent runs with status and duration
 python scripts/validate_agents.py --agent <id>  # Validate manifest
 ```
 
-The engine provides **78 tools** — CRM operations, memory search, file I/O, shell execution, web fetch, task coordination, git operations, voice calling, and more. Each agent sees only the tools in its `tools_allowed` list.
+The engine provides **93 tools** — CRM operations, memory search, file I/O, shell execution, web fetch, task coordination, git operations, voice calling, and more. Each agent sees only the tools in its `tools_allowed` list.
 
 ### Agent Engine v2
 
@@ -272,14 +272,13 @@ robothor engine workflow run <id>  # Execute manually
 
 ## Nightwatch
 
-A self-improving pipeline that runs overnight. Agents analyze failures, propose improvements, and open draft PRs — all without human intervention.
+A self-improving pipeline that runs overnight via Claude Code CLI in isolated git worktrees — no engine agent loop involved. Three specialized scripts:
 
-1. **Failure Analyzer** (every 2h) — Queries recent failures, classifies each as transient, config, code, or unknown. Creates CRM tasks for actionable issues.
-2. **Improvement Analyst** (2 AM) — Reviews fleet analytics, identifies recurring patterns, and writes improvement proposals.
-3. **Overnight PR Agent** (3 AM, Sonnet 4.6) — Picks up proposals and creates draft PRs on feature branches. Protected by the `no_main_branch_push` guardrail, capped at $2/run, max 3 PRs per night.
-4. **Feedback loop** — Tracks merge/reject/modify outcomes. Auto-disables after 3 consecutive rejections. Scope expands based on merge rate: <50% config only, 50–70% +instructions, >70% +code.
+1. **nightwatch-heal.py** (nightly, 3 AM) — Self-healing: detects failures, diagnoses root causes, and applies fixes in an isolated worktree. Opens draft PRs on feature branches.
+2. **nightwatch-build.py** (Monday, 3 AM) — Feature builds: picks up approved improvement proposals and implements them end-to-end, including tests.
+3. **nightwatch-research.py** (Sunday, 1 AM) — Competitive research: surveys the landscape, evaluates new tools and techniques, and writes structured reports.
 
-Workflow definition: [`docs/workflows/nightwatch.yaml`](docs/workflows/nightwatch.yaml)
+All three run in isolated git worktrees with branch protection. Draft PRs are labeled `nightwatch` for easy filtering. A **Failure Analyzer** agent (every 2h) classifies recent failures and creates CRM tasks that feed into the heal pipeline.
 
 ## The Helm
 
@@ -295,7 +294,7 @@ Not a dashboard — a control plane. Built with Next.js 16 and Dockview for a pa
 - **Agent Status** — Live health, run history, and error tracking
 - **CRM Views** — Contacts, companies, conversations, notes
 - **Service Health** — System topology with status indicators
-- **Component Registry** — 20 lazy-loaded components, add your own
+- **Component Registry** — 45 lazy-loaded components, add your own
 
 ## The CRM
 
@@ -359,7 +358,7 @@ Always-on camera monitoring with runtime mode switching:
                          │
 ┌────────────────────────┴────────────────────────────────┐
 │  Agent Engine                                            │
-│  YAML manifests · workflow pipelines · 78 tools         │
+│  YAML manifests · workflow pipelines · 93 tools         │
 │  APScheduler · Redis Stream hooks · Telegram delivery    │
 │  v2: guardrails · planning · checkpoints · telemetry    │
 │  sub-agents · analytics · Nightwatch                     │
@@ -394,7 +393,7 @@ robothor/
 │   ├── crm/                # Models, validation, blocklists
 │   ├── vision/             # YOLO detection, InsightFace recognition, alerts
 │   ├── events/             # Redis Streams, RBAC, consumer workers
-│   ├── api/                # MCP server (65 tools), RAG orchestrator
+│   ├── api/                # MCP server (64 tools), RAG orchestrator
 │   ├── health/             # Garmin health data sync
 │   └── cli.py              # CLI entry point
 │
@@ -416,7 +415,7 @@ robothor/
 | `robothor serve` | Start orchestrator + engine |
 | `robothor status` | System health overview |
 | `robothor migrate` | Run database migrations |
-| `robothor mcp` | Start MCP server (65 tools, stdio) |
+| `robothor mcp` | Start MCP server (64 tools, stdio) |
 | `robothor tui` | Terminal monitoring dashboard |
 | `robothor agent scaffold <id>` | Scaffold a new agent (manifest + instruction file) |
 | `robothor engine start` | Start the engine daemon |
@@ -485,7 +484,7 @@ cd app && pnpm test                             # Helm tests
 python scripts/validate_agents.py               # Agent manifest validation
 ```
 
-**1,800+ tests** across Python and TypeScript. See [TESTING.md](docs/TESTING.md) for the full strategy, markers, and coverage plan.
+**2,000+ tests** across Python and TypeScript. See [TESTING.md](docs/TESTING.md) for the full strategy, markers, and coverage plan.
 
 ## Contributing
 
