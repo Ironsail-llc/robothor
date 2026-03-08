@@ -1,7 +1,7 @@
 id: email-classifier
 name: Email Classifier
 description: Classifies incoming emails, creates tasks, routes to analyst or responder
-version: "2026-03-05"
+version: "2026-03-08"
 department: email
 
 reports_to: main
@@ -10,16 +10,16 @@ receives_tasks_from: []
 escalates_to: main
 
 model:
-  primary: openrouter/moonshotai/kimi-k2.5
+  primary: openrouter/z-ai/glm-5
   fallbacks:
     - openrouter/anthropic/claude-sonnet-4.6
     - gemini/gemini-2.5-pro
-  payload_alias: kimi
+  payload_alias: glm5
 
 schedule:
   cron: "0 6-22/2 * * *"
   timezone: America/New_York
-  timeout_seconds: 600
+  timeout_seconds: 360
   max_iterations: 12
   session_target: isolated
 
@@ -114,6 +114,8 @@ v2:
     - "brain/memory/email-log.json"
 
 changelog:
+  - date: "2026-03-08"
+    change: "Reduce timeout 600s→360s — avg duration 160s, 360s = 2.25× headroom; 19 timeouts/week × 240s saved = ~76 min/week freed capacity [nightwatch]"
   - date: "2026-03-05"
     change: "Reduce max_iterations 10→7 — agent averages 214s (2× fleet avg) with 236 runs/week; tighter loop targets ~150s avg and saves ~$0.80/week [nightwatch]"
   - date: "2026-03-01"
