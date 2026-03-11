@@ -318,7 +318,8 @@ def get_unconsolidated_count() -> int:
         cur.execute(
             "SELECT COUNT(*) FROM memory_facts WHERE is_active = TRUE AND consolidated_at IS NULL"
         )
-        return cur.fetchone()[0]
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
 
 def _mark_facts_consolidated(fact_ids: list[int] | None = None) -> int:
@@ -347,7 +348,7 @@ def _mark_facts_consolidated(fact_ids: list[int] | None = None) -> int:
                 WHERE is_active = TRUE AND consolidated_at IS NULL
                 """
             )
-        return cur.rowcount
+        return int(cur.rowcount)
 
 
 async def run_intraday_consolidation(threshold: int = 5) -> dict[str, Any]:
@@ -555,7 +556,8 @@ async def _find_similar_insight(text: str, threshold: float = 0.85) -> bool:
             """,
             (embedding, threshold),
         )
-        return cur.fetchone()[0] > 0
+        row = cur.fetchone()
+        return bool(row and row[0] > 0)
 
 
 async def store_insight(insight: dict[str, Any]) -> int | None:
