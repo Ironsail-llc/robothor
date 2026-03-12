@@ -379,7 +379,7 @@ def test_valid_transitions():
     from robothor.crm.dal import VALID_TRANSITIONS
 
     assert "IN_PROGRESS" in VALID_TRANSITIONS["TODO"]
-    assert "DONE" in VALID_TRANSITIONS["TODO"]
+    assert "DONE" not in VALID_TRANSITIONS["TODO"]  # Must go through IN_PROGRESS first
     assert "REVIEW" in VALID_TRANSITIONS["IN_PROGRESS"]
     assert "TODO" in VALID_TRANSITIONS["IN_PROGRESS"]
     assert "DONE" in VALID_TRANSITIONS["REVIEW"]
@@ -403,6 +403,10 @@ def test_validate_transition_invalid():
     ok, reason = _validate_transition("TODO", "REVIEW")
     assert ok is False
     assert "Cannot transition" in reason
+
+    ok2, reason2 = _validate_transition("TODO", "DONE")
+    assert ok2 is False
+    assert "Cannot transition" in reason2
 
 
 def test_validate_transition_review_to_done_requires_resolution():
