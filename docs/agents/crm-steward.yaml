@@ -1,7 +1,7 @@
 id: crm-steward
 name: CRM Steward
 description: CRM data hygiene, duplicate merge, and contact enrichment
-version: "2026-03-09"
+version: "2026-03-15"
 department: crm
 
 reports_to: main
@@ -10,15 +10,15 @@ receives_tasks_from: []
 escalates_to: main
 
 model:
-  primary: openrouter/z-ai/glm-5
+  primary: openrouter/anthropic/claude-sonnet-4-6  # Swapped from z-ai/glm-5: 50% timeout rate from second-call hang
   fallbacks:
-    - openrouter/anthropic/claude-sonnet-4-6
     - gemini/gemini-2.5-pro
+    # z-ai/glm-5 removed: confirmed second-call hang driver (task 08d64e1a)
 
 schedule:
   cron: "0 10 * * *"
   timezone: America/New_York
-  timeout_seconds: 480
+  timeout_seconds: 600  # Increased from 480: 460s avg duration leaves only 20s headroom; 600s gives 140s margin
   max_iterations: 6
   session_target: isolated
 
@@ -102,6 +102,8 @@ v2:
     - "brain/memory/crm-steward-status.md"
 
 changelog:
+  - date: "2026-03-15"
+    change: "Swap primary z-ai/glm-5→claude-sonnet-4-6 + remove z-ai from fallbacks (50% timeout rate, task 08d64e1a). Increase timeout 480s→600s (460s avg duration, only 20s headroom). max_iterations=6 preserved (PR #17). Nightwatch self-heal [nightwatch]"
   - date: "2026-03-09"
     change: "Swap to GLM-5 — merge_contacts/update_person need reliable multi-param tool calls"
   - date: "2026-03-09"
