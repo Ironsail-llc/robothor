@@ -1,7 +1,7 @@
 id: conversation-inbox
 name: Conversation Inbox Monitor
 description: Checks for urgent unread messages in open conversations
-version: "2026-03-09"
+version: "2026-03-16"
 department: communications
 
 reports_to: main
@@ -10,15 +10,15 @@ receives_tasks_from: []
 escalates_to: main
 
 model:
-  primary: openrouter/z-ai/glm-5
+  primary: openrouter/anthropic/claude-sonnet-4-6
   fallbacks:
-    - openrouter/anthropic/claude-sonnet-4-6
     - gemini/gemini-2.5-pro
+    - ollama_chat/qwen3.5:122b
 
 schedule:
   cron: "5 6-22 * * *"
   timezone: America/New_York
-  timeout_seconds: 360
+  timeout_seconds: 420
   max_iterations: 5
   session_target: isolated
 
@@ -90,6 +90,8 @@ v2:
     - "brain/memory/conversation-inbox-status.md"
 
 changelog:
+  - date: "2026-03-16"
+    change: "Swap primary z-ai/glm-5 → claude-sonnet-4-6 to eliminate 12.2% timeout rate (z-ai second-call hang, task 08d64e1a); also increase timeout_seconds 360→420 (coordinated with PR #28 correction)"
   - date: "2026-03-10"
     change: "Revert to GLM-5 — Qwen 3.5 122B caused intermittent timeouts (22% rate)"
   - date: "2026-03-09"
