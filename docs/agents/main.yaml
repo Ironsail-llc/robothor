@@ -142,9 +142,11 @@ heartbeat:
   cron: "0 6-22 * * *"
   timezone: America/New_York
   instruction_file: brain/HEARTBEAT.md
-  session_target: isolated
-  max_iterations: 15
-  timeout_seconds: 600
+  session_target: persistent          # remembers what it did last run
+  max_iterations: 0                   # no soft check-in (disabled)
+  safety_cap: 1000                    # very high hard cap (infinite-loop protection only)
+  timeout_seconds: 3600               # 1 hour hard timeout (safety net)
+  stall_timeout_seconds: 300          # 5 min no-activity = kill (primary protection)
   delivery:
     mode: announce
     channel: telegram
@@ -152,14 +154,16 @@ heartbeat:
   context_files:
     - brain/memory/cron-health-status.md
     - brain/memory/garmin-health.md
+    - brain/memory/email-classifier-status.md
+    - brain/memory/email-analyst-status.md
   peer_agents: [email-classifier, email-responder, calendar-monitor]
   bootstrap_files: [brain/AGENTS.md, brain/TOOLS.md]
 
 v2:
   can_spawn_agents: true
   max_nesting_depth: 2
-  sub_agent_max_iterations: 10
-  sub_agent_timeout_seconds: 120
+  sub_agent_max_iterations: 50        # was 10 — sub-agents need room to work
+  sub_agent_timeout_seconds: 900      # 15 min per sub-agent (was 120s)
 
 changelog:
   - date: "2026-03-09"

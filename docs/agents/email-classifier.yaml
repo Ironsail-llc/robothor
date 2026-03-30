@@ -38,6 +38,7 @@ tools_allowed:
   - update_task
   - get_inbox
   - ack_notification
+  - send_notification
   - append_to_block
 tools_denied:
   - create_message
@@ -50,6 +51,7 @@ bridge_endpoints:
   - "GET /api/tasks/agent/*"
   - "POST /api/tasks/*/resolve"
   - "GET /api/notifications/inbox/*"
+  - "POST /api/notifications"
   - "POST /api/notifications/*/ack"
   - "POST /api/memory/blocks/*/append"
 streams:

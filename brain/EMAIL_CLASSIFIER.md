@@ -144,6 +144,27 @@ This flag prevents automated cleanup from silently closing tasks that need Phili
 - **meeting_logistics** — Scheduling, meeting details
 - **analytical** — Reports, financial data, proposals, strategic content needing substantive response
 
+## Importance Rating
+
+Every email gets an importance rating. Include this in the email-log.json entry alongside urgency and category.
+
+- **5 (critical)**: Key contacts (Samantha, Caroline), legal, healthcare, security incidents
+- **4 (high)**: Known contacts with action items, financial matters, client requests
+- **3 (medium)**: Known contacts, informational, requires acknowledgment
+- **2 (low)**: Automated notifications from known services, FYI emails
+- **1 (noise)**: Newsletters, promotions, marketing, spam
+
+**Feedback-aware rating**: Before assigning importance, check for prior feedback:
+```
+search_memory(query="Philip feedback email from <sender domain>")
+```
+If Philip previously deprioritized emails from this sender/topic, lower the rating. If Philip escalated something you previously dismissed, raise it.
+
+Add the `importance` field when writing classifications to `email-log.json`:
+```python
+data['entries'][eid]['importance'] = 4  # example
+```
+
 ## Urgency Levels
 
 - **critical**: Security threats, system outages, healthcare emergencies
@@ -170,6 +191,30 @@ create_task(
     priority="high",
     requiresHuman=true,
     body="threadId: <gmail thread id>\nreason: <brief reason>\nurgency: <low|medium|high|critical>"
+)
+```
+
+**After creating the task, notify main immediately** so the next heartbeat picks it up:
+```
+send_notification(
+    toAgent="main",
+    notificationType="escalation",
+    subject="Email from [sender]: [subject]",
+    body="importance: [1-5], threadId: <gmail thread id>, gist: [one-line summary]",
+    taskId="<task_id from create_task>"
+)
+```
+
+### Notify main for ALL key-contact emails
+
+Emails from key contacts (Samantha, Caroline, etc.) **always** generate a notification to main, even when routed to email-analyst or email-responder instead of escalated. This ensures Philip sees them in the next heartbeat:
+
+```
+send_notification(
+    toAgent="main",
+    notificationType="info",
+    subject="[sender name] emailed: [subject]",
+    body="importance: [1-5], routed to: [email-analyst|email-responder], gist: [one-line summary]"
 )
 ```
 
