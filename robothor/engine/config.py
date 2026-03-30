@@ -184,6 +184,7 @@ def manifest_to_agent_config(manifest: dict[str, Any]) -> AgentConfig:
             max_iterations=int(raw_heartbeat.get("max_iterations", 15)),
             safety_cap=int(raw_heartbeat.get("safety_cap", 50)),
             timeout_seconds=int(raw_heartbeat.get("timeout_seconds", 600)),
+            stall_timeout_seconds=int(raw_heartbeat.get("stall_timeout_seconds", 300)),
             delivery_mode=hb_delivery_mode,
             delivery_channel=hb_delivery.get("channel", ""),
             delivery_to=hb_delivery.get("to", "")
@@ -209,6 +210,7 @@ def manifest_to_agent_config(manifest: dict[str, Any]) -> AgentConfig:
         timezone=schedule.get("timezone", "America/New_York"),
         timeout_seconds=schedule.get("timeout_seconds", 600),
         max_iterations=schedule.get("max_iterations", 20),
+        stall_timeout_seconds=int(schedule.get("stall_timeout_seconds", 300)),
         temperature=float(model.get("temperature", 0.3)),
         session_target=schedule.get("session_target", "isolated"),
         catch_up=schedule.get("catch_up", "coalesce"),

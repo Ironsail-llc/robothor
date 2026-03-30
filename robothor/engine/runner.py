@@ -58,6 +58,80 @@ from robothor.engine.session import AgentSession
 from robothor.engine.tools import get_registry
 from robothor.engine.tracking import create_run, create_step, update_run
 
+
+class _StallWatchdog:
+    """Kills a run if no activity occurs for stall_timeout seconds.
+
+    Activity is tracked via touch() — call it on every LLM response,
+    tool completion, and sub-agent completion. A background task checks
+    every 30s and cancels the given asyncio.Task if idle too long.
+
+    If stall_timeout <= 0, the watchdog is disabled (no-op).
+    Hard timeout_seconds is kept as an absolute safety net.
+    """
+
+    def __init__(self, stall_timeout: int, hard_timeout: int) -> None:
+        self._stall_timeout = stall_timeout
+        self._hard_timeout = hard_timeout
+        self._last_activity = time.monotonic()
+        self._task: asyncio.Task[None] | None = None
+        self._cancelled = False
+
+    def touch(self) -> None:
+        """Record activity — resets the stall timer."""
+        self._last_activity = time.monotonic()
+
+    def start(self, monitored_task: asyncio.Task[Any]) -> None:
+        """Start the watchdog background loop."""
+        if self._stall_timeout <= 0 and self._hard_timeout <= 0:
+            return
+        self._start_time = time.monotonic()
+        self._task = asyncio.create_task(self._watch(monitored_task))
+
+    async def _watch(self, monitored_task: asyncio.Task[Any]) -> None:
+        try:
+            while not monitored_task.done():
+                await asyncio.sleep(30)
+                if monitored_task.done():
+                    break
+                now = time.monotonic()
+                idle = now - self._last_activity
+                elapsed = now - self._start_time
+
+                # Hard timeout (absolute safety net)
+                if self._hard_timeout > 0 and elapsed > self._hard_timeout:
+                    logger.warning(
+                        "Stall watchdog: hard timeout (%ds) reached after %.0fs",
+                        self._hard_timeout,
+                        elapsed,
+                    )
+                    self._cancelled = True
+                    monitored_task.cancel()
+                    return
+
+                # Stall detection (primary mechanism)
+                if self._stall_timeout > 0 and idle > self._stall_timeout:
+                    logger.warning(
+                        "Stall watchdog: no activity for %.0fs (limit %ds), killing run",
+                        idle,
+                        self._stall_timeout,
+                    )
+                    self._cancelled = True
+                    monitored_task.cancel()
+                    return
+        except asyncio.CancelledError:
+            pass
+
+    def stop(self) -> None:
+        """Stop the watchdog."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+
+    @property
+    def was_stall_timeout(self) -> bool:
+        return self._cancelled
+
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -252,10 +326,16 @@ class AgentRunner:
             else:
                 session.run.token_budget = spawn_context.remaining_token_budget
 
-        # Execute with timeout — covers EVERYTHING: DB init, warmup, planner, run loop.
-        # Previously only _run_loop was wrapped, so hangs during initialization
-        # (DB pool exhaustion, warmup blocking) bypassed the timeout entirely.
+        # Stall watchdog — kills the run if no activity for stall_timeout_seconds.
+        # Hard timeout_seconds kept as absolute safety net via asyncio.timeout().
+        # Unlike the old approach (short hard timeout), the hard timeout is now generous
+        # and the stall watchdog is the primary protection against hung LLM calls.
+        stall_timeout = getattr(agent_config, "stall_timeout_seconds", 300)
         timeout = agent_config.timeout_seconds
+        watchdog = _StallWatchdog(
+            stall_timeout=stall_timeout, hard_timeout=0
+        )  # hard timeout via asyncio
+        self._active_watchdog = watchdog  # expose for touch() calls from tool handlers
         trace = None  # initialized inside timeout block, but referenced in except handlers
         try:
             async with asyncio.timeout(timeout):
@@ -334,23 +414,37 @@ class AgentRunner:
                 if resume_from_run_id:
                     resumed_scratchpad = self._resume_from_checkpoint(resume_from_run_id, session)
 
-                await self._run_loop(
-                    session,
-                    models,
-                    tool_schemas,
-                    agent_config,
-                    on_content,
-                    on_tool,
-                    max_iterations=max_iterations,
-                    route=route,
-                    plan_result=plan_result,
-                    trace=trace,
-                    resumed_scratchpad=resumed_scratchpad,
-                    spawn_context=spawn_context,
-                    readonly_mode=readonly_mode,
-                    on_status=on_status,
-                )
-        except TimeoutError:
+                # Start stall watchdog — monitors current task for inactivity
+                current_task = asyncio.current_task()
+                if current_task:
+                    watchdog.start(current_task)
+
+                try:
+                    await self._run_loop(
+                        session,
+                        models,
+                        tool_schemas,
+                        agent_config,
+                        on_content,
+                        on_tool,
+                        max_iterations=max_iterations,
+                        route=route,
+                        plan_result=plan_result,
+                        trace=trace,
+                        resumed_scratchpad=resumed_scratchpad,
+                        spawn_context=spawn_context,
+                        readonly_mode=readonly_mode,
+                        on_status=on_status,
+                    )
+                finally:
+                    watchdog.stop()
+
+        except (TimeoutError, asyncio.CancelledError):
+            if watchdog.was_stall_timeout:
+                idle_msg = f"Stall watchdog: no activity for {stall_timeout}s"
+                logger.warning("Agent %s killed: %s", agent_id, idle_msg)
+                session.record_error(idle_msg)
+                return self._finish_run(session.timeout(), trace=trace)
             logger.warning("Agent %s timed out after %ds", agent_id, timeout)
             session.record_error(f"Timed out after {timeout}s")
             return self._finish_run(session.timeout(), trace=trace)
@@ -874,6 +968,10 @@ class AgentRunner:
                     error_message=error_msg,
                 )
 
+                # Touch stall watchdog — tool completed, we're active
+                if hasattr(self, "_active_watchdog") and self._active_watchdog:
+                    self._active_watchdog.touch()
+
                 # ── [ERROR CLASSIFICATION] Classify error type ──
                 error_type = None
                 if error_msg:
@@ -1166,6 +1264,10 @@ class AgentRunner:
             )
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
+
+        # Touch stall watchdog — LLM responded, we're alive
+        if hasattr(self, "_active_watchdog") and self._active_watchdog:
+            self._active_watchdog.touch()
 
         if response is None or not response.choices:
             return response, "", elapsed_ms, {}

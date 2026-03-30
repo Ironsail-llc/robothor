@@ -99,6 +99,7 @@ class HeartbeatConfig:
     max_iterations: int = 15  # soft check-in interval (not a hard cap)
     safety_cap: int = 50  # absolute max iterations for heartbeat runs
     timeout_seconds: int = 600
+    stall_timeout_seconds: int = 300  # kill if no activity for this long (0 = disabled)
 
     # Delivery (typically announce for heartbeat)
     delivery_mode: DeliveryMode = DeliveryMode.ANNOUNCE
@@ -176,6 +177,7 @@ class AgentConfig:
     temperature: float = 0.3
     max_iterations: int = 20  # soft check-in interval (not a hard cap)
     safety_cap: int = 200  # absolute max iterations (infinite-loop protection only)
+    stall_timeout_seconds: int = 300  # kill if no activity for this long (0 = disabled)
 
     # Downstream agents to trigger after successful cron run
     downstream_agents: list[str] = field(default_factory=list)
