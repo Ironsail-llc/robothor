@@ -342,13 +342,49 @@ class CronScheduler:
 
         payload = self._build_payload(agent_config)
 
+        # Load prior session for persistent agents (like Telegram does)
+        conversation_history = None
+        if agent_config.session_target == "persistent":
+            try:
+                from robothor.engine.chat_store import load_session
+
+                session_key = f"cron:{dedup_key}"
+                session_data = await asyncio.to_thread(load_session, session_key, limit=20)
+                if session_data and session_data.get("history"):
+                    conversation_history = session_data["history"]
+                    logger.info(
+                        "Loaded %d prior messages for persistent session %s",
+                        len(conversation_history),
+                        session_key,
+                    )
+            except Exception as e:
+                logger.warning("Failed to load persistent session for %s: %s", dedup_key, e)
+
         run = await self.runner.execute(
             agent_id=agent_id,
             message=payload,
             trigger_type=TriggerType.CRON,
             trigger_detail=trigger_detail,
             agent_config=agent_config,
+            conversation_history=conversation_history,
         )
+
+        # Save session for persistent agents
+        if agent_config.session_target == "persistent" and run.output_text:
+            try:
+                from robothor.engine.chat_store import save_exchange
+
+                session_key = f"cron:{dedup_key}"
+                await asyncio.to_thread(
+                    save_exchange,
+                    session_key,
+                    payload,
+                    run.output_text,
+                    channel="cron",
+                )
+                logger.debug("Saved persistent session for %s", session_key)
+            except Exception as e:
+                logger.warning("Failed to save persistent session for %s: %s", dedup_key, e)
 
         # Deliver output
         await deliver(agent_config, run)
@@ -521,9 +557,16 @@ def _build_heartbeat_config(agent_config: AgentConfig) -> AgentConfig:
 
     Inherits model + tools from parent agent, overrides instruction file,
     delivery, warmup, and budget from heartbeat config.
+    Falls back to parent warmup config if heartbeat doesn't specify its own.
     """
     hb = agent_config.heartbeat
     assert hb is not None
+
+    # Inherit parent warmup if heartbeat doesn't specify its own
+    warmup_memory_blocks = hb.warmup_memory_blocks or agent_config.warmup_memory_blocks
+    warmup_context_files = hb.warmup_context_files or agent_config.warmup_context_files
+    warmup_peer_agents = hb.warmup_peer_agents or agent_config.warmup_peer_agents
+
     return AgentConfig(
         id=agent_config.id,
         name=agent_config.name,
@@ -535,6 +578,7 @@ def _build_heartbeat_config(agent_config: AgentConfig) -> AgentConfig:
         timezone=hb.timezone,
         timeout_seconds=hb.timeout_seconds,
         max_iterations=hb.max_iterations,
+        safety_cap=hb.safety_cap,
         session_target=hb.session_target,
         delivery_mode=hb.delivery_mode,
         delivery_channel=hb.delivery_channel,
@@ -549,8 +593,14 @@ def _build_heartbeat_config(agent_config: AgentConfig) -> AgentConfig:
         review_workflow=agent_config.review_workflow,
         notification_inbox=agent_config.notification_inbox,
         shared_working_state=agent_config.shared_working_state,
-        warmup_memory_blocks=hb.warmup_memory_blocks,
-        warmup_context_files=hb.warmup_context_files,
-        warmup_peer_agents=hb.warmup_peer_agents,
+        warmup_memory_blocks=warmup_memory_blocks,
+        warmup_context_files=warmup_context_files,
+        warmup_peer_agents=warmup_peer_agents,
+        stall_timeout_seconds=hb.stall_timeout_seconds,
         error_feedback=agent_config.error_feedback,
+        # Sub-agent config inherited from parent
+        can_spawn_agents=agent_config.can_spawn_agents,
+        max_nesting_depth=agent_config.max_nesting_depth,
+        sub_agent_max_iterations=agent_config.sub_agent_max_iterations,
+        sub_agent_timeout_seconds=agent_config.sub_agent_timeout_seconds,
     )
