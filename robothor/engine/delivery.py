@@ -46,10 +46,39 @@ async def deliver(config: AgentConfig, run: AgentRun) -> bool:
         run.delivery_status = "suppressed_sub_agent"
         return True
 
+    # ── [HOOKS] PRE_DELIVERY lifecycle hook ──
+    try:
+        from robothor.engine.hook_registry import (
+            HookAction,
+            HookContext,
+            HookEvent,
+            get_hook_registry,
+        )
+
+        hr = get_hook_registry()
+        if hr and run.output_text:
+            pre_ctx = HookContext(
+                event=HookEvent.PRE_DELIVERY,
+                agent_id=config.id,
+                run_id=run.id,
+                output_text=run.output_text or "",
+            )
+            pre_result = await hr.dispatch(HookEvent.PRE_DELIVERY, pre_ctx)
+            if pre_result.action == HookAction.BLOCK:
+                logger.info("Delivery blocked by hook for %s: %s", config.id, pre_result.reason)
+                run.delivery_status = f"blocked_by_hook:{pre_result.reason}"
+                return True
+    except Exception as e:
+        logger.warning("PRE_DELIVERY hook error: %s", e)
+
     if not run.output_text:
-        logger.debug("No output to deliver for %s", config.id)
-        run.delivery_status = "no_output"
-        return True
+        if run.error_message:
+            # Always notify the user when a run failed — never silently swallow errors
+            run.output_text = f"\u26a0\ufe0f Task incomplete \u2014 {run.error_message}"
+        else:
+            logger.debug("No output to deliver for %s", config.id)
+            run.delivery_status = "no_output"
+            return True
 
     # Strip any trailing HEARTBEAT_OK the LLM may hallucinate
     text = run.output_text.strip()

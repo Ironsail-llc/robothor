@@ -1235,4 +1235,190 @@ def get_engine_schemas() -> dict[str, dict[str, Any]]:
         },
     }
 
+    # ── AutoResearch experiment tools ──────────────────────────────────
+
+    schemas["experiment_create"] = {
+        "type": "function",
+        "function": {
+            "name": "experiment_create",
+            "description": (
+                "Create and initialise an optimization experiment. "
+                "Provide a config_file (YAML path) or inline parameters. "
+                "The experiment iteratively optimises a single numeric metric."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "experiment_id": {
+                        "type": "string",
+                        "description": "Unique experiment identifier (kebab-case)",
+                    },
+                    "config_file": {
+                        "type": "string",
+                        "description": "Path to experiment YAML config (optional — use inline params instead)",
+                    },
+                    "metric_name": {
+                        "type": "string",
+                        "description": "Human-readable metric name (e.g. 'email reply rate')",
+                    },
+                    "metric_command": {
+                        "type": "string",
+                        "description": "Shell command that outputs a single number (the metric value)",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["maximize", "minimize"],
+                        "description": "Whether higher or lower is better",
+                    },
+                    "search_space": {
+                        "type": "string",
+                        "description": "Markdown describing what the agent is allowed to modify",
+                    },
+                    "max_iterations": {
+                        "type": "integer",
+                        "description": "Maximum iterations (default 20, hard cap 200)",
+                    },
+                    "min_improvement_pct": {
+                        "type": "number",
+                        "description": "Minimum % improvement to keep a variant (default 1.0)",
+                    },
+                    "measurement_samples": {
+                        "type": "integer",
+                        "description": "Number of measurements to average (default 1, max 10)",
+                    },
+                    "measurement_delay_seconds": {
+                        "type": "integer",
+                        "description": "Seconds to wait after change before measuring (default 0)",
+                    },
+                    "revert_command": {
+                        "type": "string",
+                        "description": "Shell command to revert the last change",
+                    },
+                    "guardrails": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Constraints the agent must respect",
+                    },
+                    "cost_budget_usd": {
+                        "type": "number",
+                        "description": "Maximum experiment cost in USD (default 2.0)",
+                    },
+                },
+                "required": ["experiment_id"],
+            },
+        },
+    }
+    schemas["experiment_measure"] = {
+        "type": "function",
+        "function": {
+            "name": "experiment_measure",
+            "description": (
+                "Run the experiment's metric command and return the measured value. "
+                "Optionally average multiple samples for noisy metrics."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "experiment_id": {
+                        "type": "string",
+                        "description": "Experiment identifier",
+                    },
+                    "samples": {
+                        "type": "integer",
+                        "description": "Number of samples to take and average (overrides config, max 10)",
+                    },
+                },
+                "required": ["experiment_id"],
+            },
+        },
+    }
+    schemas["experiment_commit"] = {
+        "type": "function",
+        "function": {
+            "name": "experiment_commit",
+            "description": (
+                "Record an iteration's outcome. If verdict is 'revert', the revert_command is executed. "
+                "Learnings are stored for future iterations."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "experiment_id": {
+                        "type": "string",
+                        "description": "Experiment identifier",
+                    },
+                    "hypothesis": {
+                        "type": "string",
+                        "description": "What you predicted this change would do and why",
+                    },
+                    "changes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "file": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                        },
+                        "description": "List of files changed and what was modified",
+                    },
+                    "metric_before": {
+                        "type": "number",
+                        "description": "Metric value before this iteration's change",
+                    },
+                    "metric_after": {
+                        "type": "number",
+                        "description": "Metric value after this iteration's change",
+                    },
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["keep", "revert"],
+                        "description": "Whether to keep the change or revert it",
+                    },
+                    "learnings": {
+                        "type": "string",
+                        "description": "What was learned — explain WHY the change worked or didn't",
+                    },
+                    "cost_usd": {
+                        "type": "number",
+                        "description": "Cost of this iteration in USD (optional)",
+                    },
+                },
+                "required": [
+                    "experiment_id",
+                    "hypothesis",
+                    "changes",
+                    "metric_before",
+                    "metric_after",
+                    "verdict",
+                    "learnings",
+                ],
+            },
+        },
+    }
+    schemas["experiment_status"] = {
+        "type": "function",
+        "function": {
+            "name": "experiment_status",
+            "description": (
+                "Get the current state of an experiment: iterations, learnings, "
+                "best value, cumulative improvement."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "experiment_id": {
+                        "type": "string",
+                        "description": "Experiment identifier",
+                    },
+                    "include_iterations": {
+                        "type": "boolean",
+                        "description": "Include full iteration history (default false for compact view)",
+                    },
+                },
+                "required": ["experiment_id"],
+            },
+        },
+    }
+
     return schemas

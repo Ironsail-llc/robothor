@@ -48,6 +48,11 @@ class EngineConfig:
     max_concurrent_agents: int = 3
     default_timezone: str = "America/New_York"
 
+    # Sub-agent spawning
+    max_concurrent_spawns: int = 10  # fleet-wide default (per-agent overridable)
+    max_spawn_batch: int = 10  # max agents per spawn_agents() call
+    hourly_cost_cap_usd: float = 5.0  # fleet-wide hourly cost cap (0 = unlimited)
+
     # LLM
     max_iterations: int = 20
 
@@ -85,6 +90,9 @@ class EngineConfig:
             main_session_key=os.environ.get("ROBOTHOR_MAIN_SESSION_KEY", "agent:main:primary"),
             instance_id=os.environ.get("ROBOTHOR_INSTANCE_ID", ""),
             nats_url=os.environ.get("ROBOTHOR_NATS_URL", ""),
+            max_concurrent_spawns=int(os.environ.get("ROBOTHOR_MAX_CONCURRENT_SPAWNS", "10")),
+            max_spawn_batch=int(os.environ.get("ROBOTHOR_MAX_SPAWN_BATCH", "10")),
+            hourly_cost_cap_usd=float(os.environ.get("ROBOTHOR_HOURLY_COST_CAP_USD", "5.0")),
         )
 
 
@@ -182,7 +190,9 @@ def manifest_to_agent_config(manifest: dict[str, Any]) -> AgentConfig:
             instruction_file=raw_heartbeat.get("instruction_file", ""),
             session_target=raw_heartbeat.get("session_target", "isolated"),
             max_iterations=int(raw_heartbeat.get("max_iterations", 15)),
+            safety_cap=int(raw_heartbeat.get("safety_cap", 50)),
             timeout_seconds=int(raw_heartbeat.get("timeout_seconds", 600)),
+            stall_timeout_seconds=int(raw_heartbeat.get("stall_timeout_seconds", 300)),
             delivery_mode=hb_delivery_mode,
             delivery_channel=hb_delivery.get("channel", ""),
             delivery_to=hb_delivery.get("to", "")
@@ -208,6 +218,7 @@ def manifest_to_agent_config(manifest: dict[str, Any]) -> AgentConfig:
         timezone=schedule.get("timezone", "America/New_York"),
         timeout_seconds=schedule.get("timeout_seconds", 600),
         max_iterations=schedule.get("max_iterations", 20),
+        stall_timeout_seconds=int(schedule.get("stall_timeout_seconds", 300)),
         temperature=float(model.get("temperature", 0.3)),
         session_target=schedule.get("session_target", "isolated"),
         catch_up=schedule.get("catch_up", "coalesce"),
@@ -238,11 +249,15 @@ def manifest_to_agent_config(manifest: dict[str, Any]) -> AgentConfig:
         downstream_agents=manifest.get("downstream_agents", []),
         hooks=parsed_hooks,
         heartbeat=heartbeat,
+        # Safety cap — absolute max iterations (infinite-loop protection only)
+        safety_cap=int(schedule.get("safety_cap", v2.get("safety_cap", 200))),
         # v2 enhancements — sub-agent spawning
         can_spawn_agents=v2.get("can_spawn_agents", False),
         max_nesting_depth=min(int(v2.get("max_nesting_depth", 2)), 3),  # cap at 3
         sub_agent_max_iterations=int(v2.get("sub_agent_max_iterations", 10)),
         sub_agent_timeout_seconds=int(v2.get("sub_agent_timeout_seconds", 120)),
+        max_concurrent_spawns=int(v2.get("max_concurrent_spawns", 0)),
+        max_spawn_batch=int(v2.get("max_spawn_batch", 0)),
         # v2 enhancements
         error_feedback=v2.get("error_feedback", True),
         # token_budget is auto-derived at runtime from model registry × max_iterations
@@ -257,6 +272,10 @@ def manifest_to_agent_config(manifest: dict[str, Any]) -> AgentConfig:
         verification_enabled=v2.get("verification_enabled", False),
         verification_prompt=v2.get("verification_prompt", ""),
         difficulty_class=v2.get("difficulty_class", ""),
+        lifecycle_hooks=v2.get("lifecycle_hooks", []),
+        sandbox=v2.get("sandbox", "local"),
+        eager_tool_compression=v2.get("eager_tool_compression", True),
+        tool_offload_threshold=v2.get("tool_offload_threshold", 5000),
     )
 
 

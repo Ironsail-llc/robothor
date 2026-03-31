@@ -34,12 +34,14 @@ def _collect_handlers() -> dict[str, Any]:
         browser,
         crm,
         desktop,
+        experiment,
         federation,
         filesystem,
         git,
         gws,
         impetus,
         memory,
+        messaging,
         observability,
         pdf,
         pf,
@@ -60,6 +62,7 @@ def _collect_handlers() -> dict[str, Any]:
         crm,
         browser,
         desktop,
+        experiment,
         git,
         gws,
         vault,
@@ -71,6 +74,7 @@ def _collect_handlers() -> dict[str, Any]:
         reasoning,
         federation,
         pf,
+        messaging,
     ]:
         all_handlers.update(mod.HANDLERS)
     return all_handlers

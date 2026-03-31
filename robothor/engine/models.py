@@ -96,8 +96,10 @@ class HeartbeatConfig:
     timezone: str = "America/New_York"
     instruction_file: str = ""
     session_target: str = "isolated"
-    max_iterations: int = 15
+    max_iterations: int = 15  # soft check-in interval (not a hard cap)
+    safety_cap: int = 50  # absolute max iterations for heartbeat runs
     timeout_seconds: int = 600
+    stall_timeout_seconds: int = 300  # kill if no activity for this long (0 = disabled)
 
     # Delivery (typically announce for heartbeat)
     delivery_mode: DeliveryMode = DeliveryMode.ANNOUNCE
@@ -173,7 +175,9 @@ class AgentConfig:
 
     # LLM parameters
     temperature: float = 0.3
-    max_iterations: int = 20
+    max_iterations: int = 20  # soft check-in interval (not a hard cap)
+    safety_cap: int = 200  # absolute max iterations (infinite-loop protection only)
+    stall_timeout_seconds: int = 300  # kill if no activity for this long (0 = disabled)
 
     # Downstream agents to trigger after successful cron run
     downstream_agents: list[str] = field(default_factory=list)
@@ -190,9 +194,11 @@ class AgentConfig:
     max_nesting_depth: int = 2  # absolute cap: 3
     sub_agent_max_iterations: int = 10
     sub_agent_timeout_seconds: int = 120
+    max_concurrent_spawns: int = 0  # 0 = use engine default
+    max_spawn_batch: int = 0  # 0 = use engine default
 
     error_feedback: bool = True
-    token_budget: int = 0  # max tokens per run (0 = unlimited)
+    token_budget: int = 0  # token tracking (observability only, not enforced)
     planning_enabled: bool = False
     planning_model: str = ""  # separate cheap model for planning
     scratchpad_enabled: bool = False
@@ -208,6 +214,10 @@ class AgentConfig:
     verification_enabled: bool = False
     verification_prompt: str = ""
     difficulty_class: str = ""  # simple, moderate, complex, or empty (auto)
+    lifecycle_hooks: list[dict[str, Any]] = field(default_factory=list)
+    sandbox: str = "local"  # "local" or "docker"
+    eager_tool_compression: bool = True
+    tool_offload_threshold: int = 5000  # chars; results above this get offloaded to file
 
 
 @dataclass
@@ -310,6 +320,7 @@ class SpawnContext:
     correlation_id: str
     nesting_depth: int  # parent's depth (child = +1)
     max_nesting_depth: int = 2  # absolute cap: 3
+    max_spawn_batch: int = 0  # 0 = use engine default
     remaining_token_budget: int = 0
     remaining_cost_budget_usd: float = 0.0
     parent_trace_id: str = ""
