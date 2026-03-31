@@ -81,6 +81,11 @@ MESSAGING_TOOLS = frozenset(
     }
 )
 
+# AutoResearch experiment tools
+EXPERIMENT_TOOLS = frozenset(
+    {"experiment_create", "experiment_measure", "experiment_commit", "experiment_status"}
+)
+
 # Branches that agents are NEVER allowed to push to or commit on
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 
@@ -161,5 +166,7 @@ READONLY_TOOLS: frozenset[str] = frozenset(
         # Messaging read-only tools
         "receive_agent_messages",
         "team_scratchpad_read",
+        # Experiment read-only tools
+        "experiment_status",
     }
 )
