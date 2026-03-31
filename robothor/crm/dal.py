@@ -855,6 +855,7 @@ def find_task_by_dedup_key(
     key_name: str,
     key_value: str,
     include_recently_resolved: bool = True,
+    assigned_to_agent: str | None = None,
     tenant_id: str = DEFAULT_TENANT,
 ) -> dict[str, Any] | None:
     """Find a task containing a dedup key pattern in its body.
@@ -862,6 +863,7 @@ def find_task_by_dedup_key(
     Searches for pattern '{key_name}: {key_value}' in task body.
     When include_recently_resolved=True (default), also matches tasks resolved
     within the last 72 hours to prevent recreation of resolved tasks.
+    When assigned_to_agent is provided, only matches tasks assigned to that agent.
     """
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -869,15 +871,21 @@ def find_task_by_dedup_key(
             resolved_clause = "(resolved_at IS NULL OR resolved_at > NOW() - INTERVAL '72 hours')"
         else:
             resolved_clause = "resolved_at IS NULL"
+        agent_clause = ""
+        params: list[Any] = [f"%{key_name}: {key_value}%"]
+        if assigned_to_agent:
+            agent_clause = "AND assigned_to_agent = %s"
+            params.append(assigned_to_agent)
+        params.append(tenant_id)
         query = f"""
             SELECT id, title, status FROM crm_tasks
             WHERE body LIKE %s
               AND {resolved_clause}
+              {agent_clause}
               AND deleted_at IS NULL
               AND tenant_id = %s
             LIMIT 1
         """
-        params: list[Any] = [f"%{key_name}: {key_value}%", tenant_id]
         cur.execute(query, params)
         row = cur.fetchone()
         if row:
@@ -896,6 +904,7 @@ def find_task_by_thread_id(
         "threadId",
         thread_id,
         include_recently_resolved=include_recently_resolved,
+        assigned_to_agent=assigned_to_agent,
         tenant_id=tenant_id,
     )
 
@@ -1571,8 +1580,8 @@ def toggle_conversation_status(
 def _compute_next_run(cron_expr: str, tz_name: str = "America/New_York") -> datetime | None:
     """Compute next run time from a cron expression."""
     try:
-        import pytz  # type: ignore[import-untyped]
-        from croniter import croniter  # type: ignore[import-untyped]
+        import pytz  # type: ignore[import-untyped,unused-ignore]
+        from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 
         tz = pytz.timezone(tz_name)
         now = datetime.now(tz)

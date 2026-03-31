@@ -152,6 +152,26 @@ Before creating any escalation task (assignedToAgent="main", tags=["needs-philip
 
 ---
 
+## Auto Researcher — Iterative Metric Optimization
+
+The `auto-researcher` agent runs iterative optimization experiments on business metrics using the autoresearch pattern (inspired by Karpathy's `karpathy/autoresearch`). It is manually triggered or assigned via task.
+
+**Loop:** Load experiment state → review learnings → hypothesize → modify → measure → keep/revert → record learnings → repeat.
+
+**Tools:** `experiment_create`, `experiment_measure`, `experiment_commit`, `experiment_status` + standard file I/O, memory blocks, deep_reason, spawn_agent.
+
+**State:** Experiment state stored in memory blocks (`experiment:<id>`). Learnings (positive and negative) accumulate across iterations. Status file: `brain/memory/auto-researcher-status.md`.
+
+**Experiment definitions:** YAML files in `docs/experiments/` specifying `metric_command`, `direction`, `search_space`, `max_iterations`, `revert_command`, and guardrails.
+
+**Safety:** Cost budget (per-experiment + per-run), iteration limit, auto-revert on failure, degradation circuit breaker (>10% drop pauses experiment), write_path_allowlist.
+
+**Model:** Sonnet 4.6 primary, Gemini 2.5 Pro fallback.
+
+**Instruction file:** `brain/agents/AUTO_RESEARCHER.md`
+
+---
+
 ## Computer Use Agent
 
 The `computer-use` agent controls a virtual desktop (Xvfb :99, 1280x1024) and browser (Chromium via Playwright). It is spawn-only — no cron schedule. Main agent or other agents can delegate GUI tasks via `spawn_agent(agent_id="computer-use", message="...")`.
