@@ -195,10 +195,11 @@ class TestAgentRunnerExecute:
 
     @pytest.mark.asyncio
     async def test_timeout(self, runner, sample_agent_config, mock_litellm_response):
-        """Agent times out when execution exceeds timeout_seconds."""
+        """Hard timeout fires when stall watchdog is disabled."""
         import asyncio
 
-        sample_agent_config.timeout_seconds = 1  # 1 second timeout
+        sample_agent_config.timeout_seconds = 1  # 1 second hard timeout
+        sample_agent_config.stall_timeout_seconds = 0  # disable watchdog → hard timeout active
 
         async def slow_completion(**kwargs):
             await asyncio.sleep(5)  # Will be cancelled by timeout
