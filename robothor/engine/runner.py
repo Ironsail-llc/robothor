@@ -262,7 +262,8 @@ class AgentRunner:
             )
 
         # Await both concurrently
-        system_prompt = await sys_prompt_future
+        system_prompt_parts = await sys_prompt_future  # SystemPromptParts
+        system_prompt = system_prompt_parts.full_text()  # str for mode wrapping
         warmup_preamble: str | None = None
         if warmup_future is not None:
             try:
@@ -328,19 +329,17 @@ class AgentRunner:
             else:
                 session.run.token_budget = spawn_context.remaining_token_budget
 
-        # Stall watchdog — kills the run if no activity for stall_timeout_seconds.
-        # Hard timeout_seconds kept as absolute safety net via asyncio.timeout().
-        # Unlike the old approach (short hard timeout), the hard timeout is now generous
-        # and the stall watchdog is the primary protection against hung LLM calls.
+        # Stall watchdog is the primary protection — kills on inactivity, not
+        # elapsed wall-clock time.  Hard timeout only needed as fallback when
+        # the watchdog is explicitly disabled (stall_timeout_seconds: 0).
+        # This lets agents run for hours on complex tasks without being killed.
         stall_timeout = getattr(agent_config, "stall_timeout_seconds", 300)
-        timeout = agent_config.timeout_seconds
-        watchdog = _StallWatchdog(
-            stall_timeout=stall_timeout, hard_timeout=0
-        )  # hard timeout via asyncio
+        hard_timeout = None if stall_timeout > 0 else agent_config.timeout_seconds
+        watchdog = _StallWatchdog(stall_timeout=stall_timeout, hard_timeout=0)
         self._active_watchdog = watchdog  # expose for touch() calls from tool handlers
         trace = None  # initialized inside timeout block, but referenced in except handlers
         try:
-            async with asyncio.timeout(timeout):
+            async with asyncio.timeout(hard_timeout):
                 # Record run in database (sync DB call — run in executor to avoid blocking event loop)
                 try:
                     await asyncio.get_running_loop().run_in_executor(None, create_run, session.run)
@@ -449,6 +448,7 @@ class AgentRunner:
                         resumed_scratchpad=resumed_scratchpad,
                         spawn_context=spawn_context,
                         readonly_mode=readonly_mode,
+                        execution_mode=execution_mode,
                         on_status=on_status,
                         on_stream_event=on_stream_event,
                     )
@@ -470,8 +470,10 @@ class AgentRunner:
                 logger.warning("Agent %s killed: %s", agent_id, idle_msg)
                 session.record_error(idle_msg)
                 return self._finish_run(session.timeout(), trace=trace)
-            logger.warning("Agent %s timed out after %ds", agent_id, timeout)
-            session.record_error(f"Timed out after {timeout}s")
+            # Hard timeout (only fires when stall watchdog is disabled)
+            ht = agent_config.timeout_seconds
+            logger.warning("Agent %s hard-timed out after %ds", agent_id, ht)
+            session.record_error(f"Hard timeout after {ht}s")
             return self._finish_run(session.timeout(), trace=trace)
         except Exception as e:
             tb = traceback.format_exc()
@@ -708,6 +710,7 @@ class AgentRunner:
         resumed_scratchpad: Any = None,
         spawn_context: SpawnContext | None = None,
         readonly_mode: bool = False,
+        execution_mode: bool = False,
         on_status: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         on_stream_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
@@ -771,6 +774,13 @@ class AgentRunner:
                 await hook_registry.dispatch(HookEvent.AGENT_START, start_ctx)
             except Exception as e:
                 logger.warning("AGENT_START hook error: %s", e)
+
+        # Build readonly tool set for runtime enforcement in plan mode
+        _readonly_tool_set: frozenset[str] = frozenset()
+        if readonly_mode:
+            from robothor.engine.tools.constants import READONLY_TOOLS
+
+            _readonly_tool_set = READONLY_TOOLS
 
         # Wire plan into scratchpad for progress tracking
         if scratchpad and plan_result and hasattr(plan_result, "plan") and plan_result.plan:
@@ -930,6 +940,12 @@ class AgentRunner:
 
             assistant_msg = response.choices[0].message
 
+            # ── [EXECUTION MODE] Strip planning markers ──
+            # Prevent the LLM from re-entering plan mode during execution.
+            if execution_mode and assistant_msg.content and "[PLAN_READY]" in assistant_msg.content:
+                assistant_msg.content = assistant_msg.content.replace("[PLAN_READY]", "").strip()
+                logger.info("Stripped [PLAN_READY] marker from execution mode output")
+
             # Check if we're done (no tool calls)
             if not assistant_msg.tool_calls:
                 # In plan mode, nudge the agent to research if it skipped tools
@@ -972,6 +988,26 @@ class AgentRunner:
                     tool_args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError:
                     tool_args = {}
+
+                # ── [PLAN MODE GUARD] Runtime enforcement ──
+                # Belt-and-suspenders: even though schemas are filtered,
+                # block any non-readonly tool call during plan mode at runtime.
+                if readonly_mode and tool_name not in _readonly_tool_set:
+                    guard_msg = (
+                        f"Tool '{tool_name}' is not available in plan mode. "
+                        "Only read-only tools can be used during planning."
+                    )
+                    session.record_tool_call(
+                        tool_name=tool_name,
+                        tool_input=tool_args,
+                        tool_output={"error": guard_msg, "guard": "plan_mode"},
+                        tool_call_id=tc.id,
+                        error_message=guard_msg,
+                    )
+                    iteration_errors.append((tool_name, guard_msg, None))
+                    if scratchpad:
+                        scratchpad.record_tool_call(tool_name, error=guard_msg)
+                    continue
 
                 # ── [HOOKS] Pre-tool-use lifecycle hook ──
                 if hook_registry:
@@ -1978,13 +2014,33 @@ class AgentRunner:
             sys_content = messages[0].get("content")
             if isinstance(sys_content, str):
                 sys_msg = dict(messages[0])
-                sys_msg["content"] = [
-                    {
-                        "type": "text",
-                        "text": sys_content,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ]
+                # Split into static (cacheable) + dynamic (time context) blocks.
+                # The dynamic tail starts at the last "---" separator before "Current time:".
+                split_marker = "\n\n---\n\nCurrent time:"
+                split_idx = sys_content.rfind(split_marker)
+                if split_idx > 0:
+                    static_part = sys_content[:split_idx]
+                    dynamic_part = sys_content[split_idx + len("\n\n---\n\n") :]
+                    sys_msg["content"] = [
+                        {
+                            "type": "text",
+                            "text": static_part,
+                            "cache_control": {"type": "ephemeral"},
+                        },
+                        {
+                            "type": "text",
+                            "text": dynamic_part,
+                        },
+                    ]
+                else:
+                    # Fallback: cache the whole thing (no time context found)
+                    sys_msg["content"] = [
+                        {
+                            "type": "text",
+                            "text": sys_content,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ]
                 messages[0] = sys_msg
 
         # Defense in depth: drop orphaned tool_result messages that would
