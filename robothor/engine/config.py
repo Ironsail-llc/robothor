@@ -20,6 +20,15 @@ from robothor.engine.models import AgentConfig, AgentHook, DeliveryMode, Heartbe
 
 logger = logging.getLogger(__name__)
 
+# ── Log-injection sanitizer ──
+_LOG_SANITIZE_TABLE = str.maketrans({"\n": "\\n", "\r": "\\r"})
+
+
+def _sanitize(val: object) -> str:
+    """Sanitize a value for safe inclusion in log messages."""
+    return str(val).translate(_LOG_SANITIZE_TABLE)
+
+
 # Bootstrap file limits
 BOOTSTRAP_MAX_CHARS_PER_FILE = 12_000
 BOOTSTRAP_TOTAL_MAX_CHARS = 30_000
@@ -118,16 +127,21 @@ def load_manifest(manifest_path: Path) -> dict | None:  # type: ignore[type-arg]
     hardcoding them.
     """
     try:
-        # Prevent path traversal — use only the filename within its parent dir
-        safe_path = Path(manifest_path).parent.resolve() / Path(manifest_path).name
-        with safe_path.open() as f:
+        # Prevent path traversal — resolve and verify the path stays in its parent
+        base_dir = Path(manifest_path).parent.resolve()
+        safe_path = (base_dir / Path(manifest_path).name).resolve()
+        if not str(safe_path).startswith(str(base_dir)):
+            sanitized_path = str(manifest_path).replace("\n", "\\n").replace("\r", "\\r")
+            logger.error("Path traversal blocked for manifest: %s", sanitized_path)
+            return None
+        with open(safe_path) as f:  # noqa: PTH123 — path already validated above
             data = yaml.safe_load(f)
         if data and isinstance(data, dict) and "id" in data:
             return _resolve_env_vars(data)  # type: ignore[return-value]
         return None
     except Exception as e:
         sanitized_path = str(manifest_path).replace("\n", "\\n").replace("\r", "\\r")
-        logger.error("Failed to load manifest %s: %s", sanitized_path, e)
+        logger.error("Failed to load manifest %s: %s", sanitized_path, _sanitize(e))
         return None
 
 
@@ -587,7 +601,7 @@ def load_agent_config(
         warnings = validate_manifest(merged)
         for w in warnings:
             sanitized_w = str(w).replace("\n", "\\n").replace("\r", "\\r")
-            logger.warning("Config validation [%s]: %s", agent_id, sanitized_w)
+            logger.warning("Config validation [%s]: %s", _sanitize(agent_id), sanitized_w)
 
         config = manifest_to_agent_config(merged)
         config.validation_warnings = warnings
@@ -652,9 +666,15 @@ def build_system_prompt(config: AgentConfig, workspace: Path) -> SystemPromptPar
     """
     # Collect all source file paths for mtime checking
     source_files: list[Path] = []
+    workspace_resolved = workspace.resolve()
     if config.instruction_file:
-        source_files.append(workspace / config.instruction_file)
-    source_files.extend(workspace / bs_file for bs_file in config.bootstrap_files)
+        _instr_path = (workspace / config.instruction_file).resolve()
+        if str(_instr_path).startswith(str(workspace_resolved)):
+            source_files.append(_instr_path)
+    for _bs_file in config.bootstrap_files:
+        _bs_path = (workspace / _bs_file).resolve()
+        if str(_bs_path).startswith(str(workspace_resolved)):
+            source_files.append(_bs_path)
 
     # Check cache: if all files unchanged, reuse cached body
     cache_key = config.id
@@ -683,8 +703,14 @@ def build_system_prompt(config: AgentConfig, workspace: Path) -> SystemPromptPar
 
         # Load instruction file first (primary)
         if config.instruction_file:
-            instruction_path = workspace / config.instruction_file
-            if instruction_path.exists():
+            # Prevent path traversal — resolve and verify within workspace
+            instruction_path = (workspace / config.instruction_file).resolve()
+            if not str(instruction_path).startswith(str(workspace.resolve())):
+                logger.error(
+                    "Path traversal blocked for instruction_file: %s",
+                    _sanitize(config.instruction_file),
+                )
+            elif instruction_path.exists():
                 content = instruction_path.read_text()
                 if len(content) > BOOTSTRAP_MAX_CHARS_PER_FILE:
                     content = content[:BOOTSTRAP_MAX_CHARS_PER_FILE]

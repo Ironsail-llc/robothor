@@ -316,7 +316,7 @@ class AgentRunner:
             if adapters:
                 await self.registry.register_adapter_tools(adapters)
         except Exception as e:
-            logger.warning("Adapter loading failed (non-fatal): %s", e)
+            logger.warning("Adapter loading failed (non-fatal): %s", _sanitize(e))
 
         # Get filtered tools for this agent
         if readonly_mode:
@@ -380,7 +380,7 @@ class AgentRunner:
                 try:
                     await asyncio.get_running_loop().run_in_executor(None, create_run, session.run)
                 except Exception as e:
-                    logger.warning("Failed to record run start: %s", e)
+                    logger.warning("Failed to record run start: %s", _sanitize(e))
 
                 # Auto-create CRM task if configured (skip for sub-agent runs)
                 if agent_config.auto_task and not spawn_context:
@@ -402,7 +402,7 @@ class AgentRunner:
                         )
                         session.run.task_id = task_id if isinstance(task_id, str) else None
                     except Exception as e:
-                        logger.warning("Auto-task creation failed: %s", e)
+                        logger.warning("Auto-task creation failed: %s", _sanitize(e))
 
                 # Build model list for fallback (model_override takes priority)
                 if model_override:
@@ -518,7 +518,7 @@ class AgentRunner:
                         try:
                             await sandbox.stop()
                         except Exception as e:
-                            logger.warning("Sandbox cleanup failed: %s", e)
+                            logger.warning("Sandbox cleanup failed: %s", _sanitize(e))
                         from robothor.engine.sandbox import set_current_sandbox
 
                         set_current_sandbox(None)
@@ -630,7 +630,7 @@ class AgentRunner:
         try:
             create_run(session.run)
         except Exception as e:
-            logger.warning("Failed to record deep run start: %s", e)
+            logger.warning("Failed to record deep run start: %s", _sanitize(e))
 
         # Build context — use override (from deep plan) or fall back to conversation history
         if context_override:
@@ -757,7 +757,7 @@ class AgentRunner:
                 await progress_task
 
             tb = traceback.format_exc()
-            logger.error("execute_deep failed: %s", e, exc_info=True)
+            logger.error("execute_deep failed: %s", _sanitize(e), exc_info=True)
             session.record_error(str(e), tb)
             return self._finish_run(session.fail(str(e), tb))
 
@@ -854,7 +854,7 @@ class AgentRunner:
                 )
                 await hook_registry.dispatch(HookEvent.AGENT_START, start_ctx)
             except Exception as e:
-                logger.warning("AGENT_START hook error: %s", e)
+                logger.warning("AGENT_START hook error: %s", _sanitize(e))
 
         # Build readonly tool set for runtime enforcement in plan mode
         _readonly_tool_set: frozenset[str] = frozenset()
@@ -1068,7 +1068,7 @@ class AgentRunner:
                                     ),
                                 )
                 except Exception as e:
-                    logger.warning("Proactive compaction failed: %s", e)
+                    logger.warning("Proactive compaction failed: %s", _sanitize(e))
 
             # ── [SCRATCHPAD] Inject working state summary ──
             if scratchpad and scratchpad.should_inject():
@@ -1214,7 +1214,9 @@ class AgentRunner:
                         if pre_hr.action == HookAction.MODIFY and pre_hr.modified_args:
                             tool_args = pre_hr.modified_args
                     except Exception as e:
-                        logger.warning("PRE_TOOL_USE hook error for %s: %s", tool_name, e)
+                        logger.warning(
+                            "PRE_TOOL_USE hook error for %s: %s", _sanitize(tool_name), _sanitize(e)
+                        )
 
                 # ── [GUARDRAILS] Pre-execution check ──
                 if guardrail_engine:
@@ -1342,7 +1344,11 @@ class AgentRunner:
                         )
                         await hook_registry.dispatch(HookEvent.POST_TOOL_USE, post_tool_ctx)
                     except Exception as e:
-                        logger.warning("POST_TOOL_USE hook error for %s: %s", tool_name, e)
+                        logger.warning(
+                            "POST_TOOL_USE hook error for %s: %s",
+                            _sanitize(tool_name),
+                            _sanitize(e),
+                        )
 
                 # ── [COST] Propagate tool-reported costs (e.g., deep_reason RLM) ──
                 if isinstance(result, dict) and not error_msg:
@@ -1717,7 +1723,7 @@ class AgentRunner:
             if chat_id:
                 await sender(chat_id, text, parse_mode="Markdown")
         except Exception as e:
-            logger.debug("Progress report failed: %s", e)
+            logger.debug("Progress report failed: %s", _sanitize(e))
 
     # ─── Force wrap-up (used by safety valve and escalation abort) ─────
 
@@ -2017,7 +2023,7 @@ class AgentRunner:
                 return None
             return run.output_text or ""
         except Exception as e:
-            logger.debug("Failed to spawn recovery helper: %s", e)
+            logger.debug("Failed to spawn recovery helper: %s", _sanitize(e))
             return None
 
     # ─── v2 Enhancement Helpers ───────────────────────────────────────
@@ -2033,7 +2039,7 @@ class AgentRunner:
                 manual_override=agent_config.difficulty_class,
             )
         except Exception as e:
-            logger.debug("Routing failed: %s", e)
+            logger.debug("Routing failed: %s", _sanitize(e))
             return None
 
     def _should_plan(self, agent_config: AgentConfig, route: Any) -> bool:
@@ -2061,7 +2067,7 @@ class AgentRunner:
                 fallback_models=models[1:2],
             )
         except Exception as e:
-            logger.debug("Planning phase failed: %s", e)
+            logger.debug("Planning phase failed: %s", _sanitize(e))
             return None
 
     def _create_trace(
@@ -2268,7 +2274,7 @@ class AgentRunner:
 
             return None
         except Exception as e:
-            logger.warning("Failed to resume from checkpoint: %s", e)
+            logger.warning("Failed to resume from checkpoint: %s", _sanitize(e))
             return None
 
     # ─── LLM Call Methods ────────────────────────────────────────────
@@ -2290,7 +2296,7 @@ class AgentRunner:
             compress_threshold = int(model_limits.max_input_tokens * 0.75)
             messages[:] = await maybe_compress(messages, models, threshold=compress_threshold)
         except Exception as e:
-            logger.warning("Pre-flight compression failed: %s", e)
+            logger.warning("Pre-flight compression failed: %s", _sanitize(e))
 
         return estimate_tokens(messages)
 
@@ -2652,7 +2658,7 @@ class AgentRunner:
                 except RuntimeError:
                     pass  # No event loop — skip async dispatch
         except Exception as e:
-            logger.warning("AGENT_END hook error: %s", e)
+            logger.warning("AGENT_END hook error: %s", _sanitize(e))
 
         try:
             update_run(
@@ -2682,9 +2688,9 @@ class AgentRunner:
                 try:
                     create_step(step)
                 except Exception as e:
-                    logger.warning("Failed to record step: %s", e)
+                    logger.warning("Failed to record step: %s", _sanitize(e))
         except Exception as e:
-            logger.warning("Failed to update run in database: %s", e)
+            logger.warning("Failed to update run in database: %s", _sanitize(e))
 
         # Auto-resolve CRM task linked to this run
         if run.task_id:
@@ -2706,6 +2712,6 @@ class AgentRunner:
                         tags=[run.agent_id, "failed", run.status.value],
                     )
             except Exception as e:
-                logger.warning("Auto-task update failed: %s", e)
+                logger.warning("Auto-task update failed: %s", _sanitize(e))
 
         return run

@@ -168,23 +168,27 @@ def create_health_app(
     @app.get("/api/extensions")
     async def list_extensions() -> dict[str, Any]:
         """List loaded business adapters / extensions."""
-        from robothor.engine.adapters import get_loaded_adapters
+        try:
+            from robothor.engine.adapters import get_loaded_adapters
 
-        adapters = get_loaded_adapters()
-        return {
-            "count": len(adapters),
-            "extensions": [
-                {
-                    "name": a.name,
-                    "transport": a.transport,
-                    "version": a.version,
-                    "author": a.author,
-                    "description": a.description,
-                    "agents": a.agents,
-                }
-                for a in adapters
-            ],
-        }
+            adapters = get_loaded_adapters()
+            return {
+                "count": len(adapters),
+                "extensions": [
+                    {
+                        "name": a.name,
+                        "transport": a.transport,
+                        "version": a.version,
+                        "author": a.author,
+                        "description": a.description,
+                        "agents": a.agents,
+                    }
+                    for a in adapters
+                ],
+            }
+        except Exception:
+            logger.exception("Failed to list extensions")
+            return {"error": "Internal server error"}
 
     @app.post("/api/extensions/reload")
     async def reload_extensions() -> dict[str, Any]:
@@ -204,8 +208,8 @@ def create_health_app(
                 from robothor.engine.tracking import list_schedules
 
                 schedules = list_schedules(tenant_id=config.tenant_id)
-            except Exception as e:
-                logger.warning("Failed to load schedules: %s", e)
+            except Exception:
+                logger.warning("Failed to load schedules", exc_info=True)
 
             agents = {}
             for s in schedules:
@@ -247,9 +251,13 @@ def create_health_app(
     @app.get("/liveness")
     async def liveness() -> dict[str, Any]:
         """Liveness probe — always 200 if process is running."""
-        from robothor.health_contract import liveness_response
+        try:
+            from robothor.health_contract import liveness_response
 
-        return liveness_response("engine", "0.1.0")
+            return liveness_response("engine", "0.1.0")
+        except Exception:
+            logger.exception("Liveness check failed")
+            return {"status": "error", "error": "Internal server error"}
 
     @app.get("/ready")
     async def readiness() -> Any:
@@ -326,8 +334,9 @@ def create_health_app(
                     for r in runs
                 ]
             }
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to list runs")
+            return {"error": "Internal server error"}
 
     @app.get("/api/runs/{run_id}/children")
     async def get_run_children(run_id: str) -> dict[str, Any]:
@@ -353,8 +362,9 @@ def create_health_app(
                     for c in children
                 ],
             }
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to get run children")
+            return {"error": "Internal server error"}
 
     @app.get("/api/runs/{run_id}/tree")
     async def get_run_tree(run_id: str) -> dict[str, Any]:
@@ -364,8 +374,9 @@ def create_health_app(
 
             tree = _get_tree(run_id)
             return tree
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to get run tree")
+            return {"error": "Internal server error"}
 
     @app.get("/costs")
     async def costs(hours: int = 24) -> dict[str, Any]:
@@ -404,8 +415,9 @@ def create_health_app(
                 "total_cost_usd": round(total_cost, 6),
                 "agents": breakdown,
             }
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to compute costs")
+            return {"error": "Internal server error"}
 
     @app.get("/costs/deep")
     async def costs_deep(hours: int = 24) -> dict[str, Any]:
@@ -508,8 +520,9 @@ def create_health_app(
                         for row in rows
                     ]
                 }
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to list workflow runs")
+            return {"error": "Internal server error"}
 
     @app.get("/api/workflows/runs/{run_id}")
     async def get_workflow_run(run_id: str) -> dict[str, Any]:
@@ -557,8 +570,9 @@ def create_health_app(
                 ]
 
                 return run_data
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to get workflow run")
+            return {"error": "Internal server error"}
 
     # ── v2 Enhancement endpoints ─────────────────────────────────────
 
@@ -586,8 +600,9 @@ def create_health_app(
                 )
             )
             return {"status": "resuming", "original_run_id": run_id}
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to resume run")
+            return {"error": "Internal server error"}
 
     @app.get("/api/v2/stats")
     async def v2_stats(hours: int = 24) -> dict[str, Any]:
@@ -635,8 +650,9 @@ def create_health_app(
                     "budget_exhaustions": budgets,
                     "checkpoints_saved": checkpoint_count,
                 }
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to get v2 stats")
+            return {"error": "Internal server error"}
 
     @app.post("/api/workflows/{workflow_id}/execute")
     async def execute_workflow(workflow_id: str) -> dict[str, Any]:
