@@ -52,6 +52,10 @@ def _is_quiet_hours() -> bool:
     return now.hour >= QUIET_HOUR_START or now.hour < QUIET_HOUR_END
 
 
+_LOCK_KEY = "robothor:autodream:lock"
+_LAST_RUN_KEY = "robothor:autodream:last_run"
+
+
 def _get_last_run_ts() -> float | None:
     """Read the last autoDream run timestamp from Redis. Returns epoch or None."""
     try:
@@ -60,7 +64,7 @@ def _get_last_run_ts() -> float | None:
         r = _get_redis()
         if r is None:
             return None
-        val = r.get("robothor:autodream:last_run")
+        val = r.get(_LAST_RUN_KEY)
         return float(val) if val else None
     except Exception:
         return None
@@ -74,7 +78,7 @@ def _set_last_run_ts() -> None:
         r = _get_redis()
         if r is None:
             return
-        r.set("robothor:autodream:last_run", str(time.time()), ex=86400)
+        r.set(_LAST_RUN_KEY, str(time.time()), ex=86400)
     except Exception as e:
         logger.debug("Failed to set autoDream timestamp: %s", e)
 
@@ -85,6 +89,42 @@ def is_cooled_down() -> bool:
     if last is None:
         return True
     return (time.time() - last) >= COOLDOWN_SECONDS
+
+
+def try_acquire_lock(run_id: str) -> bool:
+    """Acquire a distributed autoDream lock via Redis SET NX.
+
+    Prevents overlapping runs across multiple daemon instances.
+    Lock auto-expires after COOLDOWN_SECONDS to prevent deadlocks.
+    """
+    try:
+        from robothor.events.bus import _get_redis
+
+        r = _get_redis()
+        if r is None:
+            return True  # No Redis = single instance, allow
+        acquired: bool = bool(r.set(_LOCK_KEY, run_id, nx=True, ex=COOLDOWN_SECONDS))
+        if not acquired:
+            logger.debug("autoDream lock held by another instance")
+        return acquired
+    except Exception as e:
+        logger.debug("autoDream lock acquisition failed: %s", e)
+        return True  # Fail open for single-instance setups
+
+
+def release_lock(run_id: str) -> None:
+    """Release the autoDream lock only if we own it (compare-and-delete)."""
+    try:
+        from robothor.events.bus import _get_redis
+
+        r = _get_redis()
+        if r is None:
+            return
+        current = r.get(_LOCK_KEY)
+        if current and current == run_id:
+            r.delete(_LOCK_KEY)
+    except Exception as e:
+        logger.debug("autoDream lock release failed: %s", e)
 
 
 def _publish_event(event_type: str, data: dict[str, Any]) -> None:
@@ -167,6 +207,11 @@ async def run_autodream(mode: str = "idle") -> dict[str, Any]:
         Dict with consolidated results and timing.
     """
     run_id = str(uuid.uuid4())
+
+    # Acquire distributed lock to prevent overlapping runs
+    if not try_acquire_lock(run_id):
+        return {"run_id": run_id, "mode": mode, "skipped": True, "reason": "lock_held"}
+
     started_at = datetime.now(UTC)
     t0 = time.monotonic()
 
@@ -218,22 +263,25 @@ async def run_autodream(mode: str = "idle") -> dict[str, Any]:
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     results["duration_ms"] = elapsed_ms
 
-    # Record and publish
-    _set_last_run_ts()
-    _record_run(run_id, mode, started_at, results, error=error_msg)
-    _update_memory_block(results, mode)
-    _publish_event(
-        "autodream.complete",
-        {
-            "run_id": run_id,
-            "mode": mode,
-            "duration_ms": elapsed_ms,
-            "facts_consolidated": results["facts_consolidated"],
-            "facts_pruned": results["facts_pruned"],
-            "insights_discovered": results["insights_discovered"],
-            "error": error_msg,
-        },
-    )
+    # Record, publish, and release lock
+    try:
+        _set_last_run_ts()
+        _record_run(run_id, mode, started_at, results, error=error_msg)
+        _update_memory_block(results, mode)
+        _publish_event(
+            "autodream.complete",
+            {
+                "run_id": run_id,
+                "mode": mode,
+                "duration_ms": elapsed_ms,
+                "facts_consolidated": results["facts_consolidated"],
+                "facts_pruned": results["facts_pruned"],
+                "insights_discovered": results["insights_discovered"],
+                "error": error_msg,
+            },
+        )
+    finally:
+        release_lock(run_id)
 
     status = "completed" if error_msg is None else "failed"
     logger.info(

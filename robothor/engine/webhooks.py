@@ -7,6 +7,7 @@ Agents pick up events via the existing EventHooks system.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -120,40 +121,61 @@ def _get_stats(channel_name: str) -> dict[str, Any]:
 
 
 _async_redis: Any = None
+_async_redis_lock = asyncio.Lock()
+
+# Maximum webhook request body size (10 MB).
+MAX_BODY_BYTES = 10 * 1024 * 1024
 
 
 async def _get_async_redis() -> Any:
-    """Get or create an async Redis connection (module-level singleton)."""
+    """Get or create an async Redis connection with health check.
+
+    Uses asyncio.Lock to prevent race conditions on concurrent init.
+    Pings existing connections to detect stale/dead sockets.
+    """
     global _async_redis
-    if _async_redis is not None:
-        return _async_redis
-    try:
-        import redis.asyncio as aioredis
+    async with _async_redis_lock:
+        # Health-check existing connection
+        if _async_redis is not None:
+            try:
+                await _async_redis.ping()
+                return _async_redis
+            except Exception:
+                logger.warning("Async Redis connection stale, reconnecting")
+                _async_redis = None
 
-        from robothor.config import get_config
+        try:
+            import redis.asyncio as aioredis
 
-        cfg = get_config()
-        _async_redis = aioredis.Redis(
-            host=cfg.redis.host,
-            port=cfg.redis.port,
-            db=cfg.redis.db,
-            password=cfg.redis.password or None,
-        )
-        return _async_redis
-    except Exception as e:
-        logger.warning("Failed to create async Redis connection: %s", e)
-        return None
+            from robothor.config import get_config
+
+            cfg = get_config()
+            r = aioredis.Redis(
+                host=cfg.redis.host,
+                port=cfg.redis.port,
+                db=cfg.redis.db,
+                password=cfg.redis.password or None,
+                socket_connect_timeout=5,
+            )
+            await r.ping()  # type: ignore[misc]
+            _async_redis = r
+            return _async_redis
+        except Exception as e:
+            logger.warning("Failed to create async Redis connection: %s", e)
+            return None
 
 
 async def _check_rate_limit(channel: WebhookChannel) -> bool:
     """Check rate limit using Redis INCR + EXPIRE pattern.
 
     Returns True if the request is allowed, False if rate-limited.
+    Fails CLOSED (rejects) when Redis is unavailable to prevent abuse.
     """
     try:
         r = await _get_async_redis()
         if r is None:
-            return True
+            logger.warning("Rate limit check: Redis unavailable, rejecting request")
+            return False
 
         key = f"robothor:webhook:rate:{channel.name}"
         count = await r.incr(key)
@@ -161,8 +183,8 @@ async def _check_rate_limit(channel: WebhookChannel) -> bool:
             await r.expire(key, 60)
         return bool(count <= channel.rate_limit_per_min)
     except Exception as e:
-        logger.warning("Rate limit check failed (allowing): %s", e)
-        return True
+        logger.warning("Rate limit check failed (rejecting): %s", e)
+        return False
 
 
 async def _publish_to_stream(stream: str, event_type: str, payload: dict[str, Any]) -> str:
@@ -223,8 +245,19 @@ def get_webhook_router(config: WebhookConfig | None = None) -> APIRouter:
                 status_code=404,
             )
 
-        # Read body
+        # Read body (enforce size limit)
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_BODY_BYTES:
+            return JSONResponse(
+                {"error": f"Payload too large (max {MAX_BODY_BYTES // 1024 // 1024}MB)"},
+                status_code=413,
+            )
         body = await request.body()
+        if len(body) > MAX_BODY_BYTES:
+            return JSONResponse(
+                {"error": f"Payload too large (max {MAX_BODY_BYTES // 1024 // 1024}MB)"},
+                status_code=413,
+            )
 
         # Verify HMAC signature
         secret = os.getenv(ch.secret_env, "")
@@ -258,11 +291,14 @@ def get_webhook_router(config: WebhookConfig | None = None) -> APIRouter:
                 status_code=429,
             )
 
-        # Parse payload
+        # Parse payload (reject invalid JSON)
         try:
             payload = json.loads(body)
         except (json.JSONDecodeError, ValueError):
-            payload = {"raw": body.decode("utf-8", errors="replace")}
+            return JSONResponse(
+                {"error": "Invalid JSON payload"},
+                status_code=400,
+            )
 
         # Extract event type
         event_type = ""
