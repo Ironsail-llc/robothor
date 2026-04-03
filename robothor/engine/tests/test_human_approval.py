@@ -146,7 +146,7 @@ class TestCleanupExpired:
         removed = mgr.cleanup_expired(max_age=0)
         assert removed == 1
         assert "req-old" not in mgr._pending
-        assert req.approved is True
+        assert req.approved is False  # fail-secure: deny on expiry
         assert req.result.is_set()
 
     def test_non_expired_not_removed(self):
@@ -175,10 +175,10 @@ class TestCleanupExpired:
         assert "req-fresh" in mgr._pending
 
 
-class TestAutoApproveOnTimeout:
+class TestDenyOnTimeout:
     @pytest.mark.asyncio
-    async def test_timeout_auto_approves(self):
-        """With a very short timeout, the request should auto-approve."""
+    async def test_timeout_denies(self):
+        """With a very short timeout, the request should be denied (fail-secure)."""
         bot = MagicMock()
         mock_msg = MagicMock()
         mock_msg.message_id = 42
@@ -194,7 +194,7 @@ class TestAutoApproveOnTimeout:
             reason="Needs approval",
             timeout_seconds=0.01,
         )
-        assert result is True
+        assert result is False
 
 
 class TestSingleton:

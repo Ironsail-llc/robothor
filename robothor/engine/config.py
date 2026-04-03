@@ -492,7 +492,7 @@ def _attribute_merge(
 ) -> None:
     """Merge override into merged, recording which layer set each leaf key."""
     for key, val in override.items():
-        full_key = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
+        full_key = f"{prefix}.{key}" if prefix else key
         if isinstance(val, dict) and isinstance(merged.get(key), dict):
             _attribute_merge(merged[key], val, layer_name, attribution, full_key)
         else:

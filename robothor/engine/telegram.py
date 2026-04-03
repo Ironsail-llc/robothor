@@ -525,6 +525,16 @@ class TelegramBot:
         async def on_permission_decision(callback: CallbackQuery) -> None:
             from robothor.engine.permission_escalation import get_permission_manager
 
+            # Security: only the authorized chat can approve/deny escalations
+            if str(callback.message.chat.id) != str(self.config.default_chat_id):
+                logger.warning(
+                    "Unauthorized permission callback from chat_id=%s user_id=%s",
+                    callback.message.chat.id,
+                    callback.from_user.id if callback.from_user else "unknown",
+                )
+                await callback.answer("Unauthorized", show_alert=True)
+                return
+
             parts = callback.data.split(":", 2)
             if len(parts) < 3:
                 await callback.answer("Invalid callback data")

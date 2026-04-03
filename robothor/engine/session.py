@@ -284,8 +284,6 @@ class AgentSession:
 
     def record_step_cost(self, cost: float) -> None:
         """Record an LLM call cost for projection purposes."""
-        if not hasattr(self, "_step_costs"):
-            self._step_costs: list[float] = []
         self._step_costs.append(cost)
 
     # ── Eager tool result compression ──────────────────────────────

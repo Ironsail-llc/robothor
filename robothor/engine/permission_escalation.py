@@ -2,7 +2,7 @@
 
 Most agents run fully autonomously. This module is opt-in only: when a
 guardrail flags a tool call that needs human approval, it sends a Telegram
-inline-keyboard prompt and waits for a response (or auto-approves on timeout).
+inline-keyboard prompt and waits for a response (denies on timeout).
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class PermissionEscalationManager:
     """Manages human-in-the-loop approval prompts via Telegram.
 
     Agents that opt into permission escalation will pause execution until
-    the human responds (or the timeout fires, which auto-approves).
+    the human responds (or the timeout fires, which denies the call).
     """
 
     def __init__(self, *, bot: Any, chat_id: str) -> None:
@@ -70,8 +70,8 @@ class PermissionEscalationManager:
     ) -> bool:
         """Request human approval for a tool call.
 
-        Returns True if approved, False if denied.  On timeout the call is
-        **auto-approved** (autonomous-by-default philosophy).
+        Returns True if approved, False if denied.  On timeout or delivery
+        failure the call is **denied** (fail-secure).
         """
         # Fast path: session grant already given.
         grant_key = f"{agent_id}:{guardrail_name}"
@@ -100,24 +100,24 @@ class PermissionEscalationManager:
             await self._send_prompt(request, timeout_seconds)
         except Exception:
             logger.exception("Failed to send escalation prompt for %s", request.request_id)
-            # If we can't even reach Telegram, auto-approve so the agent
-            # isn't stuck.
+            # If we can't reach Telegram, deny — a tool flagged for human
+            # review must not proceed without human confirmation.
             self._cleanup(request.request_id)
-            return True
+            return False
 
         try:
             await asyncio.wait_for(request.result.wait(), timeout=timeout_seconds)
         except TimeoutError:
             logger.warning(
-                "Escalation %s timed out after %.0fs — auto-approving (agent=%s tool=%s)",
+                "Escalation %s timed out after %.0fs — denying (agent=%s tool=%s)",
                 request.request_id,
                 timeout_seconds,
                 agent_id,
                 tool_name,
             )
-            request.approved = True
+            request.approved = False
             self._cleanup(request.request_id)
-            return True
+            return False
 
         approved = bool(request.approved)
         self._cleanup(request.request_id)
@@ -134,6 +134,10 @@ class PermissionEscalationManager:
         request = self._pending.get(request_id)
         if request is None:
             logger.warning("Attempted to resolve unknown escalation %s", request_id)
+            return
+
+        if request.result.is_set():
+            logger.warning("Escalation %s already resolved; ignoring", request_id)
             return
 
         request.approved = approved
@@ -160,7 +164,7 @@ class PermissionEscalationManager:
         for rid in expired:
             req = self._pending.pop(rid, None)
             if req is not None and not req.result.is_set():
-                req.approved = True  # auto-approve on expiry
+                req.approved = False  # deny on expiry — fail-secure
                 req.result.set()
                 logger.warning("Expired stale escalation %s (agent=%s)", rid, req.agent_id)
         return len(expired)
@@ -186,7 +190,7 @@ class PermissionEscalationManager:
             f"Policy: {request.guardrail_name}\n"
             f"Reason: {request.reason}\n"
             f"\n"
-            f"Auto-approves in {int(timeout_seconds)}s if no response."
+            f"Auto-denies in {int(timeout_seconds)}s if no response."
         )
 
         keyboard = InlineKeyboardMarkup(
