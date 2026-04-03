@@ -121,7 +121,7 @@ def _get_stats(channel_name: str) -> dict[str, Any]:
 
 
 _async_redis: Any = None
-_async_redis_lock = asyncio.Lock()
+_async_redis_lock: asyncio.Lock | None = None
 
 # Maximum webhook request body size (10 MB).
 MAX_BODY_BYTES = 10 * 1024 * 1024
@@ -133,7 +133,9 @@ async def _get_async_redis() -> Any:
     Uses asyncio.Lock to prevent race conditions on concurrent init.
     Pings existing connections to detect stale/dead sockets.
     """
-    global _async_redis
+    global _async_redis, _async_redis_lock
+    if _async_redis_lock is None:
+        _async_redis_lock = asyncio.Lock()
     async with _async_redis_lock:
         # Health-check existing connection
         if _async_redis is not None:
@@ -247,7 +249,11 @@ def get_webhook_router(config: WebhookConfig | None = None) -> APIRouter:
 
         # Read body (enforce size limit)
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_BODY_BYTES:
+        try:
+            cl = int(content_length) if content_length else 0
+        except (ValueError, TypeError):
+            cl = 0
+        if cl > MAX_BODY_BYTES:
             return JSONResponse(
                 {"error": f"Payload too large (max {MAX_BODY_BYTES // 1024 // 1024}MB)"},
                 status_code=413,

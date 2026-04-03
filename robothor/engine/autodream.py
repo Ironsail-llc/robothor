@@ -21,7 +21,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from robothor.memory.lifecycle import (
@@ -295,88 +295,3 @@ async def run_autodream(mode: str = "idle") -> dict[str, Any]:
     )
 
     return results
-
-
-async def should_i_act() -> dict[str, Any] | None:
-    """Check if there's unhandled work that warrants proactive action.
-
-    Checks:
-    1. Unread CRM notifications addressed to 'main' agent
-    2. Overdue/stale tasks (status='open' older than 24h with no activity)
-    3. Unprocessed events in Redis streams (backlog > 100)
-
-    Returns:
-        Dict with context about actionable items, or None if nothing to do.
-    """
-    result: dict[str, Any] = {}
-    summary_parts: list[str] = []
-
-    # 1. Unread notifications for main agent
-    try:
-        from robothor.crm.dal import list_notifications
-
-        notifications = list_notifications(to_agent="main")
-        unread = [n for n in notifications if n.get("readAt") is None]
-        if unread:
-            result["unread_notifications"] = len(unread)
-            summary_parts.append(f"{len(unread)} unread notification(s)")
-    except Exception as e:
-        logger.debug("should_i_act: notification check failed: %s", e)
-
-    # 2. Stale open tasks (older than 24h with no update)
-    try:
-        from robothor.crm.dal import list_tasks
-
-        tasks = list_tasks(status="open")
-        stale_cutoff = datetime.now(UTC) - timedelta(hours=24)
-        stale = []
-        for t in tasks:
-            # Use updatedAt if available, otherwise createdAt
-            ts_str = t.get("updatedAt") or t.get("createdAt")
-            if not ts_str:
-                continue
-            try:
-                ts = datetime.fromisoformat(ts_str)
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=UTC)
-                if ts < stale_cutoff:
-                    stale.append(t)
-            except (ValueError, TypeError):
-                continue
-        if stale:
-            result["stale_tasks"] = len(stale)
-            summary_parts.append(f"{len(stale)} stale task(s)")
-    except Exception as e:
-        logger.debug("should_i_act: task check failed: %s", e)
-
-    # 3. Redis stream backlog (> 100 unprocessed events)
-    try:
-        from robothor.events.bus import _get_redis
-
-        r = _get_redis()
-        backlog: dict[str, int] = {}
-        if r is not None:
-            for stream in (
-                "robothor:events:email",
-                "robothor:events:calendar",
-                "robothor:events:vision",
-            ):
-                try:
-                    length: int = r.xlen(stream)
-                    if length > 100:
-                        stream_name = stream.rsplit(":", 1)[-1]
-                        backlog[stream_name] = length
-                except Exception:
-                    continue
-        if backlog:
-            result["event_backlog"] = backlog
-            backlog_desc = ", ".join(f"{k}: {v}" for k, v in backlog.items())
-            summary_parts.append(f"event backlog ({backlog_desc})")
-    except Exception as e:
-        logger.debug("should_i_act: Redis backlog check failed: %s", e)
-
-    if not result:
-        return None
-
-    result["summary"] = ", ".join(summary_parts)
-    return result
