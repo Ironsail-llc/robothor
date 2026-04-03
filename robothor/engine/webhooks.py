@@ -237,12 +237,11 @@ def get_webhook_router(config: WebhookConfig | None = None) -> APIRouter:
         if not secret:
             # Secret env var not set — reject to prevent unauthenticated ingress
             logger.warning(
-                "Webhook channel %s rejected: secret not configured (%s not set)",
-                channel,
-                ch.secret_env,
+                "Webhook channel rejected: secret not configured for channel '%s'",
+                ch.name,
             )
             return JSONResponse(
-                {"error": f"Channel not configured: {ch.secret_env} not set"},
+                {"error": "Channel not configured: webhook secret not set"},
                 status_code=503,
             )
 
