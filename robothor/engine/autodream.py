@@ -21,7 +21,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from robothor.memory.lifecycle import (
@@ -55,13 +55,11 @@ def _is_quiet_hours() -> bool:
 def _get_last_run_ts() -> float | None:
     """Read the last autoDream run timestamp from Redis. Returns epoch or None."""
     try:
-        import redis
+        from robothor.events.bus import _get_redis
 
-        r = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "localhost"),
-            port=int(os.environ.get("REDIS_PORT", "6379")),
-            decode_responses=True,
-        )
+        r = _get_redis()
+        if r is None:
+            return None
         val = r.get("robothor:autodream:last_run")
         return float(val) if val else None
     except Exception:
@@ -71,13 +69,11 @@ def _get_last_run_ts() -> float | None:
 def _set_last_run_ts() -> None:
     """Write the current timestamp as the last autoDream run time."""
     try:
-        import redis
+        from robothor.events.bus import _get_redis
 
-        r = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "localhost"),
-            port=int(os.environ.get("REDIS_PORT", "6379")),
-            decode_responses=True,
-        )
+        r = _get_redis()
+        if r is None:
+            return
         r.set("robothor:autodream:last_run", str(time.time()), ex=86400)
     except Exception as e:
         logger.debug("Failed to set autoDream timestamp: %s", e)
@@ -94,17 +90,9 @@ def is_cooled_down() -> bool:
 def _publish_event(event_type: str, data: dict[str, Any]) -> None:
     """Publish an autoDream event to the Redis event bus."""
     try:
-        import redis
+        from robothor.events.bus import publish
 
-        r = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "localhost"),
-            port=int(os.environ.get("REDIS_PORT", "6379")),
-            decode_responses=True,
-        )
-        import json
-
-        payload = {"type": event_type, "data": json.dumps(data)}
-        r.xadd("robothor:events:system", payload, maxlen=1000)
+        publish("system", event_type, data, source="autodream")
     except Exception as e:
         logger.debug("Failed to publish autoDream event: %s", e)
 
@@ -292,7 +280,7 @@ async def should_i_act() -> dict[str, Any] | None:
         from robothor.crm.dal import list_tasks
 
         tasks = list_tasks(status="open")
-        stale_cutoff = datetime.now(UTC) - __import__("datetime").timedelta(hours=24)
+        stale_cutoff = datetime.now(UTC) - timedelta(hours=24)
         stale = []
         for t in tasks:
             # Use updatedAt if available, otherwise createdAt
@@ -315,26 +303,23 @@ async def should_i_act() -> dict[str, Any] | None:
 
     # 3. Redis stream backlog (> 100 unprocessed events)
     try:
-        import redis
+        from robothor.events.bus import _get_redis
 
-        r = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "localhost"),
-            port=int(os.environ.get("REDIS_PORT", "6379")),
-            decode_responses=True,
-        )
+        r = _get_redis()
         backlog: dict[str, int] = {}
-        for stream in (
-            "robothor:events:email",
-            "robothor:events:calendar",
-            "robothor:events:vision",
-        ):
-            try:
-                length = r.xlen(stream)
-                if length > 100:
-                    stream_name = stream.rsplit(":", 1)[-1]
-                    backlog[stream_name] = length
-            except Exception:
-                continue
+        if r is not None:
+            for stream in (
+                "robothor:events:email",
+                "robothor:events:calendar",
+                "robothor:events:vision",
+            ):
+                try:
+                    length: int = r.xlen(stream)
+                    if length > 100:
+                        stream_name = stream.rsplit(":", 1)[-1]
+                        backlog[stream_name] = length
+                except Exception:
+                    continue
         if backlog:
             result["event_backlog"] = backlog
             backlog_desc = ", ".join(f"{k}: {v}" for k, v in backlog.items())

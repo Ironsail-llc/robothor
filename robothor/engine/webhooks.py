@@ -119,32 +119,47 @@ def _get_stats(channel_name: str) -> dict[str, Any]:
 # ── Rate limiting ──────────────────────────────────────────────────
 
 
-async def _check_rate_limit(channel: WebhookChannel) -> bool:
-    """Check rate limit using Redis INCR + EXPIRE pattern.
+_async_redis: Any = None
 
-    Returns True if the request is allowed, False if rate-limited.
-    """
+
+async def _get_async_redis() -> Any:
+    """Get or create an async Redis connection (module-level singleton)."""
+    global _async_redis
+    if _async_redis is not None:
+        return _async_redis
     try:
         import redis.asyncio as aioredis
 
         from robothor.config import get_config
 
         cfg = get_config()
-        r = aioredis.Redis(
+        _async_redis = aioredis.Redis(
             host=cfg.redis.host,
             port=cfg.redis.port,
             db=cfg.redis.db,
             password=cfg.redis.password or None,
         )
+        return _async_redis
+    except Exception as e:
+        logger.warning("Failed to create async Redis connection: %s", e)
+        return None
+
+
+async def _check_rate_limit(channel: WebhookChannel) -> bool:
+    """Check rate limit using Redis INCR + EXPIRE pattern.
+
+    Returns True if the request is allowed, False if rate-limited.
+    """
+    try:
+        r = await _get_async_redis()
+        if r is None:
+            return True
 
         key = f"robothor:webhook:rate:{channel.name}"
-        try:
-            count = await r.incr(key)
-            if count == 1:
-                await r.expire(key, 60)
-            return count <= channel.rate_limit_per_min
-        finally:
-            await r.aclose()
+        count = await r.incr(key)
+        if count == 1:
+            await r.expire(key, 60)
+        return bool(count <= channel.rate_limit_per_min)
     except Exception as e:
         logger.warning("Rate limit check failed (allowing): %s", e)
         return True
@@ -156,7 +171,7 @@ async def _publish_to_stream(stream: str, event_type: str, payload: dict[str, An
     Returns the event ID.
     """
     event_id = str(uuid.uuid4())
-    envelope = {
+    envelope: dict[str, str] = {
         "id": event_id,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "type": event_type,
@@ -166,24 +181,13 @@ async def _publish_to_stream(stream: str, event_type: str, payload: dict[str, An
     }
 
     try:
-        import redis.asyncio as aioredis
-
-        from robothor.config import get_config
-
-        cfg = get_config()
-        r = aioredis.Redis(
-            host=cfg.redis.host,
-            port=cfg.redis.port,
-            db=cfg.redis.db,
-            password=cfg.redis.password or None,
-        )
+        r = await _get_async_redis()
+        if r is None:
+            return event_id
 
         stream_key = f"{STREAM_PREFIX}{stream}"
-        try:
-            await r.xadd(stream_key, envelope, maxlen=10000)
-            logger.info("Published webhook event %s to %s", event_id, stream_key)
-        finally:
-            await r.aclose()
+        await r.xadd(stream_key, envelope, maxlen=10000)
+        logger.info("Published webhook event %s to %s", event_id, stream_key)
     except Exception as e:
         logger.error("Failed to publish webhook event: %s", e)
 
@@ -206,7 +210,7 @@ def get_webhook_router(config: WebhookConfig | None = None) -> APIRouter:
     async def receive_webhook(channel: str, request: Request) -> JSONResponse:
         """Receive a webhook POST and publish to Redis."""
         # Look up channel
-        ch = config.channels.get(channel)  # type: ignore[union-attr]
+        ch = config.channels.get(channel)
         if ch is None:
             return JSONResponse(
                 {"error": f"Unknown channel: {channel}"},
@@ -289,7 +293,7 @@ def get_webhook_router(config: WebhookConfig | None = None) -> APIRouter:
     async def list_channels() -> JSONResponse:
         """List configured webhook channels and their stats."""
         result = []
-        for name, ch in (config.channels or {}).items():  # type: ignore[union-attr]
+        for name, ch in (config.channels or {}).items():
             stats = _get_stats(name)
             result.append(
                 {

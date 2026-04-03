@@ -202,6 +202,11 @@ async def main() -> None:
     if agent_hook_count:
         logger.info("Loaded %d agent lifecycle hooks", agent_hook_count)
 
+    # Register buddy lifecycle hooks
+    from robothor.engine.buddy_hooks import register_buddy_hooks
+
+    register_buddy_hooks(hook_registry)
+
     # Register runner for sub-agent spawning
     from robothor.engine.tools import set_runner
 
@@ -228,6 +233,7 @@ async def main() -> None:
             name="health",
         ),
         asyncio.create_task(_watchdog(config, scheduler), name="watchdog"),
+        asyncio.create_task(_autodream_loop(), name="autodream"),
     ]
 
     logger.info("All subsystems started")
@@ -389,6 +395,23 @@ async def _watchdog(config: EngineConfig, scheduler: CronScheduler) -> None:
                     )
             except Exception:
                 pass
+
+
+async def _autodream_loop() -> None:
+    """Background loop — triggers autoDream memory consolidation when engine is idle."""
+    from robothor.engine.autodream import is_cooled_down, run_autodream
+    from robothor.engine.dedup import running_agents
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            if running_agents() or not is_cooled_down():
+                continue
+            await run_autodream(mode="idle")
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.warning("autoDream loop error: %s", e)
 
 
 def run() -> None:
