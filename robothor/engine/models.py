@@ -26,6 +26,7 @@ class TriggerType(StrEnum):
     WORKFLOW = "workflow"
     SUB_AGENT = "sub_agent"
     FEDERATION = "federation"
+    WEBHOOK = "webhook"
     IDE = "ide"
 
 
@@ -206,6 +207,7 @@ class AgentConfig:
     planning_enabled: bool = False
     planning_model: str = ""  # separate cheap model for planning
     scratchpad_enabled: bool = False
+    todo_list_enabled: bool = False  # In-conversation todo list (Claude Code-style)
     guardrails: list[str] = field(default_factory=list)
     guardrails_opt_out: bool = False  # Skip default guardrails for this agent
     exec_allowlist: list[str] = field(

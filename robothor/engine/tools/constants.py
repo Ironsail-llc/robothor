@@ -29,6 +29,9 @@ GWS_TOOLS = frozenset(
 # Browser automation tool
 BROWSER_TOOLS = frozenset({"browser"})
 
+# In-conversation todo list
+TODO_TOOLS = frozenset({"todo_write"})
+
 # Desktop control tools (computer use)
 DESKTOP_TOOLS = frozenset(
     {

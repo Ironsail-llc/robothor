@@ -83,12 +83,20 @@ _TOOL_LABELS = {
     "store_memory": "Saving to memory",
     "get_entity": "Looking up contact",
     "search_records": "Searching records",
+    "todo_write": "Updating checklist",
 }
 
 
 def _friendly_tool_name(tool: str) -> str:
     """Map tool name to a human-readable label for streaming indicators."""
     return _TOOL_LABELS.get(tool, tool.replace("_", " ").title())
+
+
+def _format_checklist_html(todos: list[dict[str, str]]) -> str:
+    """Render a todo list as Telegram HTML checklist."""
+    from robothor.engine.todolist import TodoList
+
+    return TodoList.format_for_telegram(todos)
 
 
 def _plan_state_to_dict(plan: PlanState) -> dict[str, Any]:
@@ -422,6 +430,70 @@ class TelegramBot:
             await self._run_plan_mode(
                 chat_id, session_key, session, deep_arg, message, deep_plan=True
             )
+
+        @self.dp.message(Command("stats"))
+        async def cmd_stats(message: Message) -> None:
+            """Show Robothor's RPG stats, XP, and streak."""
+            try:
+                from robothor.engine.buddy import BuddyEngine
+
+                engine = BuddyEngine()
+                stats = engine.compute_daily_stats()
+                level = engine.get_level_info()
+                current_streak, longest_streak = engine.get_streak()
+
+                # XP progress bar (20 chars wide)
+                filled = int(level.progress_pct * 20)
+                bar = "\u2588" * filled + "\u2591" * (20 - filled)
+                pct = int(level.progress_pct * 100)
+
+                lines = [
+                    f"<b>{level.level_name}</b> (Level {level.level})",
+                    f"XP: [{bar}] {pct}% ({level.total_xp:,} / {level.xp_for_next_level:,})",
+                    "",
+                    "<b>RPG Stats</b>",
+                    f"  Debugging:   {stats.debugging_score}/100",
+                    f"  Patience:    {stats.patience_score}/100",
+                    f"  Chaos:       {stats.chaos_score}/100",
+                    f"  Wisdom:      {stats.wisdom_score}/100",
+                    f"  Reliability: {stats.reliability_score}/100",
+                    "",
+                    f"\U0001f525 Streak: {current_streak} days (best: {longest_streak})",
+                    f"\U0001f4ca Today: {stats.tasks_completed} tasks, {stats.emails_processed} emails, "
+                    f"{stats.insights_generated} insights, {stats.dreams_completed} dreams",
+                ]
+                await message.answer("\n".join(lines))
+            except Exception as e:
+                await message.answer(f"Stats unavailable: {html.escape(str(e))}")
+
+        @self.dp.message(Command("buddy"))
+        async def cmd_buddy(message: Message) -> None:
+            """Show full Robothor buddy profile."""
+            try:
+                from robothor.engine.buddy import BuddyEngine
+
+                engine = BuddyEngine()
+                level = engine.get_level_info()
+                stats = engine.compute_daily_stats()
+                current_streak, longest_streak = engine.get_streak()
+                daily_xp = stats.total_daily_xp(streak_days=current_streak)
+
+                lines = [
+                    f"\u26a1 <b>Robothor — {level.level_name}</b>",
+                    f"Species: Phoenix | Level {level.level} | {level.total_xp:,} XP",
+                    "",
+                    f"<b>Today's Earnings:</b> +{daily_xp} XP",
+                    f"  Tasks: {stats.tasks_completed} (+{stats.tasks_completed * 10} XP)",
+                    f"  Emails: {stats.emails_processed} (+{stats.emails_processed * 5} XP)",
+                    f"  Insights: {stats.insights_generated} (+{stats.insights_generated * 20} XP)",
+                    f"  Dreams: {stats.dreams_completed} (+{stats.dreams_completed * 10} XP)",
+                    f"  Streak bonus: +{current_streak * 5} XP",
+                    "",
+                    f"\U0001f525 {current_streak}-day streak (best: {longest_streak})",
+                ]
+                await message.answer("\n".join(lines))
+            except Exception as e:
+                await message.answer(f"Buddy unavailable: {html.escape(str(e))}")
 
         # ── Inline keyboard callbacks ──
 
@@ -865,10 +937,46 @@ class TelegramBot:
             last_edit_time = now
             last_edit_len = text_len
 
+        checklist_msg_id: int | None = None
+
         async def on_tool(event: dict[str, Any]) -> None:
+            nonlocal checklist_msg_id
             if event.get("event") == "tool_start":
                 label = _friendly_tool_name(event.get("tool", ""))
                 await _edit_status(f"\n\n\U0001f527 {label}...")
+            elif event.get("event") == "todo_updated":
+                todos = event.get("todos", [])
+                try:
+                    if todos:
+                        checklist_text = _format_checklist_html(todos)
+                        if checklist_msg_id:
+                            await self._retry_on_flood(
+                                self.bot.edit_message_text(
+                                    chat_id=int(chat_id),
+                                    message_id=checklist_msg_id,
+                                    text=checklist_text,
+                                    parse_mode="HTML",
+                                )
+                            )
+                        else:
+                            msg = await self._retry_on_flood(
+                                self.bot.send_message(
+                                    chat_id=int(chat_id),
+                                    text=checklist_text,
+                                    parse_mode="HTML",
+                                )
+                            )
+                            if msg:
+                                checklist_msg_id = msg.message_id
+                    elif checklist_msg_id:
+                        with contextlib.suppress(Exception):
+                            await self.bot.delete_message(
+                                chat_id=int(chat_id),
+                                message_id=checklist_msg_id,
+                            )
+                        checklist_msg_id = None
+                except Exception:
+                    logger.debug("Checklist update failed", exc_info=True)
 
         async def on_status(event: dict[str, Any]) -> None:
             if event.get("event") == "tools_done":
@@ -1935,6 +2043,8 @@ class TelegramBot:
                 BotCommand(command="clear", description="Clear conversation history"),
                 BotCommand(command="context", description="Context window stats"),
                 BotCommand(command="status", description="Engine health"),
+                BotCommand(command="stats", description="RPG stats and XP"),
+                BotCommand(command="buddy", description="Full buddy profile"),
                 BotCommand(command="reset", description="Reset model + history"),
                 BotCommand(command="stop", description="Cancel current response"),
                 BotCommand(command="help", description="Show commands"),
