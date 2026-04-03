@@ -618,11 +618,7 @@ def write_env_file(
             print(f"  Keeping existing {path}")
             return False
 
-    # Mask sensitive values — secrets should come from SOPS or env, not .env files
-    masked_db_password = "***CHANGE_ME***" if db.password else ""
-    masked_redis_password = (  # noqa: F841
-        "***CHANGE_ME***" if getattr(redis, "password", None) else ""
-    )
+    # Secrets are NEVER written to .env — use SOPS or environment variables
     lines = [
         f"ROBOTHOR_OWNER_NAME={owner_name}",
         f"ROBOTHOR_AI_NAME={ai_name}",
@@ -633,8 +629,8 @@ def write_env_file(
         f"ROBOTHOR_DB_PORT={db.port}",
         f"ROBOTHOR_DB_NAME={db.name}",
         f"ROBOTHOR_DB_USER={db.user}",
-        "# ROBOTHOR_DB_PASSWORD — set via SOPS secrets or env, not stored in .env",
-        f"ROBOTHOR_DB_PASSWORD={masked_db_password}",
+        "# ROBOTHOR_DB_PASSWORD — set via SOPS secrets or env, not stored here",
+        "ROBOTHOR_DB_PASSWORD=",
         f"ROBOTHOR_REDIS_HOST={redis.host}",
         f"ROBOTHOR_REDIS_PORT={redis.port}",
         f"ROBOTHOR_OLLAMA_HOST={ollama.host}",

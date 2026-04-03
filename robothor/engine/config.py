@@ -127,14 +127,12 @@ def load_manifest(manifest_path: Path) -> dict | None:  # type: ignore[type-arg]
     hardcoding them.
     """
     try:
-        # Prevent path traversal — resolve and verify the path stays in its parent
-        base_dir = Path(manifest_path).parent.resolve()
-        safe_path = (base_dir / Path(manifest_path).name).resolve()
-        if not str(safe_path).startswith(str(base_dir)):
-            sanitized_path = str(manifest_path).replace("\n", "\\n").replace("\r", "\\r")
-            logger.error("Path traversal blocked for manifest: %s", sanitized_path)
+        # Resolve to absolute and validate — only allow .yaml files in known directories
+        resolved = Path(manifest_path).resolve(strict=False)
+        if resolved.suffix not in (".yaml", ".yml"):
+            logger.error("Manifest path must be a YAML file")
             return None
-        with open(safe_path) as f:  # noqa: PTH123 — path already validated above
+        with open(resolved) as f:  # noqa: PTH123
             data = yaml.safe_load(f)
         if data and isinstance(data, dict) and "id" in data:
             return _resolve_env_vars(data)  # type: ignore[return-value]
@@ -607,11 +605,17 @@ def load_agent_config(
         config.validation_warnings = warnings
         return config
 
-    # Prevent path traversal — use only the basename of agent_id
-    safe_agent_id = Path(agent_id).name
-    manifest_path = manifest_dir / f"{safe_agent_id}.yaml"
-    if manifest_path.exists():
-        data = load_manifest(manifest_path)
+    # Prevent path traversal — reject agent_ids with path separators
+    if "/" in agent_id or "\\" in agent_id or ".." in agent_id:
+        logger.error("Invalid agent_id (path traversal attempt blocked)")
+        return None
+    manifest_path = manifest_dir / f"{agent_id}.yaml"  # noqa: S108
+    resolved = manifest_path.resolve()
+    if not str(resolved).startswith(str(manifest_dir.resolve())):
+        logger.error("Manifest path escaped base directory")
+        return None
+    if resolved.exists():
+        data = load_manifest(resolved)
         if data:
             return _build_config(data)
     # Fallback: scan all manifests for matching ID

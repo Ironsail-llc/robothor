@@ -2231,7 +2231,7 @@ class AgentRunner:
             # Verification failed — inject feedback and retry once
             feedback = format_verification_feedback(result)
             session.messages.append({"role": "user", "content": feedback})
-            logger.info("Verification failed for %s, retrying once", _sanitize(agent_config.id))
+            logger.info("Verification failed for %r, retrying once", agent_config.id)
 
             await self._run_loop(
                 session,
