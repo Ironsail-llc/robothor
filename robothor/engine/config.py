@@ -118,13 +118,16 @@ def load_manifest(manifest_path: Path) -> dict | None:  # type: ignore[type-arg]
     hardcoding them.
     """
     try:
-        with Path(manifest_path).open() as f:
+        # Prevent path traversal — use only the filename within its parent dir
+        safe_path = Path(manifest_path).parent.resolve() / Path(manifest_path).name
+        with safe_path.open() as f:
             data = yaml.safe_load(f)
         if data and isinstance(data, dict) and "id" in data:
             return _resolve_env_vars(data)  # type: ignore[return-value]
         return None
     except Exception as e:
-        logger.error("Failed to load manifest %s: %s", manifest_path, e)
+        sanitized_path = str(manifest_path).replace('\n', '\\n').replace('\r', '\\r')
+        logger.error("Failed to load manifest %s: %s", sanitized_path, e)
         return None
 
 
@@ -583,13 +586,16 @@ def load_agent_config(
 
         warnings = validate_manifest(merged)
         for w in warnings:
-            logger.warning("Config validation [%s]: %s", agent_id, w)
+            sanitized_w = str(w).replace('\n', '\\n').replace('\r', '\\r')
+            logger.warning("Config validation [%s]: %s", agent_id, sanitized_w)
 
         config = manifest_to_agent_config(merged)
         config.validation_warnings = warnings
         return config
 
-    manifest_path = manifest_dir / f"{agent_id}.yaml"
+    # Prevent path traversal — use only the basename of agent_id
+    safe_agent_id = Path(agent_id).name
+    manifest_path = manifest_dir / f"{safe_agent_id}.yaml"
     if manifest_path.exists():
         data = load_manifest(manifest_path)
         if data:

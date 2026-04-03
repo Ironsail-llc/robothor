@@ -197,33 +197,37 @@ def create_health_app(
     @app.get("/health")
     async def health() -> dict[str, Any]:
         """Health check endpoint."""
-        # Get schedule summary
-        schedules = []
         try:
-            from robothor.engine.tracking import list_schedules
+            # Get schedule summary
+            schedules = []
+            try:
+                from robothor.engine.tracking import list_schedules
 
-            schedules = list_schedules(tenant_id=config.tenant_id)
-        except Exception as e:
-            logger.warning("Failed to load schedules: %s", e)
+                schedules = list_schedules(tenant_id=config.tenant_id)
+            except Exception as e:
+                logger.warning("Failed to load schedules: %s", e)
 
-        agents = {}
-        for s in schedules:
-            agents[s["agent_id"]] = {
-                "enabled": s.get("enabled"),
-                "last_status": s.get("last_status"),
-                "last_run_at": str(s.get("last_run_at", "")),
-                "last_duration_ms": s.get("last_duration_ms"),
-                "consecutive_errors": s.get("consecutive_errors", 0),
+            agents = {}
+            for s in schedules:
+                agents[s["agent_id"]] = {
+                    "enabled": s.get("enabled"),
+                    "last_status": s.get("last_status"),
+                    "last_run_at": str(s.get("last_run_at", "")),
+                    "last_duration_ms": s.get("last_duration_ms"),
+                    "consecutive_errors": s.get("consecutive_errors", 0),
+                }
+
+            return {
+                "status": "healthy",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "engine_version": "0.1.0",
+                "tenant_id": config.tenant_id,
+                "bot_configured": bool(config.bot_token),
+                "agents": agents,
             }
-
-        return {
-            "status": "healthy",
-            "timestamp": datetime.now(UTC).isoformat(),
-            "engine_version": "0.1.0",
-            "tenant_id": config.tenant_id,
-            "bot_configured": bool(config.bot_token),
-            "agents": agents,
-        }
+        except Exception:
+            logger.exception("Health check failed")
+            return {"status": "error", "error": "Internal server error"}
 
     # Startup state tracking
     _startup_complete = {"ready": False}
@@ -267,12 +271,16 @@ def create_health_app(
             list_schedules(tenant_id=config.tenant_id)
             return "ok"
 
-        checks: dict[str, Any] = {
-            "database": check_db,
-            "schedules": check_schedules,
-        }
-        body, status = await readiness_response("engine", "0.1.0", checks)
-        return JSONResponse(body, status_code=status)
+        try:
+            checks: dict[str, Any] = {
+                "database": check_db,
+                "schedules": check_schedules,
+            }
+            body, status = await readiness_response("engine", "0.1.0", checks)
+            return JSONResponse(body, status_code=status)
+        except Exception:
+            logger.exception("Readiness check failed")
+            return JSONResponse({"status": "error", "error": "Internal server error"}, status_code=500)
 
     @app.on_event("startup")
     async def _mark_startup_complete() -> None:
@@ -436,8 +444,9 @@ def create_health_app(
                     "avg_cost_usd": 0,
                     "avg_duration_s": 0,
                 }
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("LLM cost query failed")
+            return {"error": "Internal server error"}
 
     # ── Workflow API endpoints ───────────────────────────────────────
 

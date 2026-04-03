@@ -213,7 +213,7 @@ class AgentRunner:
         if agent_config is None:
             agent_config = load_agent_config(agent_id, self.config.manifest_dir)
         if agent_config is None:
-            logger.error("Agent config not found: %s", agent_id)
+            logger.error("Agent config not found: %s", _sanitize(agent_id))
             session = AgentSession(agent_id, trigger_type, trigger_detail, self.config.tenant_id)
             session.start("", message, [])
             return session.fail(f"Agent config not found: {agent_id}")
@@ -285,7 +285,7 @@ class AgentRunner:
             try:
                 warmup_preamble = await warmup_future
             except Exception as e:
-                logger.debug("Warmup preamble failed for %s: %s", agent_id, e)
+                logger.debug("Warmup preamble failed for %s: %s", _sanitize(agent_id), _sanitize(e))
 
         if warmup_preamble:
             message = f"{warmup_preamble}\n\n{message}"
@@ -294,7 +294,7 @@ class AgentRunner:
         logger.info(
             "SETUP %dms agent=%s trigger=%s warmup=%s cached_prompt=%s",
             t_setup_ms,
-            agent_id,
+            _sanitize(agent_id),
             trigger_type.value,
             warmup_kind or "none",
             "hit" if _prompt_cache.get(agent_config.id) else "miss",
@@ -482,7 +482,7 @@ class AgentRunner:
                         await sandbox.start()
                         set_current_sandbox(sandbox)
                     except Exception as e:
-                        logger.error("Sandbox start failed for %s: %s", agent_id, e)
+                        logger.error("Sandbox start failed for %s: %s", _sanitize(agent_id), _sanitize(e))
                         sandbox = None
 
                 # Start stall watchdog — monitors current task for inactivity
@@ -524,7 +524,7 @@ class AgentRunner:
         except (TimeoutError, asyncio.CancelledError):
             if watchdog.was_stall_timeout:
                 idle_msg = f"Stall watchdog: no activity for {stall_timeout}s"
-                logger.warning("Agent %s killed: %s", agent_id, idle_msg)
+                logger.warning("Agent %s killed: %s", _sanitize(agent_id), idle_msg)
                 session.record_error(idle_msg)
                 # Trigger autoDream consolidation as post-stall cleanup
                 try:
@@ -537,12 +537,12 @@ class AgentRunner:
                 return self._finish_run(session.timeout(), trace=trace)
             # Hard timeout (only fires when stall watchdog is disabled)
             ht = agent_config.timeout_seconds
-            logger.warning("Agent %s hard-timed out after %ds", agent_id, ht)
+            logger.warning("Agent %s hard-timed out after %ds", _sanitize(agent_id), ht)
             session.record_error(f"Hard timeout after {ht}s")
             return self._finish_run(session.timeout(), trace=trace)
         except Exception as e:
             tb = traceback.format_exc()
-            logger.error("Agent %s failed: %s", agent_id, e, exc_info=True)
+            logger.error("Agent %s failed: %s", _sanitize(agent_id), _sanitize(e), exc_info=True)
             session.record_error(str(e), tb)
             return self._finish_run(session.fail(str(e), tb), trace=trace)
 
@@ -2223,7 +2223,7 @@ class AgentRunner:
             # Verification failed — inject feedback and retry once
             feedback = format_verification_feedback(result)
             session.messages.append({"role": "user", "content": feedback})
-            logger.info("Verification failed for %s, retrying once", agent_config.id)
+            logger.info("Verification failed for %s, retrying once", _sanitize(agent_config.id))
 
             await self._run_loop(
                 session,
@@ -2236,7 +2236,7 @@ class AgentRunner:
             )
             return session.get_final_text()
         except Exception as e:
-            logger.debug("Verification failed: %s", e)
+            logger.debug("Verification failed: %s", _sanitize(e))
             return output_text
 
     def _resume_from_checkpoint(
