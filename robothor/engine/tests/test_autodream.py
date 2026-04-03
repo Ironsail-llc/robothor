@@ -389,7 +389,7 @@ class TestShouldIAct:
         mock_r = MagicMock()
         mock_r.xlen.return_value = 10
 
-        with patch("redis.Redis", return_value=mock_r):
+        with patch("robothor.events.bus._get_redis", return_value=mock_r):
             from robothor.engine.autodream import should_i_act
 
             result = await should_i_act()
@@ -403,7 +403,7 @@ class TestShouldIAct:
         mock_r = MagicMock()
         mock_r.xlen.return_value = 5
 
-        with patch("redis.Redis", return_value=mock_r):
+        with patch("robothor.events.bus._get_redis", return_value=mock_r):
             from robothor.engine.autodream import should_i_act
 
             result = await should_i_act()
@@ -417,7 +417,7 @@ class TestShouldIAct:
 
         with (
             patch("robothor.crm.dal.list_tasks", side_effect=Exception("DB down")),
-            patch("redis.Redis", return_value=mock_r),
+            patch("robothor.events.bus._get_redis", return_value=mock_r),
         ):
             from robothor.engine.autodream import should_i_act
 
