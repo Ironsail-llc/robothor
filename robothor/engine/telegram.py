@@ -94,19 +94,9 @@ def _friendly_tool_name(tool: str) -> str:
 
 def _format_checklist_html(todos: list[dict[str, str]]) -> str:
     """Render a todo list as Telegram HTML checklist."""
-    import html as _html
+    from robothor.engine.todolist import TodoList
 
-    icons = {"completed": "\u2705", "in_progress": "\U0001f504", "pending": "\u2b1c"}
-    lines = ["<b>Checklist:</b>"]
-    for t in todos:
-        icon = icons.get(t.get("status", "pending"), "\u2b1c")
-        content = _html.escape(t.get("content", ""))
-        if t.get("status") == "completed":
-            content = f"<s>{content}</s>"
-        elif t.get("status") == "in_progress":
-            content = f"<b>{content}</b>"
-        lines.append(f"  {icon} {content}")
-    return "\n".join(lines)
+    return TodoList.format_for_telegram(todos)
 
 
 def _plan_state_to_dict(plan: PlanState) -> dict[str, Any]:

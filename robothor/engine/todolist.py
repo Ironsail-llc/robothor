@@ -24,6 +24,9 @@ MAX_REMINDERS = 3
 # Verification nudge threshold — only fires for non-trivial lists
 VERIFICATION_MIN_ITEMS = 3
 
+# Guard against LLMs generating enormous lists
+MAX_ITEMS = 20
+
 
 @dataclass
 class TodoItem:
@@ -64,6 +67,9 @@ class TodoList:
         """Validate a proposed item list. Returns error string or None if valid."""
         if not items:
             return "todos must not be empty"
+
+        if len(items) > MAX_ITEMS:
+            return f"too many items ({len(items)}), max is {MAX_ITEMS}"
 
         in_progress_count = sum(1 for item in items if item.status == "in_progress")
         if in_progress_count > 1:
@@ -115,19 +121,6 @@ class TodoList:
 
         return result
 
-    def apply_result(self, result: dict[str, Any]) -> None:
-        """Apply a tool result dict to update internal state.
-
-        Called by the runner after the handler returns.
-        """
-        new_todos = result.get("newTodos", [])
-        all_done = all(t.get("status") == "completed" for t in new_todos) if new_todos else False
-        if all_done:
-            self.items = []
-        else:
-            self.items = [TodoItem.from_dict(t) for t in new_todos]
-        self._turns_since_use = 0
-
     # ── Verification nudge ──
 
     @staticmethod
@@ -166,48 +159,37 @@ class TodoList:
             summary += f" ... and {len(self.items) - 5} more"
 
         return (
-            "The task tools haven't been used recently. If you're working on "
-            "tasks that would benefit from tracking progress, consider using "
-            "todo_write to add new tasks and update task status (set to "
-            "in_progress when starting, completed when done). Also consider "
-            "cleaning up the task list if it has become stale. Only use these "
-            "if relevant to the current work. This is just a gentle reminder "
-            "- ignore if not applicable. Make sure that you NEVER mention "
-            f"this reminder to the user\n\nCurrent items: {summary}"
+            "Your checklist hasn't been updated recently. Consider using "
+            "todo_write to update item statuses (set to in_progress when "
+            "starting, completed when done) or clean up stale items. "
+            "Only use this if relevant to your current work — ignore if "
+            "not applicable. NEVER mention this reminder to the user.\n\n"
+            f"Current items: {summary}"
         )
 
     # ── Display ──
 
-    def format_for_telegram(self) -> str:
-        """Render as Telegram HTML checklist."""
-        if not self.items:
+    @staticmethod
+    def format_for_telegram(todos: list[dict[str, str]]) -> str:
+        """Render a list of todo dicts as Telegram HTML checklist.
+
+        Accepts the raw dict format from event payloads (keys: content, status).
+        """
+        if not todos:
             return ""
 
         icons = {"completed": "\u2705", "in_progress": "\U0001f504", "pending": "\u2b1c"}
         lines = ["<b>Checklist:</b>"]
-        for item in self.items:
-            icon = icons.get(item.status, "\u2b1c")
-            content = html.escape(item.content)
-            if item.status == "completed":
+        for t in todos:
+            status = t.get("status", "pending")
+            icon = icons.get(status, "\u2b1c")
+            content = html.escape(t.get("content", ""))
+            if status == "completed":
                 content = f"<s>{content}</s>"
-            elif item.status == "in_progress":
+            elif status == "in_progress":
                 content = f"<b>{content}</b>"
             lines.append(f"  {icon} {content}")
         return "\n".join(lines)
-
-    def get_active_form(self) -> str | None:
-        """Return the active_form of the current in_progress item, if any."""
-        for item in self.items:
-            if item.status == "in_progress":
-                return item.active_form
-        return None
-
-    def progress_summary(self) -> str:
-        """Brief progress string, e.g. '2/5 done'."""
-        if not self.items:
-            return ""
-        done = sum(1 for item in self.items if item.status == "completed")
-        return f"{done}/{len(self.items)} done"
 
     # ── Serialization ──
 

@@ -16,9 +16,12 @@ import tempfile
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from robothor.engine.models import AgentRun, RunStatus, RunStep, StepType, TriggerType
+
+if TYPE_CHECKING:
+    from robothor.engine.todolist import TodoList
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +65,7 @@ class AgentSession:
         self._start_time: float | None = None
         self._tool_offload_threshold = tool_offload_threshold
         self._step_costs: list[float] = []
-        self.todo_list: Any | None = None  # TodoList instance when enabled
+        self.todo_list: TodoList | None = None
 
     @property
     def run_id(self) -> str:

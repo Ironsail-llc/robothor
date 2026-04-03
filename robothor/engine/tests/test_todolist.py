@@ -62,6 +62,12 @@ class TestTodoListValidation:
         assert error is not None
         assert "invalid status" in error
 
+    def test_rejects_too_many_items(self) -> None:
+        items = [TodoItem(f"Item {i}", f"Doing item {i}", "pending") for i in range(21)]
+        error = TodoList.validate(items)
+        assert error is not None
+        assert "too many" in error
+
 
 class TestTodoListReplace:
     def test_returns_old_and_new(self) -> None:
@@ -205,18 +211,17 @@ class TestReminderInjection:
         reminder = tl.format_reminder()
         assert "Fix bug" in reminder
         assert "NEVER mention" in reminder
+        assert "checklist" in reminder.lower()
 
 
 class TestDisplayFormatting:
     def test_format_for_telegram(self) -> None:
-        tl = TodoList(
-            items=[
-                TodoItem("Fix bug", "Fixing bug", "completed"),
-                TodoItem("Run tests", "Running tests", "in_progress"),
-                TodoItem("Deploy", "Deploying", "pending"),
-            ]
-        )
-        result = tl.format_for_telegram()
+        todos = [
+            {"content": "Fix bug", "status": "completed"},
+            {"content": "Run tests", "status": "in_progress"},
+            {"content": "Deploy", "status": "pending"},
+        ]
+        result = TodoList.format_for_telegram(todos)
         assert "<b>Checklist:</b>" in result
         assert "\u2705" in result
         assert "\U0001f504" in result
@@ -225,31 +230,7 @@ class TestDisplayFormatting:
         assert "<b>Run tests</b>" in result
 
     def test_format_empty_returns_empty_string(self) -> None:
-        tl = TodoList(items=[])
-        assert tl.format_for_telegram() == ""
-
-    def test_get_active_form(self) -> None:
-        tl = TodoList(
-            items=[
-                TodoItem("A", "Doing A", "completed"),
-                TodoItem("B", "Doing B", "in_progress"),
-            ]
-        )
-        assert tl.get_active_form() == "Doing B"
-
-    def test_get_active_form_none_when_no_in_progress(self) -> None:
-        tl = TodoList(items=[TodoItem("A", "Doing A", "pending")])
-        assert tl.get_active_form() is None
-
-    def test_progress_summary(self) -> None:
-        tl = TodoList(
-            items=[
-                TodoItem("A", "A", "completed"),
-                TodoItem("B", "B", "completed"),
-                TodoItem("C", "C", "pending"),
-            ]
-        )
-        assert tl.progress_summary() == "2/3 done"
+        assert TodoList.format_for_telegram([]) == ""
 
 
 class TestSerialization:
@@ -282,27 +263,6 @@ class TestSerialization:
             }
         )
         assert restored.items[0].active_form == "Doing A"
-
-
-class TestApplyResult:
-    def test_apply_result_updates_items(self) -> None:
-        tl = TodoList(items=[TodoItem("Old", "Working", "pending")])
-        tl._turns_since_use = 10
-        tl.apply_result(
-            {
-                "newTodos": [
-                    {"content": "New", "active_form": "Working on New", "status": "in_progress"}
-                ]
-            }
-        )
-        assert len(tl.items) == 1
-        assert tl.items[0].content == "New"
-        assert tl._turns_since_use == 0
-
-    def test_apply_result_clears_on_all_done(self) -> None:
-        tl = TodoList(items=[TodoItem("A", "A", "pending")])
-        tl.apply_result({"newTodos": [{"content": "A", "active_form": "A", "status": "completed"}]})
-        assert tl.items == []
 
 
 # ── Integration tests: Tool filtering ──
@@ -394,23 +354,19 @@ class TestTodoWriteHandler:
 
 class TestTelegramRendering:
     def test_format_checklist_html(self) -> None:
-        from robothor.engine.telegram import _format_checklist_html
-
         todos = [
             {"content": "Fix bug", "status": "completed"},
             {"content": "Run tests", "status": "in_progress"},
             {"content": "Deploy", "status": "pending"},
         ]
-        result = _format_checklist_html(todos)
+        result = TodoList.format_for_telegram(todos)
         assert "<b>Checklist:</b>" in result
         assert "<s>Fix bug</s>" in result
         assert "<b>Run tests</b>" in result
         assert "Deploy" in result
 
     def test_escapes_html(self) -> None:
-        from robothor.engine.telegram import _format_checklist_html
-
         todos = [{"content": "<script>alert('xss')</script>", "status": "pending"}]
-        result = _format_checklist_html(todos)
+        result = TodoList.format_for_telegram(todos)
         assert "<script>" not in result
         assert "&lt;script&gt;" in result

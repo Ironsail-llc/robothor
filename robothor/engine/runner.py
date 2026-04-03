@@ -1364,6 +1364,23 @@ class AgentRunner:
                             }
                         )
 
+                # ── [TODO LIST] Intercept todo_write results ──
+                # Must run BEFORE step recording so the log captures the clean
+                # oldTodos/newTodos result, not the raw _validated_items.
+                if (
+                    tool_name == "todo_write"
+                    and session.todo_list
+                    and not error_msg
+                    and result.get("_needs_apply")
+                ):
+                    from robothor.engine.todolist import TodoItem
+
+                    validated = result.get("_validated_items", [])
+                    items = [TodoItem.from_dict(d) for d in validated]
+                    result = session.todo_list.replace(items)
+                    # Update the tool result message already in session.messages
+                    session.messages[-1]["content"] = json.dumps(result, default=str)
+
                 session.record_tool_call(
                     tool_name=tool_name,
                     tool_input=tool_args,
@@ -1402,20 +1419,8 @@ class AgentRunner:
                 if scratchpad:
                     scratchpad.record_tool_call(tool_name, error=error_msg)
 
-                # ── [TODO LIST] Intercept todo_write results ──
+                # ── [TODO LIST] Emit event + verification nudge ──
                 if tool_name == "todo_write" and session.todo_list and not error_msg:
-                    if result.get("_needs_apply"):
-                        # Handler validated — now do the state swap
-                        from robothor.engine.todolist import TodoItem
-
-                        validated = result.get("_validated_items", [])
-                        items = [TodoItem.from_dict(d) for d in validated]
-                        result = session.todo_list.replace(items)
-                        # Re-record with the real result
-                        session.messages[-1]["content"] = json.dumps(result, default=str)
-                    else:
-                        session.todo_list.apply_result(result)
-                    # Emit todo_updated event for Telegram/Helm
                     if on_tool:
                         with contextlib.suppress(Exception):
                             await on_tool(
@@ -1425,7 +1430,6 @@ class AgentRunner:
                                     "run_id": session.run.id,
                                 }
                             )
-                    # Verification nudge
                     if result.get("verificationNudgeNeeded"):
                         session.messages.append(
                             {

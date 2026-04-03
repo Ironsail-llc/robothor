@@ -120,7 +120,7 @@ class ToolRegistry:
             names = [n for n in names if n not in SPAWN_TOOLS]
 
         # Exclude todo list tools unless agent has todo_list_enabled
-        if not getattr(config, "todo_list_enabled", False):
+        if not config.todo_list_enabled:
             names = [n for n in names if n not in TODO_TOOLS]
 
         return names
