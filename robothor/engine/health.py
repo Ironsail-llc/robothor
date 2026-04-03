@@ -89,7 +89,7 @@ def create_health_app(
         }
 
     @app.get("/api/buddy/history")
-    async def buddy_history(days: int = 7) -> dict[str, Any] | JSONResponse:
+    async def buddy_history(days: int = 7) -> dict[str, Any]:
         """Get buddy stats history for the last N days."""
         days = max(1, min(days, 365))
         from robothor.db.connection import get_connection
@@ -112,7 +112,7 @@ def create_health_app(
                 rows = cur.fetchall()
         except Exception as e:
             logger.warning("buddy_history DB error: %s", e)
-            return JSONResponse({"error": "Database unavailable"}, status_code=503)
+            return JSONResponse({"error": "Database unavailable"}, status_code=503)  # type: ignore[return-value]
         return {
             "days": [
                 {
@@ -134,7 +134,7 @@ def create_health_app(
         }
 
     @app.get("/api/kairos/dreams")
-    async def kairos_dreams(limit: int = 10) -> dict[str, Any] | JSONResponse:
+    async def kairos_dreams(limit: int = 10) -> dict[str, Any]:
         """Get recent autoDream runs."""
         limit = max(1, min(limit, 1000))
         from robothor.db.connection import get_connection
@@ -156,7 +156,7 @@ def create_health_app(
                 rows = cur.fetchall()
         except Exception as e:
             logger.warning("kairos_dreams DB error: %s", e)
-            return JSONResponse({"error": "Database unavailable"}, status_code=503)
+            return JSONResponse({"error": "Database unavailable"}, status_code=503)  # type: ignore[return-value]
         return {
             "dreams": [
                 {
