@@ -105,6 +105,11 @@ tools_allowed:
   - create_prescription_draft
   - schedule_appointment
   - transmit_prescription
+  # Apollo.io contact enrichment & search
+  - apollo_search_people
+  - apollo_enrich_person
+  - apollo_search_companies
+  - apollo_enrich_company
   # Deep reasoning (RLM)
   - deep_reason
   # Sub-agent spawning tools

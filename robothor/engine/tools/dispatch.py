@@ -31,6 +31,7 @@ def _cfg() -> Config:
 def _collect_handlers() -> dict[str, Any]:
     """Collect all HANDLERS dicts from handler modules."""
     from robothor.engine.tools.handlers import (
+        apollo,
         benchmark,
         browser,
         crm,
@@ -61,6 +62,7 @@ def _collect_handlers() -> dict[str, Any]:
         memory,
         vision,
         web,
+        apollo,
         filesystem,
         crm,
         browser,
