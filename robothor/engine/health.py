@@ -49,6 +49,149 @@ def create_health_app(
         init_ide(runner, config)
         app.include_router(ide_router)
 
+    # Mount webhook ingress
+    from robothor.engine.webhooks import get_webhook_router
+
+    app.include_router(get_webhook_router())
+
+    # ── Buddy / KAIROS / Extensions API routes ───────────────────────────
+
+    @app.get("/api/buddy/stats")
+    async def buddy_stats() -> dict[str, Any]:
+        """Get current buddy stats, level, and streak."""
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        stats = engine.compute_daily_stats()
+        level = engine.get_level_info()
+        current_streak, longest_streak = engine.get_streak()
+        return {
+            "level": level.level,
+            "level_name": level.level_name,
+            "total_xp": level.total_xp,
+            "progress_pct": level.progress_pct,
+            "streak": {"current": current_streak, "longest": longest_streak},
+            "today": {
+                "tasks": stats.tasks_completed,
+                "emails": stats.emails_processed,
+                "insights": stats.insights_generated,
+                "dreams": stats.dreams_completed,
+                "errors_avoided": stats.errors_avoided,
+            },
+            "scores": {
+                "debugging": stats.debugging_score,
+                "patience": stats.patience_score,
+                "chaos": stats.chaos_score,
+                "wisdom": stats.wisdom_score,
+                "reliability": stats.reliability_score,
+            },
+        }
+
+    @app.get("/api/buddy/history")
+    async def buddy_history(days: int = 7) -> dict[str, Any]:
+        """Get buddy stats history for the last N days."""
+        from robothor.db.connection import get_connection
+
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT stat_date, tasks_completed, total_xp, level,
+                       current_streak_days,
+                       debugging_score, patience_score, chaos_score,
+                       wisdom_score, reliability_score
+                FROM buddy_stats
+                ORDER BY stat_date DESC
+                LIMIT %s
+                """,
+                (days,),
+            )
+            rows = cur.fetchall()
+        return {
+            "days": [
+                {
+                    "date": str(r[0]),
+                    "tasks": r[1],
+                    "xp": r[2],
+                    "level": r[3],
+                    "streak": r[4],
+                    "scores": {
+                        "debugging": r[5],
+                        "patience": r[6],
+                        "chaos": r[7],
+                        "wisdom": r[8],
+                        "reliability": r[9],
+                    },
+                }
+                for r in rows
+            ]
+        }
+
+    @app.get("/api/kairos/dreams")
+    async def kairos_dreams(limit: int = 10) -> dict[str, Any]:
+        """Get recent autoDream runs."""
+        from robothor.db.connection import get_connection
+
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT id, mode, started_at, completed_at, duration_ms,
+                       facts_consolidated, facts_pruned, insights_discovered,
+                       error_message
+                FROM autodream_runs
+                ORDER BY started_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        return {
+            "dreams": [
+                {
+                    "id": str(r[0]),
+                    "mode": r[1],
+                    "started_at": str(r[2]) if r[2] else None,
+                    "completed_at": str(r[3]) if r[3] else None,
+                    "duration_ms": r[4],
+                    "facts_consolidated": r[5],
+                    "facts_pruned": r[6],
+                    "insights_discovered": r[7],
+                    "error": r[8],
+                }
+                for r in rows
+            ]
+        }
+
+    @app.get("/api/extensions")
+    async def list_extensions() -> dict[str, Any]:
+        """List loaded business adapters / extensions."""
+        from robothor.engine.adapters import get_loaded_adapters
+
+        adapters = get_loaded_adapters()
+        return {
+            "count": len(adapters),
+            "extensions": [
+                {
+                    "name": a.name,
+                    "transport": a.transport,
+                    "version": a.version,
+                    "author": a.author,
+                    "description": a.description,
+                    "agents": a.agents,
+                }
+                for a in adapters
+            ],
+        }
+
+    @app.post("/api/extensions/reload")
+    async def reload_extensions() -> dict[str, Any]:
+        """Reload adapters from disk."""
+        from robothor.engine.adapters import refresh_adapters
+
+        adapters = refresh_adapters()
+        return {"reloaded": True, "count": len(adapters)}
+
     @app.get("/health")
     async def health() -> dict[str, Any]:
         """Health check endpoint."""

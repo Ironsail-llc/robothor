@@ -471,8 +471,10 @@ class BuddyEngine:
                     ),
                 )
 
-                # Update buddy_profile with new total XP
-                new_total_xp = level_before.total_xp + daily_xp
+                # Compute total XP idempotently from buddy_stats sum
+                cur.execute("SELECT COALESCE(SUM(total_xp), 0) FROM buddy_stats")
+                xp_row = cur.fetchone()
+                new_total_xp = int(xp_row[0]) if xp_row else 0
                 new_level = level_from_xp(new_total_xp)
                 cur.execute(
                     """

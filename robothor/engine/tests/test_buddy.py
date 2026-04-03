@@ -178,7 +178,7 @@ class TestBuddyEngine:
         cursor = MagicMock()
         # 4 queries: tasks_completed, emails, errors_avoided, dreams+insights
         call_idx = [0]
-        results = [
+        results: list[list[tuple[int, ...]]] = [
             [(15,)],  # tasks_completed
             [(42,)],  # emails_processed
             [(3,)],  # errors_avoided
@@ -355,6 +355,8 @@ class TestRefreshDaily:
         )
 
         cursor = MagicMock()
+        # fetchone() called after SUM query — return accumulated XP
+        cursor.fetchone.return_value = (2180,)
         conn = MagicMock()
         conn.cursor.return_value = cursor
         conn.__enter__ = MagicMock(return_value=conn)
@@ -399,6 +401,8 @@ class TestRefreshDaily:
         )
 
         cursor = MagicMock()
+        # fetchone() is called once after the SUM query — return 2870 (2490 + 380)
+        cursor.fetchone.return_value = (2870,)
         conn = MagicMock()
         conn.cursor.return_value = cursor
         conn.__enter__ = MagicMock(return_value=conn)
@@ -409,7 +413,7 @@ class TestRefreshDaily:
         result = engine.refresh_daily(date(2026, 4, 3))
 
         # daily_xp = 10*10 + 20*5 + 5*20 + 3*15 + 2*10 + 3*5 = 100+100+100+45+20+15 = 380
-        # new total = 2490 + 380 = 2870 → level_from_xp(2870) = 7
+        # SUM(total_xp) from buddy_stats = 2870 → level_from_xp(2870) = 7
         assert result["leveled_up"] is True
 
 
