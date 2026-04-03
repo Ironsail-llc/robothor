@@ -526,6 +526,14 @@ class AgentRunner:
                 idle_msg = f"Stall watchdog: no activity for {stall_timeout}s"
                 logger.warning("Agent %s killed: %s", agent_id, idle_msg)
                 session.record_error(idle_msg)
+                # Trigger autoDream consolidation as post-stall cleanup
+                try:
+                    from robothor.engine.autodream import is_cooled_down, run_autodream
+
+                    if is_cooled_down():
+                        asyncio.create_task(run_autodream(mode="post_stall"))
+                except Exception:
+                    pass  # best-effort, never block run finalization
                 return self._finish_run(session.timeout(), trace=trace)
             # Hard timeout (only fires when stall watchdog is disabled)
             ht = agent_config.timeout_seconds
@@ -810,6 +818,12 @@ class AgentRunner:
         checkpoint = self._create_checkpoint(agent_config, route, session.run_id)
         guardrail_engine = self._create_guardrails(agent_config)
 
+        # ── v2: Initialize in-conversation todo list ──
+        if agent_config.todo_list_enabled:
+            from robothor.engine.todolist import TodoList
+
+            session.todo_list = TodoList(items=[])
+
         # Inject guardrail awareness into system prompt so LLM self-regulates
         if guardrail_engine and guardrail_engine.enabled_policies:
             from robothor.engine.guardrails import guardrail_summary
@@ -1058,6 +1072,11 @@ class AgentRunner:
                 summary = scratchpad.format_summary(plan_steps=plan_steps)
                 session.messages.append({"role": "user", "content": summary})
 
+            # ── [TODO REMINDER] Nudge agent to update todo list ──
+            if session.todo_list and session.todo_list.should_remind():
+                reminder = session.todo_list.format_reminder()
+                session.messages.append({"role": "user", "content": reminder})
+
             # ── [PRE-FLIGHT] Hard budget cost projection ──
             if (
                 agent_config.hard_budget
@@ -1094,6 +1113,11 @@ class AgentRunner:
             if execution_mode and assistant_msg.content and "[PLAN_READY]" in assistant_msg.content:
                 assistant_msg.content = assistant_msg.content.replace("[PLAN_READY]", "").strip()
                 logger.info("Stripped [PLAN_READY] marker from execution mode output")
+
+            # ── [TODO LIST] Track turns for reminder timing ──
+            if session.todo_list:
+                tool_names_in_call = {tc.function.name for tc in (assistant_msg.tool_calls or [])}
+                session.todo_list.record_turn(used_todo="todo_write" in tool_names_in_call)
 
             # Check if we're done (no tool calls)
             if not assistant_msg.tool_calls:
@@ -1377,6 +1401,43 @@ class AgentRunner:
                 # ── [SCRATCHPAD] Record tool call ──
                 if scratchpad:
                     scratchpad.record_tool_call(tool_name, error=error_msg)
+
+                # ── [TODO LIST] Intercept todo_write results ──
+                if tool_name == "todo_write" and session.todo_list and not error_msg:
+                    if result.get("_needs_apply"):
+                        # Handler validated — now do the state swap
+                        from robothor.engine.todolist import TodoItem
+
+                        validated = result.get("_validated_items", [])
+                        items = [TodoItem.from_dict(d) for d in validated]
+                        result = session.todo_list.replace(items)
+                        # Re-record with the real result
+                        session.messages[-1]["content"] = json.dumps(result, default=str)
+                    else:
+                        session.todo_list.apply_result(result)
+                    # Emit todo_updated event for Telegram/Helm
+                    if on_tool:
+                        with contextlib.suppress(Exception):
+                            await on_tool(
+                                {
+                                    "event": "todo_updated",
+                                    "todos": result.get("newTodos", []),
+                                    "run_id": session.run.id,
+                                }
+                            )
+                    # Verification nudge
+                    if result.get("verificationNudgeNeeded"):
+                        session.messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "[SYSTEM] All tasks are marked complete. "
+                                    "Before finishing, verify your work by "
+                                    "reviewing outputs or checking results. "
+                                    "NEVER mention this reminder to the user."
+                                ),
+                            }
+                        )
 
                 # ── [ESCALATION] Record error/success ──
                 if escalation:

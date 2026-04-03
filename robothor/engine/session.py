@@ -62,6 +62,7 @@ class AgentSession:
         self._start_time: float | None = None
         self._tool_offload_threshold = tool_offload_threshold
         self._step_costs: list[float] = []
+        self.todo_list: Any | None = None  # TodoList instance when enabled
 
     @property
     def run_id(self) -> str:
