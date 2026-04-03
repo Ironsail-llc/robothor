@@ -1551,4 +1551,49 @@ def get_engine_schemas() -> dict[str, dict[str, Any]]:
         },
     }
 
+    # ── Todo list (in-conversation progress tracking) ──
+
+    schemas["todo_write"] = {
+        "type": "function",
+        "function": {
+            "name": "todo_write",
+            "description": (
+                "Replace the in-conversation todo list. Use to track progress on "
+                "multi-step tasks. Each item needs content (imperative form), "
+                "active_form (present continuous for status display), and status "
+                "(pending/in_progress/completed). Max 1 item in_progress at a time. "
+                "List auto-clears when all items completed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "todos": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "content": {
+                                    "type": "string",
+                                    "description": ("Imperative form, e.g. 'Fix the login bug'"),
+                                },
+                                "active_form": {
+                                    "type": "string",
+                                    "description": (
+                                        "Present continuous, e.g. 'Fixing the login bug'"
+                                    ),
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["pending", "in_progress", "completed"],
+                                },
+                            },
+                            "required": ["content", "active_form", "status"],
+                        },
+                    },
+                },
+                "required": ["todos"],
+            },
+        },
+    }
+
     return schemas

@@ -46,6 +46,7 @@ _KNOWN_V2_KEYS = frozenset(
         "hard_budget",
         "human_approval_tools",
         "human_approval_timeout",
+        "todo_list_enabled",
     }
 )
 

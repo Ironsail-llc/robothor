@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from robothor.engine.tools.constants import SPAWN_TOOLS
+from robothor.engine.tools.constants import SPAWN_TOOLS, TODO_TOOLS
 from robothor.engine.tools.dispatch import _execute_tool
 from robothor.engine.tools.schemas import get_engine_schemas
 
@@ -118,6 +118,10 @@ class ToolRegistry:
         # Exclude spawn tools unless agent has can_spawn_agents enabled
         if not config.can_spawn_agents:
             names = [n for n in names if n not in SPAWN_TOOLS]
+
+        # Exclude todo list tools unless agent has todo_list_enabled
+        if not config.todo_list_enabled:
+            names = [n for n in names if n not in TODO_TOOLS]
 
         return names
 
