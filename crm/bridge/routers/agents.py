@@ -308,7 +308,21 @@ def _build_agent_status() -> dict:
     rpg_scores: dict[str, dict] = {}
     try:
         from robothor.db.connection import get_connection
+        from robothor.engine.buddy import level_name
 
+        cols = [
+            "agent_id",
+            "debugging_score",
+            "patience_score",
+            "chaos_score",
+            "wisdom_score",
+            "reliability_score",
+            "overall_score",
+            "level",
+            "total_xp",
+            "last_benchmark_score",
+            "stat_date",
+        ]
         with get_connection() as conn:
             cur = conn.cursor()
             # Use DISTINCT ON to get the most recent row per agent (today or yesterday).
@@ -325,23 +339,24 @@ def _build_agent_status() -> dict:
                 """
             )
             for row in cur.fetchall():
-                from robothor.engine.buddy import level_name
-
-                lvl = row[7] or 1
-                is_stale = str(row[10]) != str(datetime.now(UTC).date())
-                rpg_scores[row[0]] = {
-                    "overall": row[6],
+                r = dict(zip(cols, row, strict=False))
+                lvl = r["level"] or 1
+                is_stale = str(r["stat_date"]) != str(datetime.now(UTC).date())
+                rpg_scores[r["agent_id"]] = {
+                    "overall": r["overall_score"],
                     "level": lvl,
                     "levelName": level_name(lvl),
-                    "totalXp": row[8] or 0,
+                    "totalXp": r["total_xp"] or 0,
                     "scores": {
-                        "debugging": row[1],
-                        "patience": row[2],
-                        "chaos": row[3],
-                        "wisdom": row[4],
-                        "reliability": row[5],
+                        "debugging": r["debugging_score"],
+                        "patience": r["patience_score"],
+                        "chaos": r["chaos_score"],
+                        "wisdom": r["wisdom_score"],
+                        "reliability": r["reliability_score"],
                     },
-                    "benchmarkScore": float(row[9]) if row[9] is not None else None,
+                    "benchmarkScore": float(r["last_benchmark_score"])
+                    if r["last_benchmark_score"] is not None
+                    else None,
                     "stale": is_stale,
                 }
     except Exception as e:
@@ -356,13 +371,6 @@ def _build_agent_status() -> dict:
         rpg = rpg_scores.get(agent["agentId"])
         if rpg:
             agent["rpg"] = rpg
-
-    # Sort agents by RPG overall score descending when available, health tier otherwise
-    tier_order = {"failed": 0, "degraded": 1, "unknown": 2, "healthy": 3, "sleeping": 4}
-    agents.sort(
-        key=lambda a: (a.get("rpg", {}).get("overall", -1), tier_order.get(a["status"], 2)),
-        reverse=True,
-    )
 
     return {"agents": agents, "summary": summary}
 

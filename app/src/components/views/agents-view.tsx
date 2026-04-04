@@ -90,7 +90,7 @@ export function AgentsView({ visible, agents, summary, isLoading }: AgentsViewPr
             Loading agents...
           </div>
         ) : (
-          <AgentStatus agents={sortedAgents} summary={summary} sortBy={sortBy} />
+          <AgentStatus agents={sortedAgents} summary={summary} />
         )}
       </div>
     </div>

@@ -25,7 +25,6 @@ interface AgentInfo {
 interface AgentStatusProps {
   agents: AgentInfo[];
   summary?: { healthy: number; degraded: number; failed: number; sleeping: number; total: number };
-  sortBy?: "score" | "health" | "name";
 }
 
 const tierConfig: Record<HealthTier, { color: string; bg: string; dotBg: string; border: string; label: string }> = {
@@ -41,7 +40,7 @@ const scoreBarConfig: { key: keyof AgentRPG["scores"]; label: string; color: str
   { key: "debugging", label: "DBG", color: "bg-blue-400" },
   { key: "patience", label: "PAT", color: "bg-violet-400" },
   { key: "wisdom", label: "WIS", color: "bg-amber-400" },
-  { key: "chaos", label: "CHS", color: "bg-red-400" },
+  { key: "chaos", label: "CHA", color: "bg-red-400" },
 ];
 
 function formatDuration(ms?: number): string {
@@ -101,7 +100,7 @@ function ScoreBars({ scores }: { scores: AgentRPG["scores"] }) {
   );
 }
 
-export function AgentStatus({ agents, summary, sortBy = "score" }: AgentStatusProps) {
+export function AgentStatus({ agents, summary }: AgentStatusProps) {
   return (
     <div data-testid="agent-status">
       {summary && (

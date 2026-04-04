@@ -669,6 +669,66 @@ class TestAgentFilter:
         assert "agent_id" in filt
         assert params == ("email-classifier",)
 
+    def test_with_table_alias(self):
+        from robothor.engine.buddy import _agent_filter
+
+        filt, params = _agent_filter("email-classifier", table_alias="r")
+        assert "r.agent_id" in filt
+        assert params == ("email-classifier",)
+
+    def test_no_agent_id_with_alias(self):
+        from robothor.engine.buddy import _agent_filter
+
+        filt, params = _agent_filter(None, table_alias="r")
+        assert filt == ""
+        assert params == ()
+
+
+# ── Per-agent wisdom neutral default ──────────────────────────────────────
+
+
+class TestPerAgentWisdomDefault:
+    """Verify that per-agent scoring uses neutral wisdom (50) since dreams are global."""
+
+    @patch("robothor.engine.buddy.BuddyEngine._get_latest_benchmark", return_value=(None, None))
+    @patch("robothor.engine.buddy.BuddyEngine._get_agent_total_xp", return_value=0)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_reliability", return_value=80)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_chaos", return_value=20)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_patience", return_value=70)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_debugging", return_value=80)
+    @patch("robothor.engine.buddy.BuddyEngine._agent_run_count", return_value=10)
+    @patch("robothor.db.connection.get_connection")
+    def test_wisdom_defaults_to_50(
+        self,
+        mock_conn,
+        mock_runcount,
+        mock_dbg,
+        mock_pat,
+        mock_chaos,
+        mock_rel,
+        mock_xp,
+        mock_bench,
+    ):
+        cursor = MagicMock()
+        results = [[(5,)], [(0,)], [(1,)]]
+        call_idx = [0]
+
+        def fetchone():
+            idx = call_idx[0]
+            call_idx[0] += 1
+            return results[idx][0] if idx < len(results) else None
+
+        cursor.fetchone = fetchone
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        agent_stats = engine.compute_agent_scores("test-agent", date(2026, 4, 4))
+
+        assert agent_stats is not None
+        assert agent_stats.wisdom_score == 50
+
 
 # ── Buddy hooks with agent_id ─────────────────────────────────────────────
 

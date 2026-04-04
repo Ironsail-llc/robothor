@@ -176,10 +176,11 @@ class AgentBuddyStats:
 # ── SQL helpers for optional agent_id filtering ────────────────────────────
 
 
-def _agent_filter(agent_id: str | None) -> tuple[str, tuple]:
+def _agent_filter(agent_id: str | None, *, table_alias: str | None = None) -> tuple[str, tuple]:
     """Return (SQL fragment, params) to filter by agent_id when provided."""
     if agent_id is not None:
-        return " AND agent_id = %s", (agent_id,)
+        col = f"{table_alias}.agent_id" if table_alias else "agent_id"
+        return f" AND {col} = %s", (agent_id,)
     return "", ()
 
 
@@ -229,7 +230,7 @@ class BuddyEngine:
                     WHERE DATE(r.started_at AT TIME ZONE 'America/New_York') = %s
                       AND s.tool_name IN ('gws_gmail_search', 'gws_gmail_get', 'gws_gmail_send',
                                           'gws_gmail_modify', 'gmail_search_messages',
-                                          'gmail_read_message', 'gmail_read_thread'){filt.replace("agent_id", "r.agent_id") if filt else ""}
+                                          'gmail_read_message', 'gmail_read_thread'){_agent_filter(agent_id, table_alias="r")[0] if agent_id else ""}
                     """,
                     (target_date, *filt_params),
                 )
@@ -437,6 +438,9 @@ class BuddyEngine:
             return None
 
         stats = self.compute_daily_stats(target_date, agent_id=agent_id)
+        # AutoDreams are system-wide, not per-agent, so wisdom has no signal here.
+        # Use neutral default (50) instead of the 0 that _compute_wisdom produces.
+        stats.wisdom_score = 50
         daily_xp = (
             stats.tasks_completed * XP_TASK_COMPLETED + stats.errors_avoided * XP_ERROR_RECOVERY
         )
@@ -658,11 +662,11 @@ class BuddyEngine:
                     SELECT id FROM tasks
                     WHERE assigned_to = 'auto-agent'
                       AND status IN ('pending', 'in_progress')
-                      AND title LIKE %s
+                      AND %s = ANY(tags)
                       AND created_at > NOW() - INTERVAL '7 days'
                     LIMIT 1
                     """,
-                    (f"%{agent_id}%",),
+                    (agent_id,),
                 )
                 if cur.fetchone():
                     return False  # Already has an open task
@@ -689,7 +693,7 @@ class BuddyEngine:
                 cur.execute(
                     """
                     INSERT INTO tasks (title, body, assigned_to, status, created_by, tags)
-                    VALUES (%s, %s, 'auto-agent', 'pending', 'buddy-engine', ARRAY['autoagent', 'low-score'])
+                    VALUES (%s, %s, 'auto-agent', 'pending', 'buddy-engine', ARRAY['autoagent', 'low-score', %s])
                     """,
                     (
                         f"Optimize {agent_id}: low RPG score (below {threshold})",
@@ -697,6 +701,7 @@ class BuddyEngine:
                         f"**Current scores:** {scores_str}\n\n"
                         f"Please define a benchmark suite (if none exists), run it, and iterate on "
                         f"the agent's instruction file and manifest to improve performance.",
+                        agent_id,
                     ),
                 )
                 conn.commit()
