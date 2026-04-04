@@ -652,36 +652,37 @@ class TestPerAgentCompute:
 # ── Agent filter helper ───────────────────────────────────────────────────
 
 
-class TestAgentFilter:
-    """Tests for the _agent_filter SQL helper."""
+class TestAgentClause:
+    """Tests for the _agent_clause SQL helper."""
 
     def test_no_agent_id(self):
-        from robothor.engine.buddy import _agent_filter
+        from robothor.engine.buddy import _agent_clause
 
-        filt, params = _agent_filter(None)
-        assert filt == ""
-        assert params == ()
+        clause, params = _agent_clause(None)
+        assert clause == ""
+        assert params == []
 
     def test_with_agent_id(self):
-        from robothor.engine.buddy import _agent_filter
+        from robothor.engine.buddy import _agent_clause
 
-        filt, params = _agent_filter("email-classifier")
-        assert "agent_id" in filt
-        assert params == ("email-classifier",)
+        clause, params = _agent_clause("email-classifier")
+        assert "agent_id" in clause
+        assert params == ["email-classifier"]
+        assert "f'" not in clause  # no f-strings in output
 
-    def test_with_table_alias(self):
-        from robothor.engine.buddy import _agent_filter
+    def test_with_column_qualifier(self):
+        from robothor.engine.buddy import _agent_clause
 
-        filt, params = _agent_filter("email-classifier", table_alias="r")
-        assert "r.agent_id" in filt
-        assert params == ("email-classifier",)
+        clause, params = _agent_clause("email-classifier", column="r.agent_id")
+        assert "r.agent_id" in clause
+        assert params == ["email-classifier"]
 
-    def test_no_agent_id_with_alias(self):
-        from robothor.engine.buddy import _agent_filter
+    def test_no_agent_id_with_column(self):
+        from robothor.engine.buddy import _agent_clause
 
-        filt, params = _agent_filter(None, table_alias="r")
-        assert filt == ""
-        assert params == ()
+        clause, params = _agent_clause(None, column="r.agent_id")
+        assert clause == ""
+        assert params == []
 
 
 # ── Per-agent wisdom neutral default ──────────────────────────────────────

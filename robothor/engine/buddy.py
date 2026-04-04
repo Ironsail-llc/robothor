@@ -176,14 +176,14 @@ class AgentBuddyStats:
 # ── SQL helpers for optional agent_id filtering ────────────────────────────
 
 
-def _agent_filter(
-    agent_id: str | None, *, table_alias: str | None = None
-) -> tuple[str, tuple[str, ...]]:
-    """Return (SQL fragment, params) to filter by agent_id when provided."""
+def _agent_clause(agent_id: str | None, *, column: str = "agent_id") -> tuple[str, list[str]]:
+    """Return (SQL AND-clause, params list) to filter by agent_id when provided.
+
+    Use ``column`` to qualify the column for JOINs, e.g. ``column="r.agent_id"``.
+    """
     if agent_id is not None:
-        col = f"{table_alias}.agent_id" if table_alias else "agent_id"
-        return f" AND {col} = %s", (agent_id,)
-    return "", ()
+        return " AND " + column + " = %s", [agent_id]
+    return "", []
 
 
 # ── Buddy Engine ────────────────────────────────────────────────────────────
@@ -204,7 +204,8 @@ class BuddyEngine:
             target_date = datetime.now(UTC).date()
 
         stats = DailyStats(stat_date=target_date)
-        filt, filt_params = _agent_filter(agent_id)
+        ac, ac_params = _agent_clause(agent_id)
+        ac_r, ac_r_params = _agent_clause(agent_id, column="r.agent_id")
 
         try:
             from robothor.db.connection import get_connection
@@ -214,40 +215,43 @@ class BuddyEngine:
 
                 # Count completed agent runs for this date
                 cur.execute(
-                    f"""
+                    """
                     SELECT COUNT(*) FROM agent_runs
                     WHERE DATE(started_at AT TIME ZONE 'America/New_York') = %s
-                      AND status = 'completed'{filt}
-                    """,
-                    (target_date, *filt_params),
+                      AND status = 'completed'
+                    """
+                    + ac,
+                    [target_date, *ac_params],
                 )
                 row = cur.fetchone()
                 stats.tasks_completed = int(row[0]) if row else 0
 
                 # Count email-related tool uses (proxy for emails processed)
                 cur.execute(
-                    f"""
+                    """
                     SELECT COUNT(*) FROM agent_run_steps s
                     JOIN agent_runs r ON r.id = s.run_id
                     WHERE DATE(r.started_at AT TIME ZONE 'America/New_York') = %s
                       AND s.tool_name IN ('gws_gmail_search', 'gws_gmail_get', 'gws_gmail_send',
                                           'gws_gmail_modify', 'gmail_search_messages',
-                                          'gmail_read_message', 'gmail_read_thread'){_agent_filter(agent_id, table_alias="r")[0] if agent_id else ""}
-                    """,
-                    (target_date, *filt_params),
+                                          'gmail_read_message', 'gmail_read_thread')
+                    """
+                    + ac_r,
+                    [target_date, *ac_r_params],
                 )
                 row = cur.fetchone()
                 stats.emails_processed = int(row[0]) if row else 0
 
                 # Count errors that were recovered (run had error steps but completed)
                 cur.execute(
-                    f"""
+                    """
                     SELECT COUNT(*) FROM agent_runs
                     WHERE DATE(started_at AT TIME ZONE 'America/New_York') = %s
                       AND status = 'completed'
-                      AND error_message IS NOT NULL{filt}
-                    """,
-                    (target_date, *filt_params),
+                      AND error_message IS NOT NULL
+                    """
+                    + ac,
+                    [target_date, *ac_params],
                 )
                 row = cur.fetchone()
                 stats.errors_avoided = int(row[0]) if row else 0
@@ -287,18 +291,19 @@ class BuddyEngine:
             from robothor.db.connection import get_connection
 
             start = target_date - timedelta(days=7)
-            filt, filt_params = _agent_filter(agent_id)
+            ac, ac_params = _agent_clause(agent_id)
             with get_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    f"""
+                    """
                     SELECT
                         COUNT(*) FILTER (WHERE error_message IS NOT NULL) as total_errors,
                         COUNT(*) FILTER (WHERE error_message IS NOT NULL AND status = 'completed') as recovered
                     FROM agent_runs
-                    WHERE DATE(started_at AT TIME ZONE 'America/New_York') BETWEEN %s AND %s{filt}
-                    """,
-                    (start, target_date, *filt_params),
+                    WHERE DATE(started_at AT TIME ZONE 'America/New_York') BETWEEN %s AND %s
+                    """
+                    + ac,
+                    [start, target_date, *ac_params],
                 )
                 row = cur.fetchone()
                 if row and row[0] > 0:
@@ -313,17 +318,18 @@ class BuddyEngine:
             from robothor.db.connection import get_connection
 
             start = target_date - timedelta(days=7)
-            filt, filt_params = _agent_filter(agent_id)
+            ac, ac_params = _agent_clause(agent_id)
             with get_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    f"""
+                    """
                     SELECT AVG(duration_ms), STDDEV(duration_ms)
                     FROM agent_runs
                     WHERE DATE(started_at AT TIME ZONE 'America/New_York') BETWEEN %s AND %s
-                      AND status = 'completed' AND duration_ms > 0{filt}
-                    """,
-                    (start, target_date, *filt_params),
+                      AND status = 'completed' AND duration_ms > 0
+                    """
+                    + ac,
+                    [start, target_date, *ac_params],
                 )
                 row = cur.fetchone()
                 if row and row[0] and row[1]:
@@ -342,16 +348,19 @@ class BuddyEngine:
             from robothor.db.connection import get_connection
 
             start = target_date - timedelta(days=7)
-            filt, filt_params = _agent_filter(agent_id)
+            ac, ac_params = _agent_clause(agent_id)
             with get_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    f"""
+                    """
                     SELECT status, COUNT(*) FROM agent_runs
-                    WHERE DATE(started_at AT TIME ZONE 'America/New_York') BETWEEN %s AND %s{filt}
+                    WHERE DATE(started_at AT TIME ZONE 'America/New_York') BETWEEN %s AND %s
+                    """
+                    + ac
+                    + """
                     GROUP BY status
                     """,
-                    (start, target_date, *filt_params),
+                    [start, target_date, *ac_params],
                 )
                 rows = cur.fetchall()
                 if rows:
@@ -376,18 +385,19 @@ class BuddyEngine:
             from robothor.db.connection import get_connection
 
             start = target_date - timedelta(days=7)
-            filt, filt_params = _agent_filter(agent_id)
+            ac, ac_params = _agent_clause(agent_id)
             with get_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    f"""
+                    """
                     SELECT
                         COUNT(*) as total,
                         COUNT(*) FILTER (WHERE status = 'completed') as completed
                     FROM agent_runs
-                    WHERE DATE(started_at AT TIME ZONE 'America/New_York') BETWEEN %s AND %s{filt}
-                    """,
-                    (start, target_date, *filt_params),
+                    WHERE DATE(started_at AT TIME ZONE 'America/New_York') BETWEEN %s AND %s
+                    """
+                    + ac,
+                    [start, target_date, *ac_params],
                 )
                 row = cur.fetchone()
                 if row and row[0] > 0:
