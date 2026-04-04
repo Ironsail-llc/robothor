@@ -52,13 +52,17 @@ async def alert(
 async def _send_telegram(level: str, title: str, body: str) -> bool:
     """Send alert via Telegram bot."""
     try:
-        from robothor.engine.delivery import deliver_telegram
+        from robothor.engine.delivery import get_telegram_sender
 
+        send_fn = get_telegram_sender()
+        if send_fn is None:
+            logger.warning("Telegram sender not initialized, can't deliver alert")
+            return False
         icon = {"info": "\u2139\ufe0f", "warning": "\u26a0\ufe0f", "critical": "\U0001f6a8"}.get(
             level, "\u2753"
         )
         message = f"{icon} <b>{html.escape(title)}</b>\n{html.escape(body)}"
-        await deliver_telegram(message)
+        await send_fn(message)
         return True
     except Exception as e:
         logger.warning("Alert delivery to Telegram failed: %s", e)
