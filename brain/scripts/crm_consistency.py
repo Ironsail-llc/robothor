@@ -17,18 +17,13 @@ import json
 import logging
 from datetime import datetime
 
-import psycopg2
 import requests
 from psycopg2.extras import RealDictCursor
 
+from robothor.db.connection import get_connection as _get_dal_connection
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-DB_CONFIG = {
-    "dbname": "robothor_memory",
-    "user": "philip",
-    "host": "/var/run/postgresql",
-}
 
 
 def check_contact_identifiers() -> dict:
@@ -36,25 +31,23 @@ def check_contact_identifiers() -> dict:
     result = {"total": 0, "issues": []}
 
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        with _get_dal_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        cur.execute("SELECT COUNT(*) as cnt FROM contact_identifiers")
-        result["total"] = cur.fetchone()["cnt"]
+            cur.execute("SELECT COUNT(*) as cnt FROM contact_identifiers")
+            result["total"] = cur.fetchone()["cnt"]
 
-        # Check for entries missing person_id
-        cur.execute("""
-            SELECT channel, identifier FROM contact_identifiers
-            WHERE person_id IS NULL
-        """)
-        orphans = cur.fetchall()
-        if orphans:
-            for o in orphans:
-                result["issues"].append(
-                    f"Orphan: {o['channel']}:{o['identifier']} has no person_id"
-                )
-
-        conn.close()
+            # Check for entries missing person_id
+            cur.execute("""
+                SELECT channel, identifier FROM contact_identifiers
+                WHERE person_id IS NULL
+            """)
+            orphans = cur.fetchall()
+            if orphans:
+                for o in orphans:
+                    result["issues"].append(
+                        f"Orphan: {o['channel']}:{o['identifier']} has no person_id"
+                    )
     except Exception as e:
         result["issues"].append(f"DB error: {e}")
 
@@ -66,28 +59,26 @@ def check_crm_people_integrity() -> dict:
     result = {"people_count": 0, "unlinked": 0, "issues": []}
 
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        with _get_dal_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        cur.execute("SELECT COUNT(*) as cnt FROM crm_people WHERE deleted_at IS NULL")
-        result["people_count"] = cur.fetchone()["cnt"]
+            cur.execute("SELECT COUNT(*) as cnt FROM crm_people WHERE deleted_at IS NULL")
+            result["people_count"] = cur.fetchone()["cnt"]
 
-        # Check for people without any contact_identifiers entry
-        cur.execute("""
-            SELECT p.id, p.first_name, p.last_name
-            FROM crm_people p
-            LEFT JOIN contact_identifiers ci ON ci.person_id = p.id
-            WHERE p.deleted_at IS NULL AND ci.id IS NULL
-            LIMIT 10
-        """)
-        unlinked = cur.fetchall()
-        result["unlinked"] = len(unlinked)
-        for u in unlinked:
-            result["issues"].append(
-                f"Unlinked person: {u['first_name']} {u['last_name']} ({u['id']}) has no contact_identifiers"
-            )
-
-        conn.close()
+            # Check for people without any contact_identifiers entry
+            cur.execute("""
+                SELECT p.id, p.first_name, p.last_name
+                FROM crm_people p
+                LEFT JOIN contact_identifiers ci ON ci.person_id = p.id
+                WHERE p.deleted_at IS NULL AND ci.id IS NULL
+                LIMIT 10
+            """)
+            unlinked = cur.fetchall()
+            result["unlinked"] = len(unlinked)
+            for u in unlinked:
+                result["issues"].append(
+                    f"Unlinked person: {u['first_name']} {u['last_name']} ({u['id']}) has no contact_identifiers"
+                )
     except Exception as e:
         result["issues"].append(f"DB error: {e}")
 
@@ -99,28 +90,26 @@ def check_conversations_integrity() -> dict:
     result = {"conversation_count": 0, "orphaned": 0, "issues": []}
 
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        with _get_dal_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        cur.execute("SELECT COUNT(*) as cnt FROM crm_conversations")
-        result["conversation_count"] = cur.fetchone()["cnt"]
+            cur.execute("SELECT COUNT(*) as cnt FROM crm_conversations")
+            result["conversation_count"] = cur.fetchone()["cnt"]
 
-        # Check for conversations with invalid person_id
-        cur.execute("""
-            SELECT c.id, c.person_id
-            FROM crm_conversations c
-            LEFT JOIN crm_people p ON p.id = c.person_id
-            WHERE c.person_id IS NOT NULL AND p.id IS NULL
-            LIMIT 10
-        """)
-        orphaned = cur.fetchall()
-        result["orphaned"] = len(orphaned)
-        for o in orphaned:
-            result["issues"].append(
-                f"Orphaned conversation {o['id']} references missing person {o['person_id']}"
-            )
-
-        conn.close()
+            # Check for conversations with invalid person_id
+            cur.execute("""
+                SELECT c.id, c.person_id
+                FROM crm_conversations c
+                LEFT JOIN crm_people p ON p.id = c.person_id
+                WHERE c.person_id IS NOT NULL AND p.id IS NULL
+                LIMIT 10
+            """)
+            orphaned = cur.fetchall()
+            result["orphaned"] = len(orphaned)
+            for o in orphaned:
+                result["issues"].append(
+                    f"Orphaned conversation {o['id']} references missing person {o['person_id']}"
+                )
     except Exception as e:
         result["issues"].append(f"DB error: {e}")
 

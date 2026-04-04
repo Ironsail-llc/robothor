@@ -659,6 +659,26 @@ _LIFECYCLE_LOCK_KEY = "robothor:lifecycle:maintenance_lock"
 _LIFECYCLE_LOCK_TTL = 1800  # 30 minutes — prevents concurrent maintenance runs
 
 
+def _release_lifecycle_lock() -> None:
+    """Release the Redis distributed lock. Best-effort — TTL is the backstop."""
+    try:
+        import redis as _redis
+
+        from robothor.config import get_config
+
+        cfg = get_config()
+        r = _redis.Redis(
+            host=cfg.redis.host,
+            port=cfg.redis.port,
+            db=cfg.redis.db,
+            password=cfg.redis.password or None,
+        )
+        r.delete(_LIFECYCLE_LOCK_KEY)
+        r.close()
+    except Exception:
+        pass  # Lock will expire via TTL
+
+
 async def run_lifecycle_maintenance() -> dict[str, Any]:
     """Run full lifecycle maintenance on the fact store.
 
@@ -912,23 +932,7 @@ async def run_lifecycle_maintenance() -> dict[str, Any]:
     total_time = time.monotonic() - t0
     logger.info("Lifecycle maintenance complete in %.1fs: %s", total_time, step_timings)
 
-    # Release the distributed lock
-    try:
-        import redis as _redis
-
-        from robothor.config import get_config
-
-        cfg = get_config()
-        r = _redis.Redis(
-            host=cfg.redis.host,
-            port=cfg.redis.port,
-            db=cfg.redis.db,
-            password=cfg.redis.password or None,
-        )
-        r.delete(_LIFECYCLE_LOCK_KEY)
-        r.close()
-    except Exception:
-        pass  # Lock will expire via TTL
+    _release_lifecycle_lock()
 
     return {
         "facts_scored": facts_scored,

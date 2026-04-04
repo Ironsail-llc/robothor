@@ -27,8 +27,9 @@ JIRA_SERVER = "https://ironsail.atlassian.net"
 JIRA_EMAIL = "philip@ironsail.ai"
 JIRA_TOKEN = os.environ["JIRA_API_TOKEN"]
 
-JIRA_LOG = Path("/home/philip/robothor/brain/memory/jira-log.json")
-TASKS_FILE = Path("/home/philip/robothor/brain/memory/tasks.json")
+_MEMORY = Path.home() / "robothor" / "brain" / "memory"
+JIRA_LOG = _MEMORY / "jira-log.json"
+TASKS_FILE = _MEMORY / "tasks.json"
 
 # JQL: Only Philip's tickets
 JQL_PHILIP = "assignee = currentUser() AND status != Done ORDER BY priority DESC, updated DESC"
