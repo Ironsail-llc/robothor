@@ -176,7 +176,7 @@ def create_health_app(
             return {"agents": agents}
         except Exception as e:
             logger.warning("Failed to load buddy agents leaderboard: %s", e)
-            return {"agents": [], "error": str(e)}
+            return {"agents": [], "error": "Failed to load leaderboard"}
 
     @app.get("/api/buddy/agents/{agent_id}")
     async def buddy_agent_history(agent_id: str, days: int = 14) -> dict[str, Any]:
@@ -222,8 +222,8 @@ def create_health_app(
                 ],
             }
         except Exception as e:
-            logger.warning("Failed to load buddy agent history for %s: %s", agent_id, e)
-            return {"agentId": agent_id, "days": [], "error": str(e)}
+            logger.warning("Failed to load buddy agent history: %s", e)
+            return {"agentId": agent_id, "days": [], "error": "Failed to load agent history"}
 
     @app.get("/api/kairos/dreams")
     async def kairos_dreams(limit: int = 10) -> dict[str, Any]:
