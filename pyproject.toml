@@ -36,7 +36,7 @@ dependencies = [
     "aiogram~=3.10",
     "apscheduler~=3.10",
     "html2text~=2024.2",
-    "cryptography~=42.0",
+    "cryptography>=46.0.6",
     "structlog~=24.0",
     "prometheus-client~=0.21",
 ]

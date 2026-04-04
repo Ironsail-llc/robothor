@@ -106,9 +106,11 @@ class CheckpointManager:
                 # Skip resume if schema version doesn't match
                 saved_version = result.get("schema_version", 0)
                 if saved_version != CHECKPOINT_SCHEMA_VERSION:
+                    from robothor.engine.sanitize import sanitize_log
+
                     logger.warning(
                         "Checkpoint schema mismatch for run %s: saved=%d, current=%d — skipping resume",
-                        run_id,
+                        sanitize_log(run_id),
                         saved_version,
                         CHECKPOINT_SCHEMA_VERSION,
                     )

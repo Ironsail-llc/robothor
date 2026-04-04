@@ -177,7 +177,7 @@ class EventHooks:
                 db=cfg.redis.db,
                 password=cfg.redis.password or None,
             )
-            await r.ping()  # type: ignore[misc]
+            await r.ping()  # type: ignore[misc,unused-ignore]
             logger.info("Event hooks connected to Redis")
         except Exception as e:
             logger.warning("Redis not available, event hooks disabled: %s", e)

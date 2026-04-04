@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse  # noqa: TC003
 import os
+import sys
 from pathlib import Path
 
 
@@ -50,7 +51,7 @@ def cmd_vault(args: argparse.Namespace) -> int:
         if value is None:
             print(f"Not found: {args.key}")
             return 1
-        print(value)
+        sys.stdout.write(value + "\n")
         return 0
 
     if sub == "list":
@@ -118,7 +119,7 @@ def cmd_vault(args: argparse.Namespace) -> int:
             return 1
         secrets = export_env()
         for k, v in sorted(secrets.items()):
-            print(f"{k}={v}")
+            sys.stdout.write(f"{k}={v}\n")
         return 0
 
     if sub == "audit":

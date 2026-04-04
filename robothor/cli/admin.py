@@ -301,7 +301,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     try:
         from robothor.vault.dal import count_secrets
 
-        count = count_secrets()
+        count = int(count_secrets())
         print(f" {count} secret(s) stored")
     except Exception:
         print(" not configured — run: robothor vault init")
