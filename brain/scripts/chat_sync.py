@@ -8,14 +8,12 @@ Publishes events for new human messages to the event bus.
 import json
 import re
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, "/home/philip/robothor/brain/memory_system")
-import event_bus
+from robothor.events.bus import publish as _publish_event
 
-LOG_PATH = Path("/home/philip/robothor/brain/memory/chat-log.json")
+LOG_PATH = Path.home() / "robothor" / "brain" / "memory" / "chat-log.json"
 
 
 def run_gws(args: list[str], timeout: int = 30) -> dict:
@@ -182,7 +180,7 @@ def main():
             }
 
             pending.append(payload)
-            event_bus.publish("chat", "chat.new_message", payload, source="chat_sync")
+            _publish_event("chat", "chat.new_message", payload, source="chat_sync")
             new_message_count += 1
 
             changes.append({
@@ -202,7 +200,7 @@ def main():
 
     log["spaces"] = spaces_map
     log["lastMessageIds"] = last_message_ids
-    log["pendingMessages"] = pending
+    log["pendingMessages"] = pending[-200:]
     log["changes"] = changes[-100:]
     log["lastCheckedAt"] = datetime.now().isoformat()
     save_log(log)

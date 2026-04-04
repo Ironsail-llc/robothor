@@ -23,15 +23,15 @@ import logging
 import os
 import re
 import tempfile
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 # Paths
-MEMORY_DIR = Path("/home/philip/robothor/brain/memory")
-MEMORY_SYSTEM_DIR = Path("/home/philip/robothor/brain/memory_system")
+MEMORY_DIR = Path.home() / "robothor" / "brain" / "memory"
+MEMORY_SYSTEM_DIR = Path.home() / "robothor" / "brain" / "memory_system"
 LOGS_DIR = MEMORY_SYSTEM_DIR / "logs"
 LOCK_FILE = MEMORY_SYSTEM_DIR / "locks" / "continuous_ingest.lock"
 NIGHTLY_LOCK = MEMORY_SYSTEM_DIR / "locks" / "nightly_pipeline.lock"
@@ -62,7 +62,7 @@ def acquire_lock() -> Any:
             content = LOCK_FILE.read_text().strip()
             if content:
                 lock_time = datetime.fromisoformat(content)
-                if (datetime.now() - lock_time).total_seconds() > 1800:
+                if (datetime.now(UTC) - lock_time).total_seconds() > 1800:
                     logger.warning("Stale lock detected (from %s), removing", content)
                     LOCK_FILE.unlink(missing_ok=True)
         except Exception:
@@ -71,7 +71,7 @@ def acquire_lock() -> Any:
     try:
         fh = open(LOCK_FILE, "w")
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fh.write(str(datetime.now().isoformat()))
+        fh.write(str(datetime.now(UTC).isoformat()))
         fh.flush()
         return fh
     except OSError:
@@ -82,15 +82,16 @@ def is_nightly_running() -> bool:
     """Check if the nightly pipeline has an active lock."""
     if not NIGHTLY_LOCK.exists():
         return False
+    fh = open(NIGHTLY_LOCK)
     try:
-        fh = open(NIGHTLY_LOCK)
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # We got the lock — nightly is NOT running
         fcntl.flock(fh, fcntl.LOCK_UN)
-        fh.close()
         return False
     except OSError:
         return True
+    finally:
+        fh.close()
 
 
 def _escalate_errors(source: str, error_count: int, error_msg: str):
@@ -108,7 +109,7 @@ def _escalate_errors(source: str, error_count: int, error_msg: str):
                 "source": source,
                 "error_count": error_count,
                 "error": error_msg[:500],
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
         fd, tmp = tempfile.mkstemp(dir=HANDOFF_FILE.parent, suffix=".tmp")
@@ -232,7 +233,7 @@ async def ingest_calendar() -> dict[str, int]:
 
     try:
         calendar_data = json.loads(calendar_path.read_text())
-        now = datetime.now()
+        now = datetime.now(UTC)
         cutoff_future = now + timedelta(hours=48)
 
         for event_id, event in calendar_data.get("entries", {}).items():
@@ -243,8 +244,8 @@ async def ingest_calendar() -> dict[str, int]:
             # Only events in next 48h
             try:
                 event_time = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-                if event_time.tzinfo:
-                    event_time = event_time.replace(tzinfo=None)
+                if event_time.tzinfo is None:
+                    event_time = event_time.replace(tzinfo=UTC)
                 if event_time < now - timedelta(hours=1) or event_time > cutoff_future:
                     continue
             except (ValueError, TypeError):
@@ -318,7 +319,7 @@ async def ingest_tasks() -> dict[str, int]:
 
     try:
         tasks_data = json.loads(tasks_path.read_text())
-        cutoff_7d = datetime.now() - timedelta(days=7)
+        cutoff_7d = datetime.now(UTC) - timedelta(days=7)
 
         for task in tasks_data.get("tasks", []):
             task_id = task.get("id", "")
@@ -338,8 +339,8 @@ async def ingest_tasks() -> dict[str, int]:
                 if completed_at:
                     try:
                         t = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-                        if t.tzinfo:
-                            t = t.replace(tzinfo=None)
+                        if t.tzinfo is None:
+                            t = t.replace(tzinfo=UTC)
                         if t < cutoff_7d:
                             continue
                     except (ValueError, TypeError):
@@ -438,9 +439,9 @@ async def ingest_jira() -> dict[str, int]:
             if time_str:
                 try:
                     t = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-                    if t.tzinfo:
-                        t = t.replace(tzinfo=None)
-                    if t < datetime.now() - timedelta(days=7):
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=UTC)
+                    if t < datetime.now(UTC) - timedelta(days=7):
                         continue
                 except (ValueError, TypeError):
                     pass
@@ -506,7 +507,7 @@ async def ingest_conversations() -> dict[str, int]:
     results = {"new": 0, "skipped": 0, "errors": 0}
 
     try:
-        from crm_fetcher import fetch_conversations, format_conversation_for_ingestion  # noqa: removed module — falls through to except
+        from crm_fetcher import fetch_conversations, format_conversation_for_ingestion
 
         conversations = fetch_conversations(hours=48)
 
@@ -571,7 +572,7 @@ async def ingest_twenty_crm() -> dict[str, int]:
     results = {"new": 0, "skipped": 0, "errors": 0}
 
     try:
-        from crm_fetcher import fetch_twenty_notes, fetch_twenty_tasks  # noqa: removed module — falls through to except
+        from crm_fetcher import fetch_twenty_notes, fetch_twenty_tasks
 
         # Notes
         notes = fetch_twenty_notes(hours=48)
@@ -663,7 +664,7 @@ async def ingest_contacts() -> dict[str, int]:
     results = {"new": 0, "skipped": 0, "errors": 0}
 
     try:
-        from crm_fetcher import fetch_twenty_contacts, format_contact_for_ingestion  # noqa: removed module — falls through to except
+        from crm_fetcher import fetch_twenty_contacts, format_contact_for_ingestion
 
         contacts = fetch_twenty_contacts(hours=168)  # 7 days
 
@@ -704,7 +705,7 @@ async def ingest_contacts() -> dict[str, int]:
         if contacts_path.exists():
             try:
                 contacts_data = json.loads(contacts_path.read_text())
-                cutoff_30d = datetime.now() - timedelta(days=30)
+                cutoff_30d = datetime.now(UTC) - timedelta(days=30)
 
                 for contact in contacts_data.get("contacts", []):
                     recent_activity = contact.get("recentActivity", [])
@@ -964,7 +965,7 @@ async def run_continuous_ingest() -> dict[str, Any]:
 
 
 async def main():
-    start_time = datetime.now()
+    start_time = datetime.now(UTC)
     logger.info("═══ Continuous Ingest Started: %s ═══", start_time)
 
     # Acquire lock
@@ -990,7 +991,7 @@ async def main():
 
         total_new = sum(r.get("new", 0) for r in results.values())
         total_errors = sum(r.get("errors", 0) for r in results.values())
-        duration = (datetime.now() - start_time).total_seconds()
+        duration = (datetime.now(UTC) - start_time).total_seconds()
 
         total_skipped = sum(r.get("skipped", 0) for r in results.values())
 

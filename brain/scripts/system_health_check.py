@@ -33,8 +33,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 # === Paths ===
-MEMORY_DIR = Path("/home/philip/robothor/brain/memory")
-LOG_DIR = Path("/home/philip/robothor/brain/memory_system/logs")
+MEMORY_DIR = Path.home() / "robothor" / "brain" / "memory"
+LOG_DIR = Path.home() / "robothor" / "brain" / "memory_system" / "logs"
 HEALTH_STATUS_PATH = MEMORY_DIR / "health-status.json"
 HANDOFF_PATH = MEMORY_DIR / "worker-handoff.json"
 EMAIL_LOG_PATH = MEMORY_DIR / "email-log.json"

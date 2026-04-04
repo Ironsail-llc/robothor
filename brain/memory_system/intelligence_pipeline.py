@@ -30,11 +30,10 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
 # Configure logging
@@ -42,17 +41,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Paths
-MEMORY_DIR = Path("/home/philip/robothor/brain/memory")
-MEMORY_SYSTEM_DIR = Path("/home/philip/robothor/brain/memory_system")
+MEMORY_DIR = Path.home() / "robothor" / "brain" / "memory"
+MEMORY_SYSTEM_DIR = Path.home() / "robothor" / "brain" / "memory_system"
 LOGS_DIR = MEMORY_SYSTEM_DIR / "logs"
 QUALITY_LOG = MEMORY_DIR / "rag-quality-log.json"
 NIGHTLY_LOCK = MEMORY_SYSTEM_DIR / "locks" / "nightly_pipeline.lock"
 
-DB_CONFIG = {
-    "dbname": "robothor_memory",
-    "user": "philip",
-    "host": "/var/run/postgresql",
-}
+from robothor.db.connection import get_connection as _get_dal_connection
 
 # Ensure dirs exist
 LOGS_DIR.mkdir(exist_ok=True)
@@ -203,7 +198,7 @@ Write the brief directly, no preamble.""",
                             "type": "relationship_brief",
                             "contact_name": name,
                             "contact_email": contact.get("email"),
-                            "generated_at": datetime.now().isoformat(),
+                            "generated_at": datetime.now(UTC).isoformat(),
                         },
                     )
                     results["briefs_generated"] += 1
@@ -351,18 +346,17 @@ async def phase_2_5_contact_enrichment(llm_client) -> dict[str, Any]:
 
                 # Memory facts
                 try:
-                    conn = psycopg2.connect(**DB_CONFIG)
-                    cur = conn.cursor(cursor_factory=RealDictCursor)
-                    cur.execute(
-                        """
-                        SELECT fact_text FROM memory_facts
-                        WHERE %s = ANY(entities) OR fact_text ILIKE %s
-                        ORDER BY created_at DESC LIMIT 10
-                    """,
-                        (name, f"%{name}%"),
-                    )
-                    facts = [r["fact_text"] for r in cur.fetchall()]
-                    conn.close()
+                    with _get_dal_connection() as conn:
+                        cur = conn.cursor(cursor_factory=RealDictCursor)
+                        cur.execute(
+                            """
+                            SELECT fact_text FROM memory_facts
+                            WHERE %s = ANY(entities) OR fact_text ILIKE %s
+                            ORDER BY created_at DESC LIMIT 10
+                        """,
+                            (name, f"%{name}%"),
+                        )
+                        facts = [r["fact_text"] for r in cur.fetchall()]
                     if facts:
                         evidence_parts.append(
                             "Memory facts:\n" + "\n".join(f"- {f[:200]}" for f in facts[:5])
@@ -508,15 +502,15 @@ async def phase_3_engagement_scoring(llm_client) -> dict[str, Any]:
         email_log_path = MEMORY_DIR / "email-log.json"
         if email_log_path.exists():
             email_log = json.loads(email_log_path.read_text())
-            cutoff_30d = datetime.now() - timedelta(days=30)
+            cutoff_30d = datetime.now(UTC) - timedelta(days=30)
             for entry in email_log.get("entries", {}).values():
                 from_addr = entry.get("from", "")
                 processed_at = entry.get("processedAt", "")
                 if processed_at:
                     try:
                         t = datetime.fromisoformat(processed_at.replace("Z", "+00:00"))
-                        if t.tzinfo:
-                            t = t.replace(tzinfo=None)
+                        if t.tzinfo is None:
+                            t = t.replace(tzinfo=UTC)
                         if t >= cutoff_30d:
                             interaction_counts[from_addr] = interaction_counts.get(from_addr, 0) + 1
                     except (ValueError, TypeError):
@@ -535,9 +529,9 @@ async def phase_3_engagement_scoring(llm_client) -> dict[str, Any]:
             if contact.get("updatedAt"):
                 try:
                     updated = datetime.fromisoformat(contact["updatedAt"].replace("Z", "+00:00"))
-                    if updated.tzinfo:
-                        updated = updated.replace(tzinfo=None)
-                    days_since = (datetime.now() - updated).days
+                    if updated.tzinfo is None:
+                        updated = updated.replace(tzinfo=UTC)
+                    days_since = (datetime.now(UTC) - updated).days
                 except (ValueError, TypeError):
                     pass
 
@@ -614,15 +608,15 @@ async def phase_4_pattern_detection(llm_client) -> dict[str, Any]:
         email_log_path = MEMORY_DIR / "email-log.json"
         if email_log_path.exists():
             email_log = json.loads(email_log_path.read_text())
-            cutoff_7d = datetime.now() - timedelta(days=7)
+            cutoff_7d = datetime.now(UTC) - timedelta(days=7)
             recent_emails = []
             for entry in email_log.get("entries", {}).values():
                 processed_at = entry.get("processedAt", "")
                 if processed_at:
                     try:
                         t = datetime.fromisoformat(processed_at.replace("Z", "+00:00"))
-                        if t.tzinfo:
-                            t = t.replace(tzinfo=None)
+                        if t.tzinfo is None:
+                            t = t.replace(tzinfo=UTC)
                         if t >= cutoff_7d:
                             recent_emails.append(
                                 f'  - {entry.get("from", "?")}: "{entry.get("subject", "")}" '
@@ -722,7 +716,7 @@ List each pattern on its own line with a priority tag [HIGH/MED/LOW]. Be specifi
                     metadata={
                         "type": "cross_system_pattern",
                         "priority": priority,
-                        "detected_at": datetime.now().isoformat(),
+                        "detected_at": datetime.now(UTC).isoformat(),
                     },
                 )
                 results["patterns_found"] += 1
@@ -855,14 +849,13 @@ async def get_memory_stats() -> dict[str, Any]:
         stats = rag_get_stats()
     except Exception:
         try:
-            conn = psycopg2.connect(**DB_CONFIG)
-            cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM memory_facts")
-            stats["facts_count"] = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM memory_entities")
-            stats["entities_count"] = cur.fetchone()[0]
-            cur.close()
-            conn.close()
+            with _get_dal_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM memory_facts")
+                stats["facts_count"] = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM memory_entities")
+                stats["entities_count"] = cur.fetchone()[0]
+                cur.close()
         except Exception as e:
             stats["error"] = str(e)
     return stats
@@ -888,7 +881,7 @@ def save_run_report(report: dict[str, Any]):
 
 async def main():
     """Main deep analysis pipeline (Tier 3)."""
-    start_time = datetime.now()
+    start_time = datetime.now(UTC)
     logger.info("=" * 60)
     logger.info("Deep Analysis Pipeline (Tier 3) Started: %s", start_time)
     logger.info("=" * 60)
@@ -980,7 +973,7 @@ async def main():
             except OSError:
                 pass
 
-    end_time = datetime.now()
+    end_time = datetime.now(UTC)
     report["duration_seconds"] = (end_time - start_time).total_seconds()
 
     save_run_report(report)

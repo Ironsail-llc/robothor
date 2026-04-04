@@ -40,9 +40,7 @@ Run pairwise name similarity:
 ```bash
 exec:
 python3 -c "
-import sys
-sys.path.insert(0, '/home/philip/robothor/brain/memory_system')
-from contact_matching import name_similarity
+from robothor.memory.contact_matching import name_similarity
 import json
 
 people = json.loads('''<PEOPLE_JSON>''')
