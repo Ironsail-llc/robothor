@@ -560,7 +560,7 @@ class TestSystemIntegration:
     def test_scheduler_registers_weekly_cron(self):
         """Cron expression '0 2 * * 0' is valid and creates a scheduler job."""
         config = _load_architect_config()
-        assert config.cron_expr == "0 2 * * 0"
+        assert config.cron_expr == "0 3 * * 1,4"
         # Verify it's a valid cron (Sunday 2AM)
         from apscheduler.triggers.cron import CronTrigger
 

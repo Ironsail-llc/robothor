@@ -20,7 +20,7 @@ model:
     - openrouter/anthropic/claude-sonnet-4.6
 
 schedule:
-  cron: "0 2 * * 0"  # Sunday 2 AM ET — weekly fleet review
+  cron: "0 3 * * 1,4"  # Monday + Thursday at 3 AM ET
   timezone: America/New_York
   timeout_seconds: 900
   max_iterations: 25
@@ -95,4 +95,6 @@ v2:
 
 changelog:
   - date: "2026-04-05"
-    change: "Initial creation — weekly fleet evolution orchestrator powered by Opus 4.6"
+    change: "Initial creation — fleet evolution orchestrator powered by Opus 4.6"
+  - date: "2026-04-05"
+    change: "Frequency: weekly → Mon+Thu 3AM. Avoids 2AM Nightwatch slot, predictable 3-4 day gaps."
