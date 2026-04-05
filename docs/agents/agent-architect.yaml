@@ -86,7 +86,7 @@ v2:
   planning_enabled: true
   scratchpad_enabled: true
   can_spawn_agents: false
-  cost_budget_usd: 10.00
+  max_cost_usd: 10.00
   guardrails:
     - no_destructive_writes
     - write_path_restrict

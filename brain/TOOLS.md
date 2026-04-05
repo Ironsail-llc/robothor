@@ -34,13 +34,16 @@ Environment-specific notes for agents. Per-agent tools are documented in each ag
 | `gws_calendar_create` | Create event (includes Meet link by default) |
 | `gws_calendar_delete` | Delete event by ID |
 
+**Calendar rules:**
+- **Timezone:** Philip is in America/New_York. Derive offset via `date +%:z` — never hardcode.
+- **Google Meet:** Every event MUST set `with_meet: true`. No exceptions.
+- **Scheduling link:** `https://calendar.app.google/TLqVaiyMTtcdLY7E6`
+
 ### Google Chat
 
 | Tool | Purpose |
 |------|---------|
 | `gws_chat_send` | Send message to Google Chat space |
-
-> **Calendar rules:** Philip is in America/New_York. Use `date +%:z` for offset — never hardcode. Every event MUST include `--with-meet`. Scheduling link: `https://calendar.app.google/TLqVaiyMTtcdLY7E6`
 
 ---
 
