@@ -29,10 +29,16 @@ AUTO_RESEARCHER_MANIFEST_PATH = (
 # ─── Helpers ────────────────────────────────────────────────────────
 
 
+def _load_manifest_checked(path: Path) -> dict:
+    """Load a manifest, failing the test if the file is missing."""
+    manifest = load_manifest(path)
+    assert manifest is not None, f"Manifest not found: {path}"
+    return manifest
+
+
 def _load_architect_config() -> AgentConfig:
     """Load the agent-architect manifest into an AgentConfig."""
-    manifest = load_manifest(MANIFEST_PATH)
-    return manifest_to_agent_config(manifest)
+    return manifest_to_agent_config(_load_manifest_checked(MANIFEST_PATH))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -92,14 +98,14 @@ class TestManifestConfiguration:
         config = _load_architect_config()
         assert config.reports_to == "main"
         # creates_tasks_for and escalates_to are manifest-level, check raw manifest
-        manifest = load_manifest(MANIFEST_PATH)
+        manifest = _load_manifest_checked(MANIFEST_PATH)
         assert "auto-agent" in manifest["creates_tasks_for"]
         assert "auto-researcher" in manifest["creates_tasks_for"]
         assert manifest["escalates_to"] == "main"
 
     def test_manifest_warmup_blocks_declared(self):
         """All 5 required memory blocks are in warmup.memory_blocks."""
-        manifest = load_manifest(MANIFEST_PATH)
+        manifest = _load_manifest_checked(MANIFEST_PATH)
         blocks = manifest["warmup"]["memory_blocks"]
         expected = {
             "architect_evolution_log",
@@ -122,7 +128,7 @@ class TestManifestConfiguration:
 
     def test_manifest_write_path_allowlist(self):
         """Write path guardrail only allows the status file."""
-        manifest = load_manifest(MANIFEST_PATH)
+        manifest = _load_manifest_checked(MANIFEST_PATH)
         allowlist = manifest["v2"]["write_path_allowlist"]
         assert allowlist == ["brain/memory/agent-architect-status.md"]
 
@@ -142,12 +148,12 @@ class TestSystemIntegration:
 
     def test_auto_agent_receives_architect_tasks(self):
         """auto-agent.yaml includes agent-architect in receives_tasks_from."""
-        manifest = load_manifest(AUTO_AGENT_MANIFEST_PATH)
+        manifest = _load_manifest_checked(AUTO_AGENT_MANIFEST_PATH)
         assert "agent-architect" in manifest["receives_tasks_from"]
 
     def test_auto_researcher_receives_architect_tasks(self):
         """auto-researcher.yaml includes agent-architect in receives_tasks_from."""
-        manifest = load_manifest(AUTO_RESEARCHER_MANIFEST_PATH)
+        manifest = _load_manifest_checked(AUTO_RESEARCHER_MANIFEST_PATH)
         assert "agent-architect" in manifest["receives_tasks_from"]
 
     def test_scheduler_registers_cron(self):
