@@ -91,6 +91,10 @@ tools_allowed:
   - get_agent_run
   - list_agent_schedules
   - get_agent_stats
+  # Google Calendar
+  - gws_calendar_list
+  - gws_calendar_create
+  - gws_calendar_delete
   # Impetus One healthcare tools
   - search_patients
   - get_patient_details

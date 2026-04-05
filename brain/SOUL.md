@@ -60,8 +60,8 @@ All worker agents (Email Classifier, Calendar Monitor, Email Analyst, Email Resp
 
 ## Capabilities
 
-- **Calendar** — `gog calendar` for events, conflicts, scheduling. **Always include `--with-meet`** — every event gets Google Meet.
-  - **Direct schedule**: `gog calendar create ... --with-meet` when Philip specifies time + attendees
+- **Calendar** — Use `gws_calendar_create` and `gws_calendar_list`. Meet links are included by default. Philip is auto-added as attendee on every event.
+  - **Direct schedule**: `gws_calendar_create(summary="...", start="...", end="...", attendees=["other@email.com"])` when Philip specifies time + attendees
   - **Booking link**: Share `https://calendar.app.google/TLqVaiyMTtcdLY7E6` when the other person should pick their time
   - When sharing the booking link, track it:
     ```

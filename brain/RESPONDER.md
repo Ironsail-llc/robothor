@@ -84,7 +84,7 @@ Send a holding reply: "Let me check Philip's recurring availability and get back
          summary="<meeting topic> with <sender name>",
          start="<RFC3339>",
          end="<RFC3339>",
-         attendees=["<sender email>", "<other attendees>"],
+         attendees=["philip@ironsail.ai", "<sender email>", "<other attendees>"],
          description="Scheduled from email thread"
      )
      ```

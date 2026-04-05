@@ -349,7 +349,10 @@ class TestGwsCalendarCreate:
             json_idx = cmd.index("--json")
             body = json.loads(cmd[json_idx + 1])
             assert body["summary"] == "Lunch"
-            assert body["attendees"] == [{"email": "alice@example.com"}]
+            assert body["attendees"] == [
+                {"email": "alice@example.com"},
+                {"email": "philip@ironsail.ai"},
+            ]
 
     def test_create_includes_meet_by_default(self):
         mock_result = MagicMock(returncode=0, stdout='{"id":"e2","summary":"Sync"}')
