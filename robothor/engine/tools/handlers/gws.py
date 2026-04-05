@@ -176,7 +176,7 @@ def _handle_gws_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
             }
 
         calendar_id = args.get("calendar_id", "primary")
-        cal_params: dict[str, Any] = {"calendarId": calendar_id}
+        cal_params = {"calendarId": calendar_id}
         if with_meet:
             cal_params["conferenceDataVersion"] = 1
 
