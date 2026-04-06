@@ -680,7 +680,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     correlation_id UUID,
 
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
-        'pending', 'running', 'completed', 'failed', 'timeout', 'cancelled'
+        'pending', 'running', 'completed', 'failed', 'timeout', 'cancelled', 'skipped'
     )),
 
     started_at TIMESTAMPTZ,
@@ -819,7 +819,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     trigger_detail TEXT,
     correlation_id TEXT,
     status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'timeout', 'cancelled')),
+        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'timeout', 'cancelled', 'skipped')),
     steps_total INTEGER NOT NULL DEFAULT 0,
     steps_completed INTEGER NOT NULL DEFAULT 0,
     steps_failed INTEGER NOT NULL DEFAULT 0,

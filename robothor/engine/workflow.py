@@ -249,7 +249,7 @@ class WorkflowEngine:
             )
             run = WorkflowRun(
                 workflow_id=workflow_id,
-                status=RunStatus.COMPLETED,
+                status=RunStatus.SKIPPED,
                 error_message="Skipped: workflow already running",
             )
             return run
@@ -426,7 +426,7 @@ class WorkflowEngine:
                 step.agent_id,
                 step.id,
             )
-            result.status = WorkflowStepStatus.FAILED
+            result.status = WorkflowStepStatus.SKIPPED
             result.error_message = f"Agent {step.agent_id} already running"
             return
 

@@ -37,6 +37,7 @@ class RunStatus(StrEnum):
     FAILED = "failed"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+    SKIPPED = "skipped"
 
 
 class ErrorType(StrEnum):
