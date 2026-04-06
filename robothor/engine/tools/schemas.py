@@ -664,10 +664,13 @@ def get_engine_schemas() -> dict[str, dict[str, Any]]:
                     "subject": {"type": "string", "description": "Email subject line"},
                     "body": {"type": "string", "description": "Email body (plain text)"},
                     "cc": {"type": "string", "description": "CC recipients, comma-separated"},
-                    "thread_id": {"type": "string", "description": "Thread ID to reply to"},
+                    "thread_id": {
+                        "type": "string",
+                        "description": "Thread ID to reply to (deprecated — use gws_gmail_reply for proper threading)",
+                    },
                     "in_reply_to": {
                         "type": "string",
-                        "description": "Message-ID header of the message being replied to",
+                        "description": "Message-ID header (deprecated — use gws_gmail_reply for proper threading)",
                     },
                 },
                 "required": ["to", "subject", "body"],

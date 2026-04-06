@@ -704,6 +704,95 @@ class TestGwsGmailSendWarning:
             assert "_warning" not in result
 
 
+# ─── gws_gmail_send duplicate guard ─────────────────────────────────
+
+
+class TestGwsGmailSendDuplicateGuard:
+    """Test the duplicate-reply guard in gws_gmail_send."""
+
+    def _thread_response(self, last_from="robothor@ironsail.ai"):
+        return json.dumps(
+            {
+                "id": "t1",
+                "messages": [
+                    {
+                        "id": "msg1",
+                        "payload": {
+                            "headers": [
+                                {"name": "From", "value": f"<{last_from}>"},
+                            ]
+                        },
+                    },
+                ],
+            }
+        )
+
+    def test_send_skips_when_last_message_from_robothor(self):
+        """If the last message is from robothor, the send is skipped."""
+        thread_result = MagicMock(returncode=0, stdout=self._thread_response())
+        with patch(
+            "robothor.engine.tools.handlers.gws.subprocess.run",
+            return_value=thread_result,
+        ):
+            from robothor.engine.tools import _handle_gws_tool
+
+            result = _handle_gws_tool(
+                "gws_gmail_send",
+                {
+                    "to": "alice@example.com",
+                    "subject": "Re: Hello",
+                    "body": "Reply",
+                    "thread_id": "t1",
+                },
+            )
+            assert result.get("status") == "skipped"
+
+    def test_guard_exception_does_not_block_send(self):
+        """If the guard throws, the send still proceeds."""
+        # First call (thread fetch) raises, second call (send) succeeds
+        send_result = MagicMock(returncode=0, stdout='{"id":"s1","threadId":"t1"}')
+        with patch(
+            "robothor.engine.tools.handlers.gws.subprocess.run",
+            side_effect=[Exception("guard boom"), send_result],
+        ):
+            from robothor.engine.tools import _handle_gws_tool
+
+            result = _handle_gws_tool(
+                "gws_gmail_send",
+                {
+                    "to": "alice@example.com",
+                    "subject": "Re: Hello",
+                    "body": "Reply",
+                    "thread_id": "t1",
+                },
+            )
+            assert "error" not in result
+            assert result.get("id") == "s1"
+
+    def test_send_proceeds_when_last_message_from_other(self):
+        """If the last message is from someone else, the send proceeds."""
+        thread_result = MagicMock(
+            returncode=0, stdout=self._thread_response(last_from="alice@example.com")
+        )
+        send_result = MagicMock(returncode=0, stdout='{"id":"s2","threadId":"t1"}')
+        with patch(
+            "robothor.engine.tools.handlers.gws.subprocess.run",
+            side_effect=[thread_result, send_result],
+        ):
+            from robothor.engine.tools import _handle_gws_tool
+
+            result = _handle_gws_tool(
+                "gws_gmail_send",
+                {
+                    "to": "alice@example.com",
+                    "subject": "Re: Hello",
+                    "body": "Reply",
+                    "thread_id": "t1",
+                },
+            )
+            assert result.get("id") == "s2"
+
+
 # ─── Unknown gws tool ───────────────────────────────────────────────
 
 

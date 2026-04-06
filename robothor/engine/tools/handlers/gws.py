@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import subprocess
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,9 @@ if TYPE_CHECKING:
     from robothor.engine.tools.dispatch import ToolContext
 
 logger = logging.getLogger(__name__)
+
+ROBOTHOR_EMAIL = os.environ.get("ROBOTHOR_AI_EMAIL", "robothor@ironsail.ai")
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 
 HANDLERS: dict[str, Any] = {}
 
@@ -71,7 +75,6 @@ def _handle_gws_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
     if name == "gws_gmail_reply":
         import base64
-        import re
         from email.mime.text import MIMEText
 
         thread_id = args.get("thread_id", "")
@@ -112,7 +115,7 @@ def _handle_gws_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
         # Duplicate guard: skip if last message is already from us
         last_from = last_headers.get("From", "")
-        if "robothor@ironsail.ai" in last_from:
+        if ROBOTHOR_EMAIL in last_from:
             return {
                 "status": "skipped",
                 "reason": "Already replied to this thread — last message is from robothor",
@@ -129,21 +132,20 @@ def _handle_gws_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
             subject = f"Re: {original_subject}"
 
         # Collect all recipients from entire thread (reply-all)
-        _email_re = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
         all_addresses: set[str] = set()
         for m in messages:
             for h in m.get("payload", {}).get("headers", []):
                 if h["name"] in ("From", "To", "Cc"):
-                    all_addresses.update(_email_re.findall(h["value"]))
+                    all_addresses.update(_EMAIL_RE.findall(h["value"]))
 
         # Remove our own address from recipients
-        all_addresses.discard("robothor@ironsail.ai")
+        all_addresses.discard(ROBOTHOR_EMAIL)
 
         # Add any extra CC from args
         extra_addrs: set[str] = set()
         if extra_cc:
-            extra_addrs.update(_email_re.findall(extra_cc))
-            extra_addrs.discard("robothor@ironsail.ai")
+            extra_addrs.update(_EMAIL_RE.findall(extra_cc))
+            extra_addrs.discard(ROBOTHOR_EMAIL)
 
         to_addresses = sorted(all_addresses)
         cc_addresses = sorted(extra_addrs - all_addresses)
@@ -229,13 +231,13 @@ def _handle_gws_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
                             if h.get("name") == "From"
                         }
                         last_from = headers.get("From", "")
-                        if "robothor@ironsail.ai" in last_from:
+                        if ROBOTHOR_EMAIL in last_from:
                             return {
                                 "status": "skipped",
                                 "reason": "Already replied to this thread — last message is from robothor",
                             }
             except Exception:
-                pass  # Don't block send on guard failure
+                logger.debug("Gmail send duplicate guard failed", exc_info=True)
 
         msg = MIMEText(body)
         msg["To"] = to
