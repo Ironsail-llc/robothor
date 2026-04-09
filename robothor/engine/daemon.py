@@ -356,7 +356,7 @@ def _record_watchdog_event(event_type: str, detail: str) -> None:
         lines = lines[-50:]
         write_block("watchdog_log", "\n".join(lines))
     except Exception:
-        pass
+        logger.debug("Watchdog event recording failed", exc_info=True)
 
 
 async def _watchdog(config: EngineConfig, scheduler: CronScheduler) -> None:
@@ -386,7 +386,7 @@ async def _watchdog(config: EngineConfig, scheduler: CronScheduler) -> None:
         except Exception as e:
             pg_failures += 1
             logger.warning("Watchdog: PostgreSQL ping failed (%d): %s", pg_failures, e)
-            if pg_failures in (1, 3, 10):
+            if pg_failures in (1, 3, 10) or (pg_failures > 10 and pg_failures % 100 == 0):
                 _record_watchdog_event("pg_failure", f"consecutive={pg_failures}: {e}")
 
         # Ping Redis (with timeout to prevent event loop blocking)
@@ -413,7 +413,7 @@ async def _watchdog(config: EngineConfig, scheduler: CronScheduler) -> None:
         except Exception as e:
             redis_failures += 1
             logger.warning("Watchdog: Redis ping failed (%d): %s", redis_failures, e)
-            if redis_failures in (1, 3, 10):
+            if redis_failures in (1, 3, 10) or (redis_failures > 10 and redis_failures % 100 == 0):
                 _record_watchdog_event("redis_failure", f"consecutive={redis_failures}: {e}")
 
         # Schedule reconciliation (every 10 ticks = 5 minutes)

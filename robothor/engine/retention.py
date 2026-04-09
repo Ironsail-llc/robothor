@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 from collections import OrderedDict
 from typing import Any
 
@@ -106,6 +107,8 @@ def _cleanup_table(
     """
     if table not in _ALLOWED_TABLES:
         raise ValueError(f"Table {table!r} is not in the retention allowlist")
+    if not re.fullmatch(r"[a-z_]+", timestamp_col):
+        raise ValueError(f"Invalid timestamp column name: {timestamp_col!r}")
 
     from robothor.db.connection import get_connection
 
