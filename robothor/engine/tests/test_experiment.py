@@ -10,6 +10,7 @@ import pytest
 from robothor.engine.tools.dispatch import ToolContext
 from robothor.engine.tools.handlers.experiment import (
     _calc_improvement,
+    _check_experiment_guardrails,
     _parse_metric_value,
 )
 
@@ -674,3 +675,306 @@ class TestExperimentConstants:
         assert "experiment_create" not in READONLY_TOOLS
         assert "experiment_measure" not in READONLY_TOOLS
         assert "experiment_commit" not in READONLY_TOOLS
+
+
+# ─── Guardrail enforcement tests ────────────────────────────────────
+
+
+class TestExperimentGuardrails:
+    def test_no_guardrails_allows_all(self):
+        config = {"guardrails": []}
+        changes = [{"file": "anywhere/file.py", "description": "whatever"}]
+        assert _check_experiment_guardrails(config, changes) is None
+
+    def test_missing_guardrails_key_allows_all(self):
+        config = {}
+        changes = [{"file": "anywhere/file.py", "description": "whatever"}]
+        assert _check_experiment_guardrails(config, changes) is None
+
+    def test_write_path_restrict_allows_valid_path(self):
+        config = {
+            "guardrails": ["write_path_restrict"],
+            "write_path_allowlist": ["brain/agents/*.md", "docs/agents/*.yaml"],
+        }
+        changes = [{"file": "brain/agents/FOO.md", "description": "edit"}]
+        assert _check_experiment_guardrails(config, changes) is None
+
+    def test_write_path_restrict_blocks_disallowed_path(self):
+        config = {
+            "guardrails": ["write_path_restrict"],
+            "write_path_allowlist": ["brain/agents/*.md"],
+        }
+        changes = [{"file": "robothor/engine/runner.py", "description": "edit"}]
+        result = _check_experiment_guardrails(config, changes)
+        assert result is not None
+        assert "runner.py" in result
+        assert "write_path_allowlist" in result
+
+    def test_write_path_restrict_multiple_changes_one_bad(self):
+        config = {
+            "guardrails": ["write_path_restrict"],
+            "write_path_allowlist": ["brain/agents/*.md"],
+        }
+        changes = [
+            {"file": "brain/agents/OK.md", "description": "fine"},
+            {"file": "robothor/engine/tools.py", "description": "not fine"},
+        ]
+        result = _check_experiment_guardrails(config, changes)
+        assert result is not None
+        assert "tools.py" in result
+
+    def test_exec_allowlist_allows_matching_revert(self):
+        config = {
+            "guardrails": ["exec_allowlist"],
+            "exec_allowlist": [r"^git checkout -- ", r"^git diff"],
+        }
+        result = _check_experiment_guardrails(
+            config, [], revert_command="git checkout -- brain/agents/X.md"
+        )
+        assert result is None
+
+    def test_exec_allowlist_blocks_disallowed_revert(self):
+        config = {
+            "guardrails": ["exec_allowlist"],
+            "exec_allowlist": [r"^git checkout -- "],
+        }
+        result = _check_experiment_guardrails(config, [], revert_command="rm -rf /tmp/data")
+        assert result is not None
+        assert "revert_command" in result
+
+    def test_no_revert_command_skips_exec_check(self):
+        config = {
+            "guardrails": ["exec_allowlist"],
+            "exec_allowlist": [r"^git checkout -- "],
+        }
+        result = _check_experiment_guardrails(config, [], revert_command=None)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_commit_with_guardrail_violation_returns_error(self):
+        """Integration test: experiment_commit rejects disallowed file paths."""
+        from robothor.engine.tools.handlers.experiment import _experiment_commit
+
+        state = {
+            "id": "g1",
+            "metric_name": "test",
+            "direction": "maximize",
+            "status": "active",
+            "created_at": "2026-04-09T00:00:00",
+            "baseline_value": 50.0,
+            "current_best_value": 50.0,
+            "current_best_iteration": None,
+            "cumulative_improvement_pct": 0.0,
+            "total_iterations": 0,
+            "total_cost_usd": 0.0,
+            "consecutive_no_improvement": 0,
+            "config": {
+                "max_iterations": 20,
+                "cost_budget_usd": 5.0,
+                "revert_command": "",
+                "notify_on_improvement_pct": 10.0,
+                "guardrails": ["write_path_restrict"],
+                "write_path_allowlist": ["brain/agents/*.md"],
+            },
+            "iterations": [],
+            "learnings": {"positive": [], "negative": []},
+        }
+        store = {"experiment:g1": json.dumps(state)}
+
+        def read_fn(name):
+            if name in store:
+                return {"content": store[name]}
+            return {"error": "not found"}
+
+        def write_fn(name, content):
+            store[name] = content
+            return {"success": True}
+
+        with (
+            patch("robothor.memory.blocks.read_block", side_effect=read_fn),
+            patch("robothor.memory.blocks.write_block", side_effect=write_fn),
+        ):
+            result = await _experiment_commit(
+                {
+                    "experiment_id": "g1",
+                    "hypothesis": "test",
+                    "changes": [{"file": "robothor/engine/runner.py", "description": "bad"}],
+                    "metric_before": 50.0,
+                    "metric_after": 55.0,
+                    "verdict": "keep",
+                    "learnings": "test",
+                },
+                CTX,
+            )
+
+        assert "error" in result
+        assert result.get("guardrail_violation") is True
+
+
+# ─── Advisory file locking tests ────────────────────────────────────
+
+
+class TestExperimentFileLocking:
+    @pytest.mark.asyncio
+    async def test_create_acquires_locks(self):
+        """experiment_create writes advisory locks for search-space files."""
+        from robothor.engine.tools.handlers.experiment import _experiment_create
+
+        store = {}
+
+        def read_fn(name):
+            if name in store:
+                return {"content": store[name]}
+            return {"error": "not found"}
+
+        def write_fn(name, content):
+            store[name] = content
+            return {"success": True}
+
+        with (
+            patch("robothor.memory.blocks.read_block", side_effect=read_fn),
+            patch("robothor.memory.blocks.write_block", side_effect=write_fn),
+        ):
+            result = await _experiment_create(
+                {
+                    "experiment_id": "lock-test",
+                    "metric_command": "echo 1",
+                    "direction": "maximize",
+                    "search_space": "brain/agents/X.md, docs/agents/x.yaml",
+                },
+                CTX,
+            )
+
+        assert result["success"] is True
+        assert store.get("experiment_lock:brain/agents/X.md") == "lock-test"
+        assert store.get("experiment_lock:docs/agents/x.yaml") == "lock-test"
+
+    @pytest.mark.asyncio
+    async def test_create_fails_if_locked_by_other(self):
+        """experiment_create fails if files are locked by another experiment."""
+        from robothor.engine.tools.handlers.experiment import _experiment_create
+
+        store = {"experiment_lock:brain/agents/X.md": "other-experiment"}
+
+        def read_fn(name):
+            if name in store:
+                return {"content": store[name]}
+            return {"error": "not found"}
+
+        def write_fn(name, content):
+            store[name] = content
+            return {"success": True}
+
+        with (
+            patch("robothor.memory.blocks.read_block", side_effect=read_fn),
+            patch("robothor.memory.blocks.write_block", side_effect=write_fn),
+        ):
+            result = await _experiment_create(
+                {
+                    "experiment_id": "blocked",
+                    "metric_command": "echo 1",
+                    "direction": "maximize",
+                    "search_space": "brain/agents/X.md",
+                },
+                CTX,
+            )
+
+        assert "error" in result
+        assert "other-experiment" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_allows_same_experiment_relock(self):
+        """experiment_create allows relocking files already held by the same experiment."""
+        from robothor.engine.tools.handlers.experiment import _experiment_create
+
+        # Pre-existing lock by same experiment ID shouldn't block
+        store = {"experiment_lock:brain/agents/X.md": "relock-test"}
+
+        def read_fn(name):
+            if name in store:
+                return {"content": store[name]}
+            return {"error": "not found"}
+
+        def write_fn(name, content):
+            store[name] = content
+            return {"success": True}
+
+        with (
+            patch("robothor.memory.blocks.read_block", side_effect=read_fn),
+            patch("robothor.memory.blocks.write_block", side_effect=write_fn),
+        ):
+            result = await _experiment_create(
+                {
+                    "experiment_id": "relock-test",
+                    "metric_command": "echo 1",
+                    "direction": "maximize",
+                    "search_space": "brain/agents/X.md",
+                },
+                CTX,
+            )
+
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_commit_completion_releases_locks(self):
+        """Locks are released when experiment terminates."""
+        from robothor.engine.tools.handlers.experiment import _experiment_commit
+
+        state = {
+            "id": "rel1",
+            "metric_name": "test",
+            "direction": "maximize",
+            "status": "active",
+            "created_at": "2026-04-09T00:00:00",
+            "baseline_value": 50.0,
+            "current_best_value": 50.0,
+            "current_best_iteration": None,
+            "cumulative_improvement_pct": 0.0,
+            "total_iterations": 19,  # One before max (20) → will complete
+            "total_cost_usd": 0.0,
+            "consecutive_no_improvement": 0,
+            "config": {
+                "max_iterations": 20,
+                "cost_budget_usd": 50.0,
+                "revert_command": "",
+                "notify_on_improvement_pct": 10.0,
+                "search_space": "brain/agents/X.md",
+            },
+            "iterations": [],
+            "learnings": {"positive": [], "negative": []},
+        }
+        store = {
+            "experiment:rel1": json.dumps(state),
+            "experiment_lock:brain/agents/X.md": "rel1",
+        }
+
+        def read_fn(name):
+            if name in store:
+                return {"content": store[name]}
+            return {"error": "not found"}
+
+        def write_fn(name, content):
+            store[name] = content
+            return {"success": True}
+
+        with (
+            patch("robothor.memory.blocks.read_block", side_effect=read_fn),
+            patch("robothor.memory.blocks.write_block", side_effect=write_fn),
+        ):
+            result = await _experiment_commit(
+                {
+                    "experiment_id": "rel1",
+                    "hypothesis": "final iteration",
+                    "changes": [{"file": "brain/agents/X.md", "description": "edit"}],
+                    "metric_before": 50.0,
+                    "metric_after": 55.0,
+                    "verdict": "keep",
+                    "learnings": "done",
+                },
+                CTX,
+            )
+
+        assert result["success"] is True
+        assert result["status"] == "completed"
+        # Lock should be cleared (empty string)
+        assert store.get("experiment_lock:brain/agents/X.md") == ""

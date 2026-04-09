@@ -2381,4 +2381,20 @@ def get_engine_schemas() -> dict[str, dict[str, Any]]:
         },
     }
 
+    schemas["buddy_refresh"] = {
+        "type": "function",
+        "function": {
+            "name": "buddy_refresh",
+            "description": (
+                "Compute daily fleet scores and flag underperforming agents. "
+                "Refreshes per-agent RPG stats (reliability, debugging, patience, chaos, overall), "
+                "XP, and levels. Creates optimization tasks for agents scoring below threshold."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    }
+
     return schemas

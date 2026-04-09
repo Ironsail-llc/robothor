@@ -29,6 +29,14 @@ DEFAULT_BLOCK_SEEDS = [
     ("working_context", "ephemeral", 5000),
     ("operational_findings", "persistent", 5000),
     ("contacts_summary", "persistent", 5000),
+    # Nightwatch self-improvement loop
+    ("nightwatch_log", "persistent", 5000),
+    ("performance_baselines", "persistent", 5000),
+    # AutoAgent / Auto Researcher / Agent Architect learnings
+    ("autoagent_learnings", "persistent", 5000),
+    ("autoresearch_learnings", "persistent", 5000),
+    ("architect_evolution_log", "persistent", 5000),
+    ("architect_dispatch_ledger", "persistent", 5000),
 ]
 
 

@@ -620,7 +620,7 @@ class BuddyEngine:
 
     # ── AutoAgent integration ──────────────────────────────────────────────
 
-    def flag_underperformers(self, threshold: int = 40, consecutive_days: int = 3) -> list[str]:
+    def flag_underperformers(self, threshold: int = 70, consecutive_days: int = 2) -> list[str]:
         """Flag agents with consistently low scores for AutoAgent optimization.
 
         Returns list of agent_ids that were flagged (tasks created).
@@ -664,61 +664,57 @@ class BuddyEngine:
         Checks for existing open tasks to avoid duplicates (7-day cooldown).
         """
         try:
-            from robothor.db.connection import get_connection
+            from robothor.crm.dal import create_task, list_tasks
 
-            with get_connection() as conn:
-                cur = conn.cursor()
-                # Check for existing open autoagent task for this agent within 7 days
-                cur.execute(
-                    """
-                    SELECT id FROM tasks
-                    WHERE assigned_to = 'auto-agent'
-                      AND status IN ('pending', 'in_progress')
-                      AND %s = ANY(tags)
-                      AND created_at > NOW() - INTERVAL '7 days'
-                    LIMIT 1
-                    """,
-                    (agent_id,),
-                )
-                if cur.fetchone():
-                    return False  # Already has an open task
+            # Check for existing open autoagent task for this agent within 7 days
+            existing = list_tasks(
+                assigned_to="auto-agent",
+                status="TODO",
+                tags=[agent_id],
+            )
+            if existing and not isinstance(existing, dict):
+                return False  # Already has an open task
 
-                # Get latest scores for context
-                cur.execute(
-                    """
-                    SELECT overall_score, debugging_score, patience_score,
-                           chaos_score, wisdom_score, reliability_score
-                    FROM agent_buddy_stats
-                    WHERE agent_id = %s
-                    ORDER BY stat_date DESC LIMIT 1
-                    """,
-                    (agent_id,),
-                )
-                row = cur.fetchone()
-                scores_str = ""
-                if row:
-                    scores_str = (
-                        f"Overall: {row[0]}, Debugging: {row[1]}, Patience: {row[2]}, "
-                        f"Chaos: {row[3]}, Wisdom: {row[4]}, Reliability: {row[5]}"
+            # Get latest scores for context
+            scores_str = ""
+            try:
+                from robothor.db.connection import get_connection
+
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """
+                        SELECT overall_score, debugging_score, patience_score,
+                               chaos_score, wisdom_score, reliability_score
+                        FROM agent_buddy_stats
+                        WHERE agent_id = %s
+                        ORDER BY stat_date DESC LIMIT 1
+                        """,
+                        (agent_id,),
                     )
+                    row = cur.fetchone()
+                    if row:
+                        scores_str = (
+                            f"Overall: {row[0]}, Debugging: {row[1]}, Patience: {row[2]}, "
+                            f"Chaos: {row[3]}, Wisdom: {row[4]}, Reliability: {row[5]}"
+                        )
+            except Exception:
+                pass
 
-                cur.execute(
-                    """
-                    INSERT INTO tasks (title, body, assigned_to, status, created_by, tags)
-                    VALUES (%s, %s, 'auto-agent', 'pending', 'buddy-engine', ARRAY['autoagent', 'low-score', %s])
-                    """,
-                    (
-                        f"Optimize {agent_id}: low RPG score (below {threshold})",
-                        f"Agent {agent_id} has scored below {threshold} for 3+ consecutive days.\n\n"
-                        f"**Current scores:** {scores_str}\n\n"
-                        f"Please define a benchmark suite (if none exists), run it, and iterate on "
-                        f"the agent's instruction file and manifest to improve performance.",
-                        agent_id,
-                    ),
-                )
-                conn.commit()
-                logger.info("Created AutoAgent optimization task for %s", agent_id)
-                return True
+            create_task(
+                title=f"Optimize {agent_id}: low score (below {threshold})",
+                body=(
+                    f"Agent {agent_id} has scored below {threshold} for 2+ consecutive days.\n\n"
+                    f"**Current scores:** {scores_str}\n\n"
+                    f"Define a benchmark suite (if none exists), run it, and iterate on "
+                    f"the agent's instruction file and manifest to improve performance."
+                ),
+                assigned_to_agent="auto-agent",
+                tags=["autoagent", "low-score", agent_id],
+                priority="high",
+            )
+            logger.info("Created AutoAgent optimization task for %s", agent_id)
+            return True
 
         except Exception as e:
             logger.warning("Failed to create autoagent task for %s: %s", agent_id, e)

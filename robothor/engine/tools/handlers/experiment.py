@@ -9,9 +9,11 @@ State is persisted in memory blocks as JSON (key: ``experiment:<id>``).
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 import os
+import re as _re
 import statistics
 import subprocess
 from datetime import UTC, datetime
@@ -127,6 +129,99 @@ def _calc_improvement(baseline: float, current: float, direction: str) -> float:
         return ((current - baseline) / abs(baseline)) * 100
     else:  # minimize
         return ((baseline - current) / abs(baseline)) * 100
+
+
+# ---------------------------------------------------------------------------
+# Experiment guardrail checks
+# ---------------------------------------------------------------------------
+
+
+def _check_experiment_guardrails(
+    config: dict[str, Any],
+    changes: list[dict[str, Any]],
+    revert_command: str | None = None,
+) -> str | None:
+    """Validate changes and commands against experiment guardrails.
+
+    Returns an error message if a guardrail is violated, or None if all clear.
+    """
+    guardrails = config.get("guardrails", [])
+    if not guardrails:
+        return None
+
+    # Check write paths against allowlist
+    if "write_path_restrict" in guardrails:
+        allowed_paths = config.get("write_path_allowlist", [])
+        if allowed_paths:
+            for change in changes:
+                file_path = change.get("file", "")
+                if file_path and not any(fnmatch.fnmatch(file_path, pat) for pat in allowed_paths):
+                    return (
+                        f"Guardrail violation: file '{file_path}' is not in "
+                        f"write_path_allowlist {allowed_paths}"
+                    )
+
+    # Check revert command against exec allowlist
+    if revert_command and "exec_allowlist" in guardrails:
+        exec_patterns = config.get("exec_allowlist", [])
+        if exec_patterns and not any(_re.match(pat, revert_command) for pat in exec_patterns):
+            return (
+                f"Guardrail violation: revert_command '{revert_command}' does not "
+                f"match any exec_allowlist pattern"
+            )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Advisory file locking for concurrent experiments
+# ---------------------------------------------------------------------------
+
+
+def _acquire_file_locks(experiment_id: str, search_space: str) -> str | None:
+    """Check and acquire advisory locks for experiment search-space files.
+
+    Returns an error message if any file is locked by another experiment,
+    or None if locks were acquired successfully.
+    """
+    from robothor.memory.blocks import read_block, write_block
+
+    files = [f.strip() for f in search_space.split(",") if f.strip()]
+    if not files:
+        return None
+
+    # Check for conflicts first
+    for file_path in files:
+        lock_key = f"experiment_lock:{file_path}"
+        existing = read_block(lock_key)
+        if not existing.get("error"):
+            content = (existing.get("content") or "").strip()
+            if content and content != experiment_id:
+                return (
+                    f"File '{file_path}' is locked by experiment '{content}'. "
+                    f"Wait for it to complete or release locks manually."
+                )
+
+    # Acquire locks
+    for file_path in files:
+        lock_key = f"experiment_lock:{file_path}"
+        write_block(lock_key, experiment_id)
+
+    return None
+
+
+def _release_file_locks(experiment_id: str, search_space: str) -> None:
+    """Release advisory locks held by this experiment."""
+    from robothor.memory.blocks import read_block, write_block
+
+    files = [f.strip() for f in search_space.split(",") if f.strip()]
+    for file_path in files:
+        lock_key = f"experiment_lock:{file_path}"
+        existing = read_block(lock_key)
+        if not existing.get("error"):
+            content = (existing.get("content") or "").strip()
+            if content == experiment_id:
+                write_block(lock_key, "")
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +380,13 @@ async def _experiment_create(args: dict[str, Any], ctx: ToolContext) -> dict[str
         "learnings": {"positive": [], "negative": []},
     }
 
+    # Acquire advisory file locks for search-space files
+    search_space = config.get("search_space", "")
+    if search_space:
+        lock_error = _acquire_file_locks(experiment_id, search_space)
+        if lock_error:
+            return {"error": lock_error}
+
     _save_state(experiment_id, state)
 
     return {
@@ -392,6 +494,16 @@ async def _experiment_commit(args: dict[str, Any], ctx: ToolContext) -> dict[str
         return {"error": "verdict must be 'keep' or 'revert'"}
 
     config = state["config"]
+
+    # Enforce experiment guardrails before proceeding
+    guardrail_error = _check_experiment_guardrails(
+        config,
+        args.get("changes", []),
+        revert_command=config.get("revert_command") if verdict == "revert" else None,
+    )
+    if guardrail_error:
+        return {"error": guardrail_error, "guardrail_violation": True}
+
     metric_before = float(args["metric_before"])
     metric_after = float(args["metric_after"])
     improvement = _calc_improvement(metric_before, metric_after, state["direction"])
@@ -486,6 +598,12 @@ async def _experiment_commit(args: dict[str, Any], ctx: ToolContext) -> dict[str
         pass
 
     _save_state(experiment_id, state)
+
+    # Release file locks when experiment terminates
+    if state["status"] in ("completed", "paused"):
+        search_space = config.get("search_space", "")
+        if search_space:
+            _release_file_locks(experiment_id, search_space)
 
     response: dict[str, Any] = {
         "success": True,
