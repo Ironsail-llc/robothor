@@ -306,14 +306,24 @@ def run_init(args: Any) -> int:
         env_path = workspace / ".env"
         print(f"  Saving config to {env_path} ... skipped (exists)")
 
-    # 12. Resolve template variables in CLAUDE.md files
-    for fname in ("CLAUDE.md", "AGENT_BUILDER.md"):
-        md_path = workspace / fname
+    # 12. Resolve template variables in CLAUDE.md and brain/ files
+    template_files = [
+        workspace / "CLAUDE.md",
+        workspace / "AGENT_BUILDER.md",
+        workspace / "brain" / "CLAUDE.md",
+        workspace / "brain" / "SOUL.md",
+        workspace / "brain" / "IDENTITY.md",
+        workspace / "brain" / "USER.md",
+    ]
+    for md_path in template_files:
         if md_path.exists():
             content = md_path.read_text()
-            content = content.replace("{{ai_name}}", ai_name)
-            content = content.replace("{{owner_name}}", owner_name)
-            md_path.write_text(content)
+            if "{{" in content:
+                content = content.replace("{{ai_name}}", ai_name)
+                content = content.replace("{{owner_name}}", owner_name)
+                content = content.replace("{{ai_email}}", ai_email)
+                content = content.replace("{{owner_email}}", owner_email)
+                md_path.write_text(content)
 
     # 13. Agent template setup (if templates exist)
     if not yes:
@@ -498,18 +508,20 @@ def create_workspace(path: Path) -> None:
     # Copy template files into brain/ (never overwrite existing)
     template_dir = _find_template_dir()
     if template_dir:
-        brain_templates = [
-            "SOUL.md",
-            "IDENTITY.md",
-            "AGENTS.md",
-            "TOOLS.md",
-            "HEARTBEAT.md",
-            "USER.md",
-            "BOOTSTRAP.md",
-        ]
-        for filename in brain_templates:
-            src = template_dir / filename
-            dst = brain / filename
+        # Map of source template name → destination filename in brain/
+        brain_templates = {
+            "SOUL.md": "SOUL.md",
+            "IDENTITY.md": "IDENTITY.md",
+            "AGENTS.md": "AGENTS.md",
+            "TOOLS.md": "TOOLS.md",
+            "HEARTBEAT.md": "HEARTBEAT.md",
+            "USER.md": "USER.md",
+            "BOOTSTRAP.md": "BOOTSTRAP.md",
+            "brain-CLAUDE.md": "CLAUDE.md",
+        }
+        for src_name, dst_name in brain_templates.items():
+            src = template_dir / src_name
+            dst = brain / dst_name
             if src.exists() and not dst.exists():
                 dst.write_text(src.read_text())
 
