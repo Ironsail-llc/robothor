@@ -142,16 +142,31 @@ def _cmd_agent_scaffold(args: argparse.Namespace) -> int:
     brain_dir.mkdir(parents=True, exist_ok=True)
     instruction_path.write_text(instruction_content)
 
+    # Write starter benchmark suite
+    benchmark_template = template_dir / "benchmark-suite.yaml"
+    benchmark_dir = workspace / "docs" / "benchmarks" / agent_id
+    benchmark_path = benchmark_dir / "suite.yaml"
+    if benchmark_template.exists() and not benchmark_path.exists():
+        bench_content = benchmark_template.read_text()
+        bench_replacements = {"{agent_id}": agent_id}
+        for placeholder, value in bench_replacements.items():
+            bench_content = bench_content.replace(placeholder, value)
+        benchmark_dir.mkdir(parents=True, exist_ok=True)
+        benchmark_path.write_text(bench_content)
+
     print(f"Scaffolded agent: {agent_name} ({agent_id})")
     print()
     print(f"  Manifest:     {manifest_path}")
     print(f"  Instructions: {instruction_path}")
+    if benchmark_path.exists():
+        print(f"  Benchmark:    {benchmark_path}")
     print()
     print("Next steps:")
     print(f"  1. Edit the manifest:     {manifest_path}")
     print(f"  2. Edit the instructions: {instruction_path}")
-    print(f"  3. Validate:              python scripts/validate_agents.py --agent {agent_id}")
-    print("  4. Restart engine:        sudo systemctl restart robothor-engine")
+    print(f"  3. Customize benchmarks:  {benchmark_path}")
+    print(f"  4. Validate:              python scripts/validate_agents.py --agent {agent_id}")
+    print("  5. Restart engine:        sudo systemctl restart robothor-engine")
     return 0
 
 

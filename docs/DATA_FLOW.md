@@ -183,7 +183,7 @@ Reviewer (Supervisor or Helm UI)
 ```
 Request (any channel)
     │
-    X-Tenant-Id header (default: robothor-primary)
+    X-Tenant-Id header (default: from ROBOTHOR_DEFAULT_TENANT env var)
     │
     TenantMiddleware (Bridge) → request.state.tenant_id
     │

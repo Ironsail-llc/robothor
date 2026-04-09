@@ -17,7 +17,7 @@ interface TenantSelectorProps {
 
 export function TenantSelector({ onSelect, currentTenantId }: TenantSelectorProps) {
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [selected, setSelected] = useState(currentTenantId || "robothor-primary");
+  const [selected, setSelected] = useState(currentTenantId || "default");
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchTenants = useCallback(async () => {

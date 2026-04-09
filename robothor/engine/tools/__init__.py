@@ -16,10 +16,12 @@ from robothor.engine.tools.constants import (
     GIT_TOOLS,
     GITHUB_API_TOOLS,
     GWS_TOOLS,
+    IDENTITY_TOOLS,
     JIRA_TOOLS,
     PF_TOOLS,
     PROTECTED_BRANCHES,
     READONLY_TOOLS,
+    REPORT_TOOLS,
     SPAWN_TOOLS,
 )
 from robothor.engine.tools.dispatch import _execute_tool
@@ -49,10 +51,12 @@ __all__ = [
     "GIT_TOOLS",
     "GITHUB_API_TOOLS",
     "GWS_TOOLS",
+    "IDENTITY_TOOLS",
     "JIRA_TOOLS",
     "PF_TOOLS",
     "PROTECTED_BRANCHES",
     "READONLY_TOOLS",
+    "REPORT_TOOLS",
     "SPAWN_TOOLS",
     # Registry
     "ToolRegistry",

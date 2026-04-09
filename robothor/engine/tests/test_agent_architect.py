@@ -113,7 +113,7 @@ class TestManifestConfiguration:
         assert manifest["escalates_to"] == "main"
 
     def test_manifest_warmup_blocks_declared(self):
-        """All 5 required memory blocks are in warmup.memory_blocks."""
+        """All required memory blocks are in warmup.memory_blocks."""
         manifest = _load_manifest_checked(MANIFEST_PATH)
         blocks = manifest["warmup"]["memory_blocks"]
         expected = {
@@ -122,6 +122,8 @@ class TestManifestConfiguration:
             "autoagent_learnings",
             "autoresearch_learnings",
             "performance_baselines",
+            "watchdog_log",
+            "autodream_log",
         }
         assert expected == set(blocks)
 

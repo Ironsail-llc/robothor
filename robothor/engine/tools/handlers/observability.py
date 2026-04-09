@@ -148,3 +148,12 @@ async def _get_agent_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
         "total_output_tokens": stats.get("total_output_tokens"),
         "total_cost_usd": float(stats["total_cost_usd"]) if stats.get("total_cost_usd") else None,
     }
+
+
+@_handler("buddy_refresh")
+async def _buddy_refresh(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Compute and persist daily fleet scores, flag underperforming agents."""
+    from robothor.engine.buddy import BuddyEngine
+
+    result = await asyncio.to_thread(BuddyEngine().refresh_daily)
+    return result

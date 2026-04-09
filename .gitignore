@@ -103,6 +103,7 @@ brain/voice-server-env/
 # Brain runtime artifacts
 brain/memory/snapshots/
 brain/memory/rlm-traces/
+brain/logs/
 brain/memory_system/logs/
 brain/memory_system/*.log
 brain/memory_system/*.pid

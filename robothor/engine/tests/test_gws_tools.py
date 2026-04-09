@@ -547,7 +547,7 @@ class TestGwsGmailReply:
                                 {"name": "Subject", "value": subject},
                                 {
                                     "name": "Message-ID",
-                                    "value": "<CABx123@mail.gmail.com>",
+                                    "value": "<msg-001@example.com>",
                                 },
                             ]
                         },
@@ -592,8 +592,8 @@ class TestGwsGmailReply:
 
             raw_bytes = base64.urlsafe_b64decode(body["raw"])
             raw_str = raw_bytes.decode("utf-8")
-            assert "In-Reply-To: <CABx123@mail.gmail.com>" in raw_str
-            assert "References: <CABx123@mail.gmail.com>" in raw_str
+            assert "In-Reply-To: <msg-001@example.com>" in raw_str
+            assert "References: <msg-001@example.com>" in raw_str
             assert "alice@example.com" in raw_str
             assert "Re: Hello" in raw_str
 
@@ -844,9 +844,9 @@ class TestGwsGmailReply:
             import base64
 
             # Check the subprocess call — second call is the send
-            from robothor.engine.tools.handlers.gws import subprocess
+            from robothor.engine.tools.handlers import gws as _gws_mod
 
-            send_call = subprocess.run.call_args_list[1]
+            send_call = _gws_mod.subprocess.run.call_args_list[1]  # type: ignore[attr-defined]
             json_arg = send_call[0][0][-1]  # last arg is the JSON body
             raw = json.loads(json_arg)["raw"]
             mime_bytes = base64.urlsafe_b64decode(raw)
@@ -913,9 +913,9 @@ class TestGwsGmailReply:
             # Verify all 3 external addresses are collected
             import base64
 
-            from robothor.engine.tools.handlers.gws import subprocess
+            from robothor.engine.tools.handlers import gws as _gws_mod
 
-            send_call = subprocess.run.call_args_list[1]
+            send_call = _gws_mod.subprocess.run.call_args_list[1]  # type: ignore[attr-defined]
             json_arg = send_call[0][0][-1]
             raw = json.loads(json_arg)["raw"]
             mime_text = base64.urlsafe_b64decode(raw).decode("utf-8")
