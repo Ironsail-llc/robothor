@@ -547,7 +547,7 @@ class TestGwsGmailReply:
                                 {"name": "Subject", "value": subject},
                                 {
                                     "name": "Message-ID",
-                                    "value": "<CABx123@mail.gmail.com>",
+                                    "value": "<msg-001@example.com>",
                                 },
                             ]
                         },
@@ -592,8 +592,8 @@ class TestGwsGmailReply:
 
             raw_bytes = base64.urlsafe_b64decode(body["raw"])
             raw_str = raw_bytes.decode("utf-8")
-            assert "In-Reply-To: <CABx123@mail.gmail.com>" in raw_str
-            assert "References: <CABx123@mail.gmail.com>" in raw_str
+            assert "In-Reply-To: <msg-001@example.com>" in raw_str
+            assert "References: <msg-001@example.com>" in raw_str
             assert "alice@example.com" in raw_str
             assert "Re: Hello" in raw_str
 

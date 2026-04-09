@@ -24,7 +24,6 @@ INSTANCE_PATHS = {
     "templates/",
     ".env",
     "CHANGELOG.md",
-    "scripts/instance_leak_allowlist.yaml",
 }
 
 # Patterns to detect (compiled regexes)
