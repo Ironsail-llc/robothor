@@ -9,7 +9,7 @@ const BASE_URL = "http://localhost:3004";
 /** Set up standard mocks so tests are deterministic (no real engine calls). */
 async function setupMocks(page: Page) {
   const welcomeHtml =
-    '<div class="p-4"><h2 class="text-lg text-zinc-100">Welcome Dashboard</h2><p>Good morning, Philip</p></div>';
+    '<div class="p-4"><h2 class="text-lg text-zinc-100">Welcome Dashboard</h2><p>Good morning</p></div>';
 
   await page.route("**/api/chat/history", (route: Route) => {
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ messages: [] }) });

@@ -99,7 +99,7 @@ class TestNormalizeEmail:
         assert normalize_email("") is None
 
     def test_lowercase(self):
-        assert normalize_email("Philip@Example.COM") == "philip@example.com"
+        assert normalize_email("Alice@Example.COM") == "alice@example.com"
 
     def test_strip_whitespace(self):
         assert normalize_email("  user@example.com  ") == "user@example.com"

@@ -4,7 +4,7 @@
 -- Workflow execution runs
 CREATE TABLE IF NOT EXISTS workflow_runs (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id       TEXT NOT NULL DEFAULT 'robothor-primary',
+    tenant_id       TEXT NOT NULL DEFAULT 'default',
     workflow_id     TEXT NOT NULL,
     trigger_type    TEXT NOT NULL DEFAULT 'manual',
     trigger_detail  TEXT,

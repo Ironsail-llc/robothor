@@ -1,5 +1,5 @@
 # DEPRECATED: Use infra/docker-compose.yml with profiles instead.
-# This file is kept for backward compatibility with Philip's running system.
+# This file is kept for backward compatibility with existing running systems.
 # New installs should use: docker compose -f infra/docker-compose.yml --profile full up -d
 #
 # Robothor Docker Services — Uptime Kuma, Kokoro TTS

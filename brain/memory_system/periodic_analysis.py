@@ -556,7 +556,7 @@ def contact_reconciliation() -> dict[str, Any]:
             # Fuzzy check against existing CRM contacts
             if find_best_match(attendee, existing_name_list, threshold=0.8):
                 continue
-            # Skip reversed names like "D'Agostino Rizzi" or "Angcon Philip"
+            # Skip reversed names like "Doe Smith" or "Johnson Jane"
             att_parts = attendee.split()
             if len(att_parts) >= 2 and att_parts[0].lower() in known_last_names:
                 logger.debug("  Skipping reversed name: '%s'", attendee)

@@ -5,11 +5,12 @@ Phase 3: Validates agent capability enforcement at the Bridge API layer.
 
 import os
 import sys
+from pathlib import Path
 
 # Set capabilities manifest path BEFORE importing bridge_service (middleware loads at import time)
 os.environ.setdefault(
     "ROBOTHOR_CAPABILITIES_MANIFEST",
-    os.path.expanduser("~/robothor/brain/agent_capabilities.json"),
+    str(Path.home() / "robothor" / "brain" / "agent_capabilities.json"),
 )
 
 from unittest.mock import patch
@@ -17,8 +18,8 @@ from unittest.mock import patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, "/home/philip/robothor/brain/memory_system")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "brain" / "memory_system"))
 
 from bridge_service import app
 

@@ -22,7 +22,7 @@ from httpx import ASGITransport
 # Add paths
 BRIDGE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BRIDGE_DIR))
-sys.path.insert(0, "/home/philip/robothor/brain/memory_system")
+sys.path.insert(0, str(BRIDGE_DIR.parent / "brain" / "memory_system"))
 
 try:
     import audit

@@ -146,6 +146,12 @@ brain/memory_system/locks/
 # Vault master key
 .vault-key
 
+# Dev session history
+brain/.aider.chat.history.md
+
+# Personal business data
+brain/memory/enterprise-outreach-emails.md
+
 # Claude Code artifacts
 .claude/
 .plan

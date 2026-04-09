@@ -1,6 +1,6 @@
 -- Migration 024: Add requires_human flag to crm_tasks
 -- Tasks with requires_human=TRUE cannot be auto-resolved by agents or cleanup crons.
--- Only Philip (via Helm) or explicit human action can resolve them.
+-- Only the operator (via Helm) or explicit human action can resolve them.
 
 ALTER TABLE crm_tasks ADD COLUMN IF NOT EXISTS requires_human BOOLEAN DEFAULT FALSE;
 

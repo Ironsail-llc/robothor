@@ -497,7 +497,7 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "requiresHuman": {
                         "type": "boolean",
-                        "description": "If true, no automated process can resolve this task — only Philip/Helm can",
+                        "description": "If true, no automated process can resolve this task — only the operator/Helm can",
                         "default": False,
                     },
                 },

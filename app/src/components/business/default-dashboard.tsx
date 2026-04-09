@@ -102,7 +102,7 @@ export function DefaultDashboard() {
       {/* Greeting */}
       <div>
         <h2 className="text-xl font-semibold" data-testid="greeting">
-          {getGreeting()}, Philip
+          {getGreeting()}
         </h2>
         <span className="text-xs text-muted-foreground">
           {new Date().toLocaleDateString("en-US", {

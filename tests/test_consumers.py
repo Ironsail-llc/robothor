@@ -253,7 +253,7 @@ class TestVisionConsumer:
         c = VisionConsumer()
         event = {
             "type": "vision.person_detected",
-            "payload": {"name": "Philip", "confidence": 0.99, "is_known": True},
+            "payload": {"name": "Alice", "confidence": 0.99, "is_known": True},
         }
         c.handle(event)
         mock_log.assert_not_called()

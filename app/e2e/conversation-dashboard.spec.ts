@@ -236,7 +236,7 @@ test.describe("Conversation-Driven Dashboard", () => {
   });
 
   test("welcome dashboard unchanged on initial load", async ({ page }) => {
-    const welcomeHtml = '<div class="p-4" data-testid="welcome-content"><h2 class="text-lg font-semibold text-zinc-100">Good morning, Philip</h2></div>';
+    const welcomeHtml = '<div class="p-4" data-testid="welcome-content"><h2 class="text-lg font-semibold text-zinc-100">Good morning</h2></div>';
 
     await setupMocks(page, {
       welcomeHtml,

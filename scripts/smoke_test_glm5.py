@@ -17,7 +17,7 @@ import time
 # ── Test definitions ──────────────────────────────────────────────
 
 # Each agent gets a lightweight message that should trigger at least one tool call.
-# delivery is forced to NONE by the smoke test (no messages to Philip).
+# delivery is forced to NONE by the smoke test (no messages to the operator).
 AGENT_TESTS: dict[str, str] = {
     # GLM-5 primary agents
     "email-classifier": "Check the triage inbox and classify any new emails.",

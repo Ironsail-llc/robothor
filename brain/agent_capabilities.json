@@ -32,7 +32,7 @@
       "streams_write": []
     },
     "supervisor": {
-      "description": "Audits pipeline health, surfaces escalations to Philip",
+      "description": "Audits pipeline health, surfaces escalations to the operator",
       "tools": ["list_conversations", "crm_health", "list_tasks", "get_task", "list_my_tasks", "resolve_task", "update_task", "approve_task", "reject_task", "send_notification", "get_inbox", "ack_notification", "append_to_block"],
       "bridge_endpoints": ["GET /health", "GET /api/conversations", "GET /api/tasks", "GET /api/tasks/*", "GET /api/tasks/agent/*", "POST /api/tasks/*/resolve", "PATCH /api/tasks/*", "POST /api/tasks/*/approve", "POST /api/tasks/*/reject", "POST /api/notifications/send", "GET /api/notifications/inbox/*", "POST /api/notifications/*/ack", "POST /api/memory/blocks/*/append"],
       "streams_read": ["email", "crm", "health", "agent", "calendar", "vision", "system"],
@@ -81,7 +81,7 @@
       "streams_write": []
     },
     "helm-user": {
-      "description": "Helm web dashboard (Philip's interactive session)",
+      "description": "Helm web dashboard (operator's interactive session)",
       "tools": ["list_conversations", "get_conversation", "list_messages", "create_message", "toggle_conversation_status", "log_interaction", "create_person", "list_people", "create_note", "update_person", "update_company", "merge_contacts", "merge_companies", "crm_health", "vault_list", "vault_get", "vault_search", "create_task", "update_task", "get_task", "delete_task", "list_tasks", "list_my_tasks", "resolve_task", "approve_task", "reject_task", "send_notification", "get_inbox", "ack_notification"],
       "bridge_endpoints": ["GET /health", "GET /api/*", "POST /api/*", "PATCH /api/*", "PUT /api/*", "DELETE /api/*"],
       "streams_read": ["email", "crm", "health", "agent", "calendar", "vision", "system"],

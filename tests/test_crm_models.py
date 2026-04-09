@@ -17,14 +17,14 @@ class TestPersonToDict:
     def test_full_record(self):
         row = {
             "id": "abc-123",
-            "first_name": "Philip",
+            "first_name": "Alice",
             "last_name": "Testuser",
             "email": "owner@example.com",
             "phone": "+15551234567",
             "job_title": "CEO",
             "city": "New York",
             "avatar_url": "https://example.com/photo.jpg",
-            "linkedin_url": "https://linkedin.com/in/philip",
+            "linkedin_url": "https://linkedin.com/in/alice-smith",
             "additional_emails": ["alt@example.com"],
             "additional_phones": ["+15559876543"],
             "company_id": "comp-456",
@@ -34,7 +34,7 @@ class TestPersonToDict:
         }
         result = person_to_dict(row)
         assert result["id"] == "abc-123"
-        assert result["name"]["firstName"] == "Philip"
+        assert result["name"]["firstName"] == "Alice"
         assert result["name"]["lastName"] == "Testuser"
         assert result["emails"]["primaryEmail"] == "owner@example.com"
         assert result["phones"]["primaryPhoneNumber"] == "+15551234567"

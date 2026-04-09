@@ -3,7 +3,7 @@ BEGIN;
 -- Session metadata: tracks active sessions, model overrides, last activity
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id BIGSERIAL PRIMARY KEY,
-    tenant_id TEXT DEFAULT 'robothor-primary',
+    tenant_id TEXT DEFAULT 'default',
     session_key TEXT NOT NULL,
     channel TEXT NOT NULL DEFAULT 'telegram',  -- telegram, webchat
     model_override TEXT,                        -- persists /model selection

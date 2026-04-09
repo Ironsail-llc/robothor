@@ -6,8 +6,8 @@
 # and executes the given command with all secrets as environment variables.
 #
 # Example:
-#   with-secrets.sh python3 /home/philip/robothor/brain/scripts/email_sync.py
-#   with-secrets.sh /home/philip/robothor/brain/memory_system/venv/bin/python vision_service.py
+#   with-secrets.sh python3 $ROBOTHOR_WORKSPACE/brain/scripts/email_sync.py
+#   with-secrets.sh $ROBOTHOR_WORKSPACE/brain/memory_system/venv/bin/python vision_service.py
 
 set -euo pipefail
 

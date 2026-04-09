@@ -54,8 +54,8 @@ describe("POST /api/chat/send", () => {
   it("returns SSE stream on successful send", async () => {
     const engineRes = makeSseResponse([
       { event: "delta", data: { text: "Hello" } },
-      { event: "delta", data: { text: " Philip" } },
-      { event: "done", data: { text: "Hello Philip" } },
+      { event: "delta", data: { text: " there" } },
+      { event: "done", data: { text: "Hello there" } },
     ]);
     mockChatSend.mockResolvedValue(engineRes);
 

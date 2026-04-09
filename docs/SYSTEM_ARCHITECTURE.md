@@ -218,7 +218,7 @@ Two databases on the same instance:
 
 | Database | Owner | Purpose |
 |----------|-------|---------|
-| `robothor_memory` | philip | Facts, entities, contacts, memory blocks, ingestion state, CRM data, vault secrets |
+| `robothor_memory` | `$PGUSER` | Facts, entities, contacts, memory blocks, ingestion state, CRM data, vault secrets |
 
 **Key tables in `robothor_memory`:**
 

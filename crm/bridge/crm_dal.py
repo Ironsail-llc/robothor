@@ -15,6 +15,7 @@ import logging
 import sys
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import config
@@ -22,7 +23,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 # Audit logging — import from memory_system
-sys.path.insert(0, "/home/philip/robothor/brain/memory_system")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "brain" / "memory_system"))
 try:
     import audit
 except ImportError:

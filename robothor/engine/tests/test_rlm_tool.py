@@ -102,7 +102,7 @@ class TestLoadContextSource:
         mock_run.side_effect = _closing_asyncio_run(
             [
                 {
-                    "fact_text": "Philip likes coffee",
+                    "fact_text": "Alice likes coffee",
                     "category": "personal",
                     "confidence": 0.9,
                     "similarity": 0.85,
@@ -111,7 +111,7 @@ class TestLoadContextSource:
         )
         result = _load_context_source({"type": "memory", "query": "coffee"}, "")
         assert result is not None
-        assert "Philip likes coffee" in result
+        assert "Alice likes coffee" in result
         assert "## Memory search: coffee" in result
 
     @patch("robothor.engine.rlm_tool.asyncio.run")
@@ -146,14 +146,14 @@ class TestLoadContextSource:
     def test_entity_source(self, mock_run):
         mock_run.side_effect = _closing_asyncio_run(
             {
-                "name": "Philip",
+                "name": "Alice",
                 "entity_type": "person",
                 "relations": [{"type": "owns", "target": "Robothor"}],
             }
         )
-        result = _load_context_source({"type": "entity", "name": "Philip"}, "")
+        result = _load_context_source({"type": "entity", "name": "Alice"}, "")
         assert result is not None
-        assert "## Entity: Philip" in result
+        assert "## Entity: Alice" in result
         assert "person" in result
 
     @patch("robothor.engine.rlm_tool.asyncio.run")
@@ -191,11 +191,11 @@ class TestCustomToolWrappers:
 
     @patch("robothor.engine.rlm_tool.asyncio.run")
     def test_get_entity_fn(self, mock_run):
-        mock_run.side_effect = _closing_asyncio_run({"name": "Philip", "entity_type": "person"})
+        mock_run.side_effect = _closing_asyncio_run({"name": "Alice", "entity_type": "person"})
         fn = _make_get_entity_fn()
-        result = fn("Philip")
+        result = fn("Alice")
         parsed = json.loads(result)
-        assert parsed["name"] == "Philip"
+        assert parsed["name"] == "Alice"
 
     @patch("robothor.engine.rlm_tool.asyncio.run")
     def test_get_entity_fn_not_found(self, mock_run):
