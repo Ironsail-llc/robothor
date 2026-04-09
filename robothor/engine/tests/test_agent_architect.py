@@ -122,6 +122,8 @@ class TestManifestConfiguration:
             "autoagent_learnings",
             "autoresearch_learnings",
             "performance_baselines",
+            "watchdog_log",
+            "autodream_log",
         }
         assert expected == set(blocks)
 
