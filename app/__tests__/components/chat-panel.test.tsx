@@ -341,8 +341,8 @@ describe("ChatPanel", () => {
         // Use split chunks — event: and data: lines arrive in separate read() calls
         return Promise.resolve(
           makeSplitChunkSSEResponse([
-            { event: "delta", data: { text: "Hello Philip." } },
-            { event: "done", data: { text: "Hello Philip." } },
+            { event: "delta", data: { text: "Hello there." } },
+            { event: "done", data: { text: "Hello there." } },
           ])
         );
       });
@@ -359,7 +359,7 @@ describe("ChatPanel", () => {
           const assistantMsgs = getAllByTestId("message-assistant");
           expect(assistantMsgs).toHaveLength(1);
           // Should NOT contain duplicated text
-          expect(assistantMsgs[0].textContent).toBe("Hello Philip.");
+          expect(assistantMsgs[0].textContent).toBe("Hello there.");
         },
         { timeout: 3000 }
       );

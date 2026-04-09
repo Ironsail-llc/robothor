@@ -58,7 +58,7 @@ class TestParseExtractionResponse:
         assert len(facts) == 1
 
     def test_markdown_fences_stripped(self):
-        raw = '```json\n[{"fact_text": "Philip deployed the new memory system", "category": "personal", "entities": ["Philip"], "confidence": 0.9}]\n```'
+        raw = '```json\n[{"fact_text": "Alice deployed the new memory system", "category": "personal", "entities": ["Alice"], "confidence": 0.9}]\n```'
         facts = parse_extraction_response(raw)
         assert len(facts) == 1
 
@@ -74,16 +74,16 @@ class TestParseExtractionResponse:
             [
                 {"fact_text": "", "category": "personal", "entities": ["X"], "confidence": 0.9},
                 {
-                    "fact_text": "Philip completed the migration successfully",
+                    "fact_text": "Alice completed the migration successfully",
                     "category": "personal",
-                    "entities": ["Philip"],
+                    "entities": ["Alice"],
                     "confidence": 0.8,
                 },
             ]
         )
         facts = parse_extraction_response(raw)
         assert len(facts) == 1
-        assert facts[0]["fact_text"] == "Philip completed the migration successfully"
+        assert facts[0]["fact_text"] == "Alice completed the migration successfully"
 
     def test_invalid_category_defaults(self):
         raw = json.dumps(
@@ -125,9 +125,9 @@ class TestParseExtractionResponse:
         raw = json.dumps(
             [
                 {
-                    "fact_text": "Philip configured the SOPS encryption workflow",
+                    "fact_text": "Alice configured the SOPS encryption workflow",
                     "category": "personal",
-                    "entities": ["Philip"],
+                    "entities": ["Alice"],
                     "confidence": "invalid",
                 }
             ]

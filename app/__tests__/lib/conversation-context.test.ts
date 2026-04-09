@@ -61,7 +61,7 @@ describe("fetchConversationContext", () => {
 
   it("fetches orchestrator query for memory topic", async () => {
     mockFetch.mockResolvedValue(
-      mockJsonResponse({ answer: "Philip worked on the CRM project last week" })
+      mockJsonResponse({ answer: "The user worked on the CRM project last week" })
     );
 
     const result = await fetchConversationContext("memory", "CRM project");

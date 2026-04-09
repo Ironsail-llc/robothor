@@ -512,11 +512,11 @@ class TestActWithRefs:
             return_value=session,
         ):
             result = await _action_act(
-                {"request": {"kind": "fill", "ref": "@3", "value": "Philip"}}, ctx
+                {"request": {"kind": "fill", "ref": "@3", "value": "Alice"}}, ctx
             )
 
         assert result["acted"] == "fill"
-        mock_locator.fill.assert_called_once_with("Philip", timeout=10000)
+        mock_locator.fill.assert_called_once_with("Alice", timeout=10000)
 
     @pytest.mark.asyncio
     async def test_batch_fill_by_refs(self):
@@ -550,8 +550,8 @@ class TestActWithRefs:
                     "request": {
                         "kind": "fill",
                         "fields": [
-                            {"ref": "@1", "value": "Philip"},
-                            {"ref": "@2", "value": "D'Agostino"},
+                            {"ref": "@1", "value": "Alice"},
+                            {"ref": "@2", "value": "TestUser"},
                         ],
                     }
                 },

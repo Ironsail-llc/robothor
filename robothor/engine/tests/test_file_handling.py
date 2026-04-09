@@ -209,7 +209,7 @@ class TestFileContentAssembly:
 
         # Build a mock message with a document
         message = MagicMock()
-        message.from_user = MagicMock(first_name="Philip")
+        message.from_user = MagicMock(first_name="Alice")
         message.chat = MagicMock(id=12345)
         message.caption = "Here's the file"
         message.photo = None

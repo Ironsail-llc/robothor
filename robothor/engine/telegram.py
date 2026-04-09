@@ -1683,7 +1683,7 @@ class TelegramBot:
     def _session_key(self, chat_id: str) -> str:
         """Return a DB session key for a Telegram chat.
 
-        Philip's chat (matches default_chat_id) maps to the canonical
+        The primary operator's chat (matches default_chat_id) maps to the canonical
         shared session key so Telegram and Helm share one conversation.
         Other chats keep the telegram: prefix.
         """
@@ -1694,7 +1694,7 @@ class TelegramBot:
     def _load_persisted_history(self) -> None:
         """Restore model overrides for non-primary Telegram chats.
 
-        The canonical shared session (Philip's chat) is restored by
+        The canonical shared session (the primary chat) is restored by
         chat.py's _restore_sessions() at startup — no duplicate load needed.
         Only non-primary telegram: chats need their own restore here.
         """

@@ -5,7 +5,7 @@
 #
 # Usage in systemd service:
 #   [Service]
-#   ExecStartPre=/home/philip/robothor/scripts/decrypt-secrets.sh
+#   ExecStartPre=$ROBOTHOR_WORKSPACE/scripts/decrypt-secrets.sh
 #   EnvironmentFile=/run/robothor/secrets.env
 
 set -euo pipefail

@@ -698,9 +698,9 @@ class TestEnrollFromImage:
             patch.object(service.recognizer, "enroll", return_value=True),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            result = service.enroll_from_image("Philip", [img_path])
+            result = service.enroll_from_image("Alice", [img_path])
         assert result["success"] is True
-        assert result["name"] == "Philip"
+        assert result["name"] == "Alice"
         assert result["samples"] == 1
 
     def test_enroll_from_missing_file(self, service):
@@ -708,7 +708,7 @@ class TestEnrollFromImage:
             patch("robothor.vision.service._get_cv2", return_value=MagicMock()),
             patch.object(service.recognizer, "_ensure_loaded"),
         ):
-            result = service.enroll_from_image("Philip", ["/nonexistent/photo.jpg"])
+            result = service.enroll_from_image("Alice", ["/nonexistent/photo.jpg"])
         assert result["success"] is False
         assert "No usable face" in result["error"]
 
@@ -723,7 +723,7 @@ class TestEnrollFromImage:
             patch.object(service.recognizer, "_ensure_loaded"),
             patch("pathlib.Path.exists", return_value=True),
         ):
-            result = service.enroll_from_image("Philip", [img_path])
+            result = service.enroll_from_image("Alice", [img_path])
         assert result["success"] is False
         assert any("No face" in e for e in result["details"])
 
@@ -732,12 +732,12 @@ class TestEnrollFromImage:
         with patch.object(
             service,
             "enroll_from_image",
-            return_value={"success": True, "name": "Philip", "samples": 3},
+            return_value={"success": True, "name": "Alice", "samples": 3},
         ):
             resp = await service._route_request(
                 "POST",
                 "/enroll-from-image",
-                '{"name": "Philip", "image_paths": ["/tmp/a.jpg"]}',
+                '{"name": "Alice", "image_paths": ["/tmp/a.jpg"]}',
             )
         body = json.loads(resp.decode().split("\r\n\r\n")[1])
         assert body["success"] is True
@@ -752,7 +752,7 @@ class TestEnrollFromImage:
     @pytest.mark.asyncio
     async def test_enroll_from_image_missing_paths(self, service):
         resp = await service._route_request(
-            "POST", "/enroll-from-image", '{"name": "Philip", "image_paths": []}'
+            "POST", "/enroll-from-image", '{"name": "Alice", "image_paths": []}'
         )
         assert b"400" in resp
 
@@ -763,11 +763,11 @@ class TestEnrollFromImage:
 class TestEnrolledEndpoint:
     @pytest.mark.asyncio
     async def test_enrolled_list(self, service):
-        service.recognizer.enrolled = {"Philip": np.ones(512), "Samantha": np.ones(512)}
+        service.recognizer.enrolled = {"Alice": np.ones(512), "Samantha": np.ones(512)}
         resp = await service._route_request("GET", "/enrolled", "")
         body = json.loads(resp.decode().split("\r\n\r\n")[1])
         assert body["count"] == 2
-        assert "Philip" in body["enrolled_faces"]
+        assert "Alice" in body["enrolled_faces"]
 
 
 # ─── Unenroll Endpoint ──────────────────────────────────────
@@ -776,9 +776,9 @@ class TestEnrolledEndpoint:
 class TestUnenrollEndpoint:
     @pytest.mark.asyncio
     async def test_unenroll_existing(self, service):
-        service.recognizer.enrolled = {"Philip": np.ones(512)}
+        service.recognizer.enrolled = {"Alice": np.ones(512)}
         with patch.object(service.recognizer, "unenroll", return_value=True):
-            resp = await service._route_request("POST", "/unenroll", '{"name": "Philip"}')
+            resp = await service._route_request("POST", "/unenroll", '{"name": "Alice"}')
         body = json.loads(resp.decode().split("\r\n\r\n")[1])
         assert body["success"] is True
 
@@ -878,7 +878,7 @@ class TestAlertSuppression:
                     {"bbox": [0, 0, 50, 50], "embedding": np.ones(512), "det_score": 0.95}
                 ],
             ),
-            patch.object(service.recognizer, "match", return_value=("Philip", 0.92)),
+            patch.object(service.recognizer, "match", return_value=("Alice", 0.92)),
             patch.object(service, "save_snapshot", return_value="/tmp/snap.jpg"),
             patch.object(service, "ingest_event", new_callable=AsyncMock),
             patch.object(service, "publish_event", new_callable=AsyncMock),

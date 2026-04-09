@@ -147,7 +147,7 @@ class TestStoreInsightCreatesEmbedding:
             # First call returns source fact metadata, second returns insert ID
             cur.fetchall.return_value = [
                 {"category": "project", "entities": ["Robothor"]},
-                {"category": "personal", "entities": ["Philip"]},
+                {"category": "personal", "entities": ["Alice"]},
             ]
             cur.fetchone.return_value = (42,)
 

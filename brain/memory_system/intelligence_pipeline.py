@@ -16,7 +16,7 @@ Phases (deep analysis only — ingestion moved to Tier 1):
     Phase 6: Cleanup — prune old ingested_items (>90 days)
 
 Usage:
-    cd /home/philip/robothor/brain/memory_system
+    cd $ROBOTHOR_WORKSPACE/brain/memory_system
     source venv/bin/activate
     python intelligence_pipeline.py
 
@@ -171,7 +171,7 @@ async def phase_2_relationship_intelligence(llm_client) -> dict[str, Any]:
                     continue
 
                 brief = await llm_client.generate(
-                    prompt=f"""Analyze this contact's relationship with Philip. Write a concise brief (3-5 sentences) covering:
+                    prompt=f"""Analyze this contact's relationship with the user. Write a concise brief (3-5 sentences) covering:
 - Engagement level (how often they interact)
 - Key topics or threads discussed recently
 - Any open items or follow-ups needed
@@ -221,9 +221,8 @@ Write the brief directly, no preamble.""",
 
 # Common email domain → company mappings for deterministic extraction
 DOMAIN_COMPANY_MAP = {
-    "ironsail.ai": "Ironsail",
-    "ironsailpharma.com": "Ironsail Pharma",
-    "getdrx.com": "GetDRx",
+    # Add instance-specific domain→company mappings here.
+    # Example: "acme.com": "Acme Corp",
     "google.com": "Google",
     "microsoft.com": "Microsoft",
 }

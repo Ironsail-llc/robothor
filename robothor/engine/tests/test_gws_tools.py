@@ -5,6 +5,16 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _set_robothor_email():
+    """Ensure ROBOTHOR_EMAIL is set for duplicate-guard tests."""
+    with patch("robothor.engine.tools.handlers.gws.ROBOTHOR_EMAIL", "agent@example.com"):
+        yield
+
+
 # ─── Tool registration ──────────────────────────────────────────────
 
 
@@ -254,6 +264,38 @@ class TestGwsGmailSend:
             body = json.loads(cmd[json_idx + 1])
             assert body["threadId"] == "t1"
 
+    def test_send_html_email(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"id": "html1", "threadId": "t2"})
+
+        with patch(
+            "robothor.engine.tools.handlers.gws.subprocess.run", return_value=mock_result
+        ) as mock_run:
+            from robothor.engine.tools import _handle_gws_tool
+
+            result = _handle_gws_tool(
+                "gws_gmail_send",
+                {
+                    "to": "alice@example.com",
+                    "subject": "Report",
+                    "body": "<h1>Hello</h1><p>Report here</p>",
+                    "content_type": "html",
+                },
+            )
+            assert result["id"] == "html1"
+
+            # Decode the raw MIME to verify HTML content type
+            import base64
+            from email import message_from_bytes
+
+            cmd = mock_run.call_args[0][0]
+            json_idx = cmd.index("--json")
+            body = json.loads(cmd[json_idx + 1])
+            raw_bytes = base64.urlsafe_b64decode(body["raw"] + "==")
+            mime_msg = message_from_bytes(raw_bytes)
+            assert mime_msg.get_content_type() == "text/html"
+
 
 # ─── Gmail modify ───────────────────────────────────────────────────
 
@@ -501,7 +543,7 @@ class TestGwsGmailReply:
                         "payload": {
                             "headers": [
                                 {"name": "From", "value": f"Alice <{last_from}>"},
-                                {"name": "To", "value": "robothor@ironsail.ai"},
+                                {"name": "To", "value": "agent@example.com"},
                                 {"name": "Subject", "value": subject},
                                 {
                                     "name": "Message-ID",
@@ -573,7 +615,7 @@ class TestGwsGmailReply:
         """Skip if last message is already from robothor."""
         thread_result = MagicMock(
             returncode=0,
-            stdout=self._thread_response(last_from="robothor@ironsail.ai"),
+            stdout=self._thread_response(last_from="agent@example.com"),
         )
 
         with patch(
@@ -640,8 +682,8 @@ class TestGwsGmailReply:
                 "gws_gmail_reply",
                 {
                     "thread_id": "t1",
-                    "body": "Looping in Philip",
-                    "cc": "philip@ironsail.ai",
+                    "body": "Looping in Bob",
+                    "cc": "bob@example.com",
                 },
             )
             send_cmd = mock_run.call_args_list[-1][0][0]
@@ -650,7 +692,7 @@ class TestGwsGmailReply:
 
             raw_bytes = base64.urlsafe_b64decode(json.loads(send_cmd[json_idx + 1])["raw"])
             raw_str = raw_bytes.decode("utf-8")
-            assert "philip@ironsail.ai" in raw_str
+            assert "bob@example.com" in raw_str
 
     def test_reply_propagates_thread_fetch_error(self):
         """If thread fetch fails, error is returned."""
@@ -670,7 +712,7 @@ class TestGwsGmailReply:
 
     def test_reply_case_insensitive_duplicate_guard(self):
         """Duplicate guard works even when From header has different casing."""
-        thread_json = self._thread_response(last_from="Robothor@Ironsail.AI")
+        thread_json = self._thread_response(last_from="Agent@Example.COM")
         thread_result = MagicMock(returncode=0, stdout=thread_json)
 
         with patch(
@@ -696,7 +738,7 @@ class TestGwsGmailReply:
                         "payload": {
                             "headers": [
                                 {"name": "From", "value": "alice@example.com"},
-                                {"name": "To", "value": "robothor@ironsail.ai"},
+                                {"name": "To", "value": "agent@example.com"},
                                 {"name": "Subject", "value": "Hello"},
                             ]
                         },
@@ -730,7 +772,7 @@ class TestGwsGmailReply:
                         "payload": {
                             "headers": [
                                 {"name": "From", "value": "someone@example.com"},
-                                {"name": "To", "value": "robothor@ironsail.ai"},
+                                {"name": "To", "value": "agent@example.com"},
                                 {"name": "Subject", "value": "Hello"},
                                 {"name": "Message-ID", "value": "<m1@mail>"},
                             ]
@@ -740,7 +782,7 @@ class TestGwsGmailReply:
                         "id": "msg2",
                         "payload": {
                             "headers": [
-                                {"name": "From", "value": "robothor@ironsail.ai"},
+                                {"name": "From", "value": "agent@example.com"},
                                 {"name": "To", "value": "someone@example.com"},
                                 {"name": "Subject", "value": "Re: Hello"},
                                 {"name": "Message-ID", "value": "<m2@mail>"},
@@ -775,7 +817,7 @@ class TestGwsGmailReply:
                         "payload": {
                             "headers": [
                                 {"name": "From", "value": "alice@example.com"},
-                                {"name": "To", "value": "Robothor@Ironsail.AI, bob@example.com"},
+                                {"name": "To", "value": "Agent@Example.COM, bob@example.com"},
                                 {"name": "Subject", "value": "Hello"},
                                 {"name": "Message-ID", "value": "<m1@mail>"},
                             ]
@@ -809,7 +851,7 @@ class TestGwsGmailReply:
             raw = json.loads(json_arg)["raw"]
             mime_bytes = base64.urlsafe_b64decode(raw)
             mime_text = mime_bytes.decode("utf-8")
-            assert "robothor@ironsail.ai" not in mime_text.lower().split("to:")[1].split("\n")[0]
+            assert "agent@example.com" not in mime_text.lower().split("to:")[1].split("\n")[0]
 
     def test_reply_multi_message_thread(self):
         """Reply-all collects addresses from all messages in the thread."""
@@ -822,7 +864,7 @@ class TestGwsGmailReply:
                         "payload": {
                             "headers": [
                                 {"name": "From", "value": "alice@example.com"},
-                                {"name": "To", "value": "robothor@ironsail.ai"},
+                                {"name": "To", "value": "agent@example.com"},
                                 {"name": "Subject", "value": "Hello"},
                                 {"name": "Message-ID", "value": "<m1@mail>"},
                             ]
@@ -832,7 +874,7 @@ class TestGwsGmailReply:
                         "id": "msg2",
                         "payload": {
                             "headers": [
-                                {"name": "From", "value": "robothor@ironsail.ai"},
+                                {"name": "From", "value": "agent@example.com"},
                                 {"name": "To", "value": "alice@example.com"},
                                 {"name": "Cc", "value": "bob@example.com"},
                                 {"name": "Subject", "value": "Re: Hello"},
@@ -845,7 +887,7 @@ class TestGwsGmailReply:
                         "payload": {
                             "headers": [
                                 {"name": "From", "value": "charlie@example.com"},
-                                {"name": "To", "value": "robothor@ironsail.ai, alice@example.com"},
+                                {"name": "To", "value": "agent@example.com, alice@example.com"},
                                 {"name": "Subject", "value": "Re: Hello"},
                                 {"name": "Message-ID", "value": "<m3@mail>"},
                             ]
@@ -880,7 +922,7 @@ class TestGwsGmailReply:
             assert "alice@example.com" in mime_text
             assert "bob@example.com" in mime_text
             assert "charlie@example.com" in mime_text
-            assert "robothor@ironsail.ai" not in mime_text.split("To:")[1].split("\n")[0]
+            assert "agent@example.com" not in mime_text.split("To:")[1].split("\n")[0]
 
 
 class TestGwsGmailSendWarning:
@@ -924,7 +966,7 @@ class TestGwsGmailSendWarning:
 class TestGwsGmailSendDuplicateGuard:
     """Test the duplicate-reply guard in gws_gmail_send."""
 
-    def _thread_response(self, last_from="robothor@ironsail.ai"):
+    def _thread_response(self, last_from="agent@example.com"):
         return json.dumps(
             {
                 "id": "t1",
@@ -1010,7 +1052,7 @@ class TestGwsGmailSendDuplicateGuard:
         """Guard catches mixed-case robothor email in From header."""
         thread_result = MagicMock(
             returncode=0,
-            stdout=self._thread_response(last_from="Robothor@Ironsail.AI"),
+            stdout=self._thread_response(last_from="Agent@Example.COM"),
         )
         with patch(
             "robothor.engine.tools.handlers.gws.subprocess.run",

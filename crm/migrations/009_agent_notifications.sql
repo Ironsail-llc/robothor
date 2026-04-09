@@ -5,7 +5,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS crm_agent_notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id),
+    tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id),
     from_agent TEXT NOT NULL,
     to_agent TEXT NOT NULL,
     notification_type TEXT NOT NULL CHECK (notification_type IN (

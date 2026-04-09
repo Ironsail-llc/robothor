@@ -93,7 +93,7 @@ redis-cli ping
 curl -s https://${INSTANCE_DOMAIN} > /dev/null && echo "OK"
 
 # Samba
-smbclient -L //localhost -U philip%$SAMBA_PASSWORD -N 2>/dev/null | grep robothor
+smbclient -L //localhost -U $USER%$SAMBA_PASSWORD -N 2>/dev/null | grep robothor
 
 # Tailscale
 tailscale status | head -3
@@ -154,7 +154,7 @@ All camera/vision ports (`8554`, `8889`, `8890`, `8600`) are bound to `127.0.0.1
 ## Credentials
 
 All services that need credentials use SOPS+age decryption:
-- `ExecStartPre=/home/philip/robothor/scripts/decrypt-secrets.sh` decrypts secrets to `/run/robothor/secrets.env`
+- `ExecStartPre=$ROBOTHOR_WORKSPACE/scripts/decrypt-secrets.sh` decrypts secrets to `/run/robothor/secrets.env`
 - `EnvironmentFile=/run/robothor/secrets.env` loads them into the service environment
 - Services with SOPS injection: robothor-vision, robothor-orchestrator, robothor-bridge, robothor-engine, robothor-voice
 

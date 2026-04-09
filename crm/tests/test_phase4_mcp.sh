@@ -2,6 +2,7 @@
 # Phase 4: Verify all MCP servers are functional
 set -e
 PASS=0; FAIL=0
+ROBOTHOR_WORKSPACE="${ROBOTHOR_WORKSPACE:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 t() {
   echo -n "  $1... "
@@ -10,8 +11,8 @@ t() {
 
 # T4.1: robothor-memory MCP server starts and has all tools
 echo "=== Memory MCP Server ==="
-t "T4.1 Memory MCP tools" "timeout 5 /home/philip/robothor/brain/memory_system/venv/bin/python -c \"
-import sys; sys.path.insert(0, '/home/philip/robothor/brain/memory_system')
+t "T4.1 Memory MCP tools" "timeout 5 ${ROBOTHOR_WORKSPACE}/brain/memory_system/venv/bin/python -c \"
+import sys; sys.path.insert(0, '${ROBOTHOR_WORKSPACE}/brain/memory_system')
 from mcp_server import get_tool_definitions
 tools = get_tool_definitions()
 names = [t['name'] for t in tools]
@@ -21,8 +22,8 @@ print('OK:', len(names), 'tools')
 \""
 
 # T4.2: memory_block_list handler works
-t "T4.2 memory_block_list handler" "timeout 5 /home/philip/robothor/brain/memory_system/venv/bin/python -c \"
-import asyncio, sys, json; sys.path.insert(0, '/home/philip/robothor/brain/memory_system')
+t "T4.2 memory_block_list handler" "timeout 5 ${ROBOTHOR_WORKSPACE}/brain/memory_system/venv/bin/python -c \"
+import asyncio, sys, json; sys.path.insert(0, '${ROBOTHOR_WORKSPACE}/brain/memory_system')
 from mcp_server import handle_tool_call
 result = asyncio.run(handle_tool_call('memory_block_list', {}))
 assert 'blocks' in result, 'No blocks key'
@@ -33,15 +34,15 @@ print('OK:', len(result['blocks']), 'blocks')
 # T4.3: Twenty CRM MCP server starts
 echo ""
 echo "=== Twenty CRM MCP Server ==="
-t "T4.3 Twenty MCP starts" "export \$(grep -E '^TWENTY_' /home/philip/robothor/crm/.env | xargs) && TWENTY_BASE_URL='http://localhost:3030' timeout 5 node /home/philip/robothor/crm/twenty-mcp/index.js </dev/null 2>&1 | grep -q 'running on stdio'"
+t "T4.3 Twenty MCP starts" "export \$(grep -E '^TWENTY_' ${ROBOTHOR_WORKSPACE}/crm/.env | xargs) && TWENTY_BASE_URL='http://localhost:3030' timeout 5 node ${ROBOTHOR_WORKSPACE}/crm/twenty-mcp/index.js </dev/null 2>&1 | grep -q 'running on stdio'"
 
 # T4.4: Twenty REST API responds with API key
-t "T4.4 Twenty API accessible" "export \$(grep -E '^TWENTY_API_KEY' /home/philip/robothor/crm/.env | xargs) && curl -sf -H \"Authorization: Bearer \$TWENTY_API_KEY\" 'http://localhost:3030/api/objects/people?limit=1' | grep -q 'data'"
+t "T4.4 Twenty API accessible" "export \$(grep -E '^TWENTY_API_KEY' ${ROBOTHOR_WORKSPACE}/crm/.env | xargs) && curl -sf -H \"Authorization: Bearer \$TWENTY_API_KEY\" 'http://localhost:3030/api/objects/people?limit=1' | grep -q 'data'"
 
 # T4.5: Chatwoot MCP server starts
 echo ""
 echo "=== Chatwoot MCP Server ==="
-t "T4.5 Chatwoot MCP starts" "CHATWOOT_BASE_URL='http://localhost:3100' CHATWOOT_API_TOKEN=\"\${CHATWOOT_API_TOKEN:?CHATWOOT_API_TOKEN env var required}\" timeout 5 node /home/philip/robothor/crm/chatwoot-mcp/dist/index.js </dev/null 2>&1 | grep -q 'running on stdio'"
+t "T4.5 Chatwoot MCP starts" "CHATWOOT_BASE_URL='http://localhost:3100' CHATWOOT_API_TOKEN=\"\${CHATWOOT_API_TOKEN:?CHATWOOT_API_TOKEN env var required}\" timeout 5 node ${ROBOTHOR_WORKSPACE}/crm/chatwoot-mcp/dist/index.js </dev/null 2>&1 | grep -q 'running on stdio'"
 
 # T4.6: Chatwoot API responds
 t "T4.6 Chatwoot API accessible" "curl -sf -H \"api_access_token: \${CHATWOOT_API_TOKEN:?CHATWOOT_API_TOKEN env var required}\" 'http://localhost:3100/api/v1/accounts/1/conversations?page=1' | grep -q 'data'"

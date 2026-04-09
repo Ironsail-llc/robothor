@@ -7,7 +7,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS agent_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id),
+    tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id),
     agent_id TEXT NOT NULL,
 
     trigger_type TEXT NOT NULL CHECK (trigger_type IN (
@@ -93,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_run_steps_run
 
 CREATE TABLE IF NOT EXISTS agent_schedules (
     agent_id TEXT PRIMARY KEY,
-    tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id),
+    tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id),
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     cron_expr TEXT NOT NULL,
     timezone TEXT NOT NULL DEFAULT 'America/Grenada',

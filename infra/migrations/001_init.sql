@@ -479,31 +479,31 @@ CREATE INDEX IF NOT EXISTS idx_tenants_parent ON crm_tenants(parent_tenant_id) W
 CREATE INDEX IF NOT EXISTS idx_tenants_active ON crm_tenants(active) WHERE active = TRUE;
 
 INSERT INTO crm_tenants (id, display_name)
-VALUES ('robothor-primary', 'Robothor Primary')
+VALUES ('default', 'Default Instance')
 ON CONFLICT (id) DO NOTHING;
 
-ALTER TABLE crm_people ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_people ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_people_tenant ON crm_people(tenant_id) WHERE deleted_at IS NULL;
 
-ALTER TABLE crm_companies ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_companies ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_companies_tenant ON crm_companies(tenant_id) WHERE deleted_at IS NULL;
 
-ALTER TABLE crm_notes ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_notes ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_notes_tenant ON crm_notes(tenant_id) WHERE deleted_at IS NULL;
 
-ALTER TABLE crm_tasks ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_tasks ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_tasks_tenant ON crm_tasks(tenant_id) WHERE deleted_at IS NULL;
 
-ALTER TABLE crm_task_history ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_task_history ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_task_history_tenant ON crm_task_history(tenant_id);
 
-ALTER TABLE crm_routines ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_routines ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_routines_tenant ON crm_routines(tenant_id) WHERE deleted_at IS NULL;
 
-ALTER TABLE crm_conversations ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_conversations ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_conversations_tenant ON crm_conversations(tenant_id);
 
-ALTER TABLE crm_messages ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id);
+ALTER TABLE crm_messages ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id);
 CREATE INDEX IF NOT EXISTS idx_messages_tenant ON crm_messages(tenant_id);
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -512,7 +512,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_tenant ON crm_messages(tenant_id);
 
 CREATE TABLE IF NOT EXISTS crm_agent_notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id),
+    tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id),
     from_agent TEXT NOT NULL,
     to_agent TEXT NOT NULL,
     notification_type TEXT NOT NULL CHECK (notification_type IN (
@@ -670,7 +670,7 @@ CREATE TABLE IF NOT EXISTS health_sync_log (
 
 CREATE TABLE IF NOT EXISTS agent_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id),
+    tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id),
     agent_id TEXT NOT NULL,
 
     trigger_type TEXT NOT NULL CHECK (trigger_type IN (
@@ -749,7 +749,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_run_steps_run ON agent_run_steps(run_id, st
 
 CREATE TABLE IF NOT EXISTS agent_schedules (
     agent_id TEXT PRIMARY KEY,
-    tenant_id TEXT DEFAULT 'robothor-primary' REFERENCES crm_tenants(id),
+    tenant_id TEXT DEFAULT 'default' REFERENCES crm_tenants(id),
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     cron_expr TEXT NOT NULL,
     timezone TEXT NOT NULL DEFAULT 'America/Grenada',
@@ -813,7 +813,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_guardrail_events_run
 
 CREATE TABLE IF NOT EXISTS workflow_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id TEXT NOT NULL DEFAULT 'robothor-primary',
+    tenant_id TEXT NOT NULL DEFAULT 'default',
     workflow_id TEXT NOT NULL,
     trigger_type TEXT NOT NULL DEFAULT 'manual',
     trigger_detail TEXT,
@@ -865,7 +865,7 @@ CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run ON workflow_run_steps(run_
 
 CREATE TABLE IF NOT EXISTS vault_secrets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id TEXT NOT NULL DEFAULT 'robothor-primary',
+    tenant_id TEXT NOT NULL DEFAULT 'default',
     key TEXT NOT NULL,
     encrypted_value BYTEA NOT NULL,
     category TEXT DEFAULT 'credential',

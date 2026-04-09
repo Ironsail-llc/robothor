@@ -383,7 +383,7 @@ class PlanState:
     """State of a pending plan awaiting approval.
 
     Created when an agent runs in plan mode (readonly tools only).
-    Philip reviews the plan via Telegram inline keyboard or Helm approval card,
+    The operator reviews the plan via Telegram inline keyboard or Helm approval card,
     then approves, rejects (with feedback), or iterates with text feedback.
     """
 
@@ -393,7 +393,7 @@ class PlanState:
     status: str = "pending"  # pending | approved | rejected | expired | superseded
     created_at: str = ""  # ISO timestamp
     exploration_run_id: str = ""  # Run ID of the read-only phase
-    rejection_feedback: str = ""  # Why Philip rejected (fed back to agent on re-plan)
+    rejection_feedback: str = ""  # Why the operator rejected (fed back to agent on re-plan)
     plan_hash: str = ""  # SHA-256 of plan_text for integrity verification on approval
 
     # Deep plan mode — when True, approval routes to execute_deep() instead of execute()

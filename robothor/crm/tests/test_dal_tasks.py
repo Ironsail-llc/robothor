@@ -84,8 +84,8 @@ class TestResolveTaskRequiresHumanGuard:
 
     @patch("robothor.crm.dal.get_connection")
     @patch("robothor.crm.dal._safe_audit")
-    def test_resolve_requires_human_task_by_philip_allowed(self, _audit, mock_get_conn):
-        """Philip (helm-user) can resolve requires_human tasks."""
+    def test_resolve_requires_human_task_by_operator_allowed(self, _audit, mock_get_conn):
+        """The operator (helm-user) can resolve requires_human tasks."""
         mock_conn, mock_cur = _make_mock_conn(
             fetchone_return={"status": "IN_PROGRESS", "requires_human": True}
         )
@@ -95,7 +95,7 @@ class TestResolveTaskRequiresHumanGuard:
 
         result = resolve_task(
             task_id="task-123",
-            resolution="Philip decided",
+            resolution="Operator decided",
             agent_id="helm-user",
         )
 

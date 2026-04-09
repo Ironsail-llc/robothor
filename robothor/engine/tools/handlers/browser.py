@@ -746,7 +746,7 @@ async def _action_act(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
                 return {"error": "click requires @ref, (x,y) coordinates, or a selector"}
 
         elif kind == "fill":
-            # Batch fill: [{ref: "@3", value: "Philip"}, {ref: "@4", value: "Doe"}]
+            # Batch fill: [{ref: "@3", value: "Alice"}, {ref: "@4", value: "Smith"}]
             fields = request.get("fields", [])
             if fields:
                 filled = 0

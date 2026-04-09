@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ROBOTHOR_EMAIL = os.environ.get("ROBOTHOR_AI_EMAIL", "robothor@ironsail.ai")
+ROBOTHOR_EMAIL = os.environ.get("ROBOTHOR_AI_EMAIL", "")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 
 HANDLERS: dict[str, Any] = {}
@@ -239,7 +239,9 @@ def _handle_gws_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
             except Exception:
                 logger.debug("Gmail send duplicate guard failed", exc_info=True)
 
-        msg = MIMEText(body)
+        content_type = args.get("content_type", "text")
+        subtype = "html" if content_type == "html" else "plain"
+        msg = MIMEText(body, _subtype=subtype)
         msg["To"] = to
         msg["Subject"] = subject
         if cc:

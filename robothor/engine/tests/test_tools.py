@@ -235,7 +235,7 @@ class TestToolExecution:
             mock_create.return_value = "task-uuid-456"
             result = await _execute_tool(
                 "create_task",
-                {"title": "Needs Philip", "requiresHuman": True},
+                {"title": "Needs review", "requiresHuman": True},
                 agent_id="email-classifier",
                 tenant_id="test-tenant",
             )
@@ -550,7 +550,7 @@ class TestMergeAndAliasTools:
     async def test_merge_people_executor(self):
         """merge_people calls dal.merge_people."""
         with patch("robothor.crm.dal.merge_people") as mock_merge:
-            mock_merge.return_value = {"id": "keeper-1", "first_name": "Philip"}
+            mock_merge.return_value = {"id": "keeper-1", "first_name": "Alice"}
             result = await _execute_tool(
                 "merge_people",
                 {"keeperId": "keeper-1", "loserId": "loser-1"},
