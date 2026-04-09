@@ -120,11 +120,9 @@ class SlackBot:
             text[:100],
         )
 
-        # Resolve user → tenant
-        from robothor.engine.users import lookup_user
-
-        user_info = lookup_user(f"slack:{user_id}")
-        tenant_id = user_info["tenant_id"] if user_info else self.config.tenant_id
+        # Resolve user → tenant (Slack user table not yet implemented;
+        # fall back to engine config tenant for now)
+        tenant_id = self.config.tenant_id
 
         # Use shared session system
         from robothor.engine.chat import get_shared_session
@@ -139,7 +137,7 @@ class SlackBot:
             run = await self.runner.execute(
                 agent_id="main",
                 message=text,
-                trigger_type=TriggerType.WEBCHAT,  # reuse webchat trigger
+                trigger_type=TriggerType.SLACK,
                 tenant_id=tenant_id,
                 session=session,
             )
@@ -151,9 +149,9 @@ class SlackBot:
             else:
                 await say("I processed your request but have no output to share.")
 
-        except Exception as e:
-            logger.error("Slack agent execution failed: %s", e)
-            await say(f"Something went wrong: {e}")
+        except Exception:
+            logger.exception("Slack agent execution failed")
+            await say("Something went wrong. Please try again.")
 
 
 def _split_text(text: str, max_length: int) -> list[str]:
