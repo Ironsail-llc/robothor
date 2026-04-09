@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -204,8 +205,6 @@ async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
 
     days = min(args.get("days", 30), 90)
     since = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    from datetime import timedelta
-
     since = since - timedelta(days=days)
 
     try:
@@ -289,8 +288,6 @@ async def _github_commit_activity(args: dict[str, Any], ctx: ToolContext) -> dic
                     headers=_headers(token),
                 )
                 if resp.status_code == 202:
-                    import asyncio
-
                     await asyncio.sleep(2)
                     continue
                 if resp.status_code == 404:
@@ -353,8 +350,6 @@ async def _github_review_stats(args: dict[str, Any], ctx: ToolContext) -> dict[s
 
     days = min(args.get("days", 30), 90)
     since = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    from datetime import timedelta
-
     since = since - timedelta(days=days)
 
     try:

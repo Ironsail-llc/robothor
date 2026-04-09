@@ -22,32 +22,32 @@ SAMPLE_DATA = {
     "jira": {
         "resolved": [
             {
-                "project": "VV",
+                "project": "ENG",
                 "count": 82,
                 "types": "45 Tasks, 21 Bugs, 12 Stories",
-                "top_contributors": "Jhon Ray (18), Danylo (18), Illia (14)",
+                "top_contributors": "Alice (18), Bob (18), Charlie (14)",
             },
         ],
         "stale_tickets": [
             {
-                "key": "VV-51",
+                "key": "ENG-51",
                 "status": "To Do",
                 "assignee": "Unassigned",
-                "summary": "Show total patients",
+                "summary": "Add dashboard metrics endpoint",
             },
         ],
     },
     "github": {
         "repo_stats": [
             {
-                "name": "impetus-one",
+                "name": "acme/repo-alpha",
                 "merged": 188,
                 "avg_cycle": "2.7h",
                 "avg_cycle_hours": 2.7,
                 "median_cycle": "0.0h",
             },
             {
-                "name": "genus-os",
+                "name": "acme/repo-beta",
                 "merged": 22,
                 "avg_cycle": "95.8h",
                 "avg_cycle_hours": 95.8,
@@ -57,11 +57,11 @@ SAMPLE_DATA = {
         "total_merged": 335,
         "review_coverage": 11.0,
         "total_reviews": 37,
-        "no_review_repos": ["genus-os", "ec-valhalla-vitality-storefront"],
+        "no_review_repos": ["acme/repo-beta", "acme/repo-gamma"],
     },
     "people": [
-        {"name": "Adan Cruz", "tickets": 1, "prs": 97, "reviews": 0, "pr_per_ticket": "97.0"},
-        {"name": "Danylo Boiko", "tickets": 19, "prs": 10, "reviews": 28, "pr_per_ticket": "0.5"},
+        {"name": "Alice Smith", "tickets": 1, "prs": 97, "reviews": 0, "pr_per_ticket": "97.0"},
+        {"name": "Bob Johnson", "tickets": 19, "prs": 10, "reviews": 28, "pr_per_ticket": "0.5"},
     ],
     "bottlenecks": [
         {
@@ -71,7 +71,7 @@ SAMPLE_DATA = {
         },
         {
             "severity": "medium",
-            "text": "genus-os has 95.8h avg cycle time",
+            "text": "acme/repo-beta has 95.8h avg cycle time",
             "recommendation": "Investigate what's blocking merges",
         },
     ],
@@ -117,9 +117,9 @@ class TestRenderDevopsReport:
         assert "Executive Summary" in html
         assert "86" in html  # tickets resolved
         assert "335" in html  # prs merged
-        assert "impetus-one" in html
-        assert "genus-os" in html
-        assert "Adan Cruz" in html
+        assert "acme/repo-alpha" in html
+        assert "acme/repo-beta" in html
+        assert "Alice Smith" in html
         assert "11%" in html  # review coverage
         assert "Bottlenecks" in html
 
