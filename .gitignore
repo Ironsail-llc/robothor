@@ -157,3 +157,4 @@ brain/memory/enterprise-outreach-emails.md
 .plan
 robothor.db
 test-results/
+scripts/seed_dev_team_identities.py
