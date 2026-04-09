@@ -220,12 +220,18 @@ def _skills_dir() -> Path:
 
 def _meta_path(skill_name: str, base: Path | None = None) -> Path:
     base = base or _skills_dir()
-    return base / skill_name / "meta.json"
+    result = (base / skill_name / "meta.json").resolve()
+    if not result.is_relative_to(base.resolve()):
+        raise ValueError(f"Skill name {skill_name!r} resolves outside skills directory")
+    return result
 
 
 def _skill_path(skill_name: str, base: Path | None = None) -> Path:
     base = base or _skills_dir()
-    return base / skill_name / "SKILL.md"
+    result = (base / skill_name / "SKILL.md").resolve()
+    if not result.is_relative_to(base.resolve()):
+        raise ValueError(f"Skill name {skill_name!r} resolves outside skills directory")
+    return result
 
 
 def validate_skill_name(name: str) -> str | None:
@@ -298,13 +304,11 @@ def increment_usage(name: str, base: Path | None = None) -> None:
 def create_skill_meta(
     *,
     created_by: str = "",
-    created_from_run: str = "",
 ) -> dict[str, Any]:
     """Build initial meta.json for a newly created skill."""
     return {
         "auto_generated": True,
         "created_by": created_by,
-        "created_from_run": created_from_run,
         "created_at": datetime.now(UTC).isoformat(),
         "revision": 1,
         "usage_count": 0,

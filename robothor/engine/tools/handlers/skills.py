@@ -214,7 +214,6 @@ async def _create_skill(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any
     # Create meta.json sidecar
     meta = create_skill_meta(
         created_by=ctx.agent_id,
-        created_from_run=getattr(ctx, "run_id", ""),
     )
     meta["content_hash"] = _content_hash(content)
     write_skill_meta(name, meta)

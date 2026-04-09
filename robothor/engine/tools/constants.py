@@ -203,8 +203,7 @@ READONLY_TOOLS: frozenset[str] = frozenset(
         "benchmark_compare",
         # Apollo read-only tools (search is free, no side effects)
         "apollo_search_people",
-        # Skill tools (read-only — skills are just instructions)
-        "invoke_skill",
+        # Skill tools (list is read-only; invoke_skill writes usage metadata)
         "list_skills",
         # MCP client read-only tools
         "mcp_list_servers",

@@ -59,10 +59,9 @@ class TestValidateSkillName:
 
 class TestSkillMeta:
     def test_create_meta(self):
-        meta = create_skill_meta(created_by="main", created_from_run="run-123")
+        meta = create_skill_meta(created_by="main")
         assert meta["auto_generated"] is True
         assert meta["created_by"] == "main"
-        assert meta["created_from_run"] == "run-123"
         assert meta["revision"] == 1
         assert meta["usage_count"] == 0
         assert meta["last_used"] is None
