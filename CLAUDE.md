@@ -59,6 +59,8 @@ These come from production experience running the first Genus OS instance:
 
 ## Quick Reference
 
+- **Platform vs instance boundary**: `docs/PLATFORM_INSTANCE.md`
+- **Contributing guidelines**: `CONTRIBUTING.md`
 - **System map, reading guide**: `docs/READING_GUIDE.md`
 - **Doc update checklists**: `docs/DOC_MAINTENANCE.md`
 - **System architecture**: `docs/SYSTEM_ARCHITECTURE.md`

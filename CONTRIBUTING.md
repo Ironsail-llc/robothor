@@ -71,6 +71,26 @@ sys.path.insert(0, "/path/to/memory_system")
 from fact_extraction import search_facts
 ```
 
+## Platform vs Instance Data
+
+Genus OS separates platform code (tracked in git, ships to everyone) from instance configuration (gitignored, personal to each deployment). See `docs/PLATFORM_INSTANCE.md` for the full architectural model.
+
+**Quick rules for contributors:**
+
+- **Never hardcode personal data** — no names, emails, phone numbers, addresses, or domain names in platform code. Use environment variables and `DEFAULT_TENANT` from `robothor/constants.py`.
+- **Use generic test fixtures** — `Alice`, `Bob`, `agent@example.com`, `test-tenant`. Never real names or emails.
+- **Use `ROBOTHOR_WORKSPACE` for paths** — never `/home/username/robothor`. Use `os.environ.get("ROBOTHOR_WORKSPACE", ...)` or `Path.home()`.
+- **Instance config goes in `brain/`** — personal CLAUDE.md rules, agent instructions, identity files. These are gitignored.
+- **Platform rules go in root `CLAUDE.md`** — this file is tracked and ships to all instances.
+
+**Pre-commit hooks enforce this:**
+- `gitleaks` — catches secrets (API keys, tokens)
+- `check-instance-leak` — catches personal data (emails, paths, phone numbers, addresses)
+- `validate-agents` — validates agent manifest YAML
+- `ruff` — code style and formatting
+
+If the leak checker flags your code, move the personal data to `brain/CLAUDE.md` or `.env`, or replace with a generic alternative.
+
 ## Testing
 
 ### Markers
