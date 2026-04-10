@@ -225,13 +225,13 @@ async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
                 until = until.replace(tzinfo=UTC)
         else:
             until = datetime.now(UTC)
-        days_label = f"since:{since_str}"
+        period = {"since": since_str, "until": until_str or until.isoformat()}
     else:
         days = min(args.get("days", 30), 90)
         since = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         since = since - timedelta(days=days)
         until = datetime.now(UTC)
-        days_label = days
+        period = days  # integer for legacy callers
 
     try:
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
@@ -263,7 +263,7 @@ async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
     if not merged_prs:
         return {
             "repo": repo,
-            "days": days_label,
+            "period": period,
             "merged_count": 0,
             "message": "No merged PRs in this period",
         }
@@ -294,7 +294,7 @@ async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
 
     return {
         "repo": repo,
-        "days": days_label,
+        "period": period,
         "merged_count": len(merged_prs),
         "avg_cycle_time_hours": round(sum(cycle_times_hours) / len(cycle_times_hours), 1)
         if cycle_times_hours

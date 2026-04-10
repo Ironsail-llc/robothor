@@ -102,5 +102,6 @@ async def _append_to_block(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
         block_name=args.get("block_name", ""),
         entry=args.get("entry", ""),
         max_entries=args.get("maxEntries", 20),
+        tenant_id=ctx.tenant_id,
     )
     return {"success": ok, "block_name": args.get("block_name", "")}
