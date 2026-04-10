@@ -22,6 +22,7 @@ async def get_audit_events(
     until: str | None = Query(None, description="ISO timestamp upper bound"),
     event_type: str | None = Query(None, description="Filter by event_type"),
     actor: str | None = Query(None, description="Filter by actor (agent_id)"),
+    user_id: str | None = Query(None, description="Filter by user_id"),
     limit: int = Query(50, ge=1, le=500),
 ) -> dict[str, Any]:
     """Query audit log events with filters."""
@@ -33,6 +34,7 @@ async def get_audit_events(
             event_type=event_type,
             actor=actor,
             since=since,
+            user_id=user_id,
         )
 
         # Apply 'until' filter in Python (query_log doesn't support it natively)

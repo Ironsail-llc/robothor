@@ -76,6 +76,7 @@ def log_event(
     *,
     category: str | None = None,
     actor: str = "robothor",
+    user_id: str = "",
     session_key: str | None = None,
     details: dict[str, Any] | None = None,
     source_channel: str | None = None,
@@ -94,8 +95,8 @@ def log_event(
             """
             INSERT INTO audit_log
                 (event_type, category, actor, action, details,
-                 source_channel, target, status, session_key)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 source_channel, target, status, session_key, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id, timestamp
             """,
             (
@@ -108,6 +109,7 @@ def log_event(
                 target,
                 status,
                 session_key,
+                user_id,
             ),
         )
         row = cur.fetchone()
@@ -157,6 +159,7 @@ def query_log(
     target: str | None = None,
     since: str | None = None,
     status: str | None = None,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Query audit log with filters."""
     try:
@@ -165,7 +168,7 @@ def query_log(
 
         query = (
             "SELECT id, timestamp, event_type, category, actor, action, "
-            "details, source_channel, target, status, session_key "
+            "details, source_channel, target, status, session_key, user_id "
             "FROM audit_log WHERE 1=1"
         )
         params: list[Any] = []
@@ -188,6 +191,9 @@ def query_log(
         if status:
             query += " AND status = %s"
             params.append(status)
+        if user_id:
+            query += " AND user_id = %s"
+            params.append(user_id)
 
         query += " ORDER BY timestamp DESC LIMIT %s"
         params.append(limit)
@@ -209,6 +215,7 @@ def query_log(
                 "target": r[8],
                 "status": r[9],
                 "session_key": r[10],
+                "user_id": r[11] if len(r) > 11 else "",
             }
             for r in rows
         ]

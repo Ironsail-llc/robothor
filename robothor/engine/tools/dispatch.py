@@ -132,6 +132,7 @@ def _audit_tool_call(
     agent_id: str,
     tenant_id: str,
     *,
+    user_id: str = "",
     status: str = "ok",
     error: str | None = None,
 ) -> None:
@@ -147,6 +148,7 @@ def _audit_tool_call(
             action=tool_name,
             category="agent",
             actor=agent_id or "unknown",
+            user_id=user_id,
             details=details,
             status=status,
         )
@@ -161,6 +163,7 @@ async def _execute_tool(
     agent_id: str = "",
     tenant_id: str = "",
     workspace: str = "",
+    user_id: str = "",
 ) -> dict[str, Any]:
     """Route tool call to the correct handler.
 
@@ -177,11 +180,13 @@ async def _execute_tool(
             pool = get_mcp_client_pool()
             session = await pool.get_session(route)
             result: dict[str, Any] = await session.call_tool(name, args)
-            _audit_tool_call(name, agent_id, tenant_id)
+            _audit_tool_call(name, agent_id, tenant_id, user_id=user_id)
             return result
         except Exception as e:
             logger.error("Adapter tool %s (server=%s) failed: %s", name, route, e)
-            _audit_tool_call(name, agent_id, tenant_id, status="error", error=str(e))
+            _audit_tool_call(
+                name, agent_id, tenant_id, user_id=user_id, status="error", error=str(e)
+            )
             return {"error": f"Adapter tool '{name}' failed: {e}"}
 
     ctx = ToolContext(agent_id=agent_id, tenant_id=tenant_id, workspace=workspace)
@@ -192,7 +197,9 @@ async def _execute_tool(
 
     result = cast("dict[str, Any]", await handler(args, ctx))
     if isinstance(result, dict) and "error" in result:
-        _audit_tool_call(name, agent_id, tenant_id, status="error", error=result["error"])
+        _audit_tool_call(
+            name, agent_id, tenant_id, user_id=user_id, status="error", error=result["error"]
+        )
     else:
-        _audit_tool_call(name, agent_id, tenant_id)
+        _audit_tool_call(name, agent_id, tenant_id, user_id=user_id)
     return result
