@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Add project root to path
@@ -35,17 +35,23 @@ REPOS: list[str] = [r.strip() for r in _repos_env.split(",") if r.strip()]
 CTX = ToolContext(agent_id="devops-manager")
 
 
-def _week_windows(now: datetime) -> tuple[int, int]:
-    """Calculate day counts for dual-window collection.
+def _week_windows(now: datetime) -> tuple[str, str, str]:
+    """Calculate Monday-aligned date windows for dual-window collection.
 
-    Returns (current_week_days, last_week_days) where:
-    - current_week_days: days since Monday 00:00 UTC + 1 (to include today)
-    - last_week_days: 7 (last full week, rolling 7-day lookback)
+    Returns (current_week_since, last_week_since, last_week_until) as ISO strings:
+    - current_week_since: last Monday 00:00 UTC (open-ended, goes to now)
+    - last_week_since: Monday before that 00:00 UTC
+    - last_week_until: this Monday 00:00 UTC (exclusive upper bound)
     """
+    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
     days_since_monday = now.weekday()  # 0=Mon, 6=Sun
-    current_week_days = days_since_monday + 1
-    last_week_days = 7
-    return current_week_days, last_week_days
+    current_week_start = today_midnight - timedelta(days=days_since_monday)
+    last_week_start = current_week_start - timedelta(days=7)
+    return (
+        current_week_start.isoformat(),
+        last_week_start.isoformat(),
+        current_week_start.isoformat(),
+    )
 
 
 async def _collect_repo(repo: str, now: datetime) -> tuple[str, dict, list, list]:
@@ -55,10 +61,10 @@ async def _collect_repo(repo: str, now: datetime) -> tuple[str, dict, list, list
     stale: list = []
     errors: list = []
 
-    current_week_days, last_week_days = _week_windows(now)
+    current_week_since, last_week_since, last_week_until = _week_windows(now)
 
-    # --- Current week PR stats ---
-    result = await _github_pr_stats({"repo": repo, "days": current_week_days}, CTX)
+    # --- Current week PR stats (Monday → now) ---
+    result = await _github_pr_stats({"repo": repo, "since": current_week_since}, CTX)
     if "error" in result:
         errors.append(f"{short}/pr_stats_current_week: {result['error']}")
     else:
@@ -70,8 +76,15 @@ async def _collect_repo(repo: str, now: datetime) -> tuple[str, dict, list, list
             "merged_by": result.get("merged_by", {}),
         }
 
-    # --- Last week PR stats (rolling 7-day window) ---
-    result = await _github_pr_stats({"repo": repo, "days": last_week_days}, CTX)
+    # --- Last week PR stats (last Monday → this Monday, exclusive) ---
+    result = await _github_pr_stats(
+        {
+            "repo": repo,
+            "since": last_week_since,
+            "until": last_week_until,
+        },
+        CTX,
+    )
     if "error" in result:
         errors.append(f"{short}/pr_stats_last_week: {result['error']}")
     else:

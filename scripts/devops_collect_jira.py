@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Add project root to path
@@ -30,13 +31,84 @@ PROJECTS: list[str] = [p.strip() for p in _projects_env.split(",") if p.strip()]
 CTX = ToolContext(agent_id="devops-manager")
 
 
+def _week_windows(now: datetime) -> tuple[str, str, str]:
+    """Calculate Monday-aligned JQL date strings.
+
+    Returns (current_week_start, last_week_start, last_week_end) as YYYY-MM-DD strings.
+    """
+    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    days_since_monday = now.weekday()
+    current_week_start = today_midnight - timedelta(days=days_since_monday)
+    last_week_start = current_week_start - timedelta(days=7)
+    return (
+        current_week_start.strftime("%Y-%m-%d"),
+        last_week_start.strftime("%Y-%m-%d"),
+        current_week_start.strftime("%Y-%m-%d"),
+    )
+
+
 async def collect() -> dict:
     data: dict = {"projects": {}, "totals": {"resolved": 0, "stale": 0}, "errors": []}
+    now = datetime.now(UTC)
+    current_week_start, last_week_start, last_week_end = _week_windows(now)
 
     for proj in PROJECTS:
         proj_data: dict = {}
 
-        # Resolved tickets (30 days)
+        # --- Current week resolved tickets ---
+        result = await _jira_search(
+            {
+                "jql": f"project = {proj} AND resolved >= {current_week_start} ORDER BY resolved DESC",
+                "max_results": 100,
+            },
+            CTX,
+        )
+        if "error" in result:
+            data["errors"].append(f"{proj}/resolved_current_week: {result['error']}")
+            continue
+
+        issues = result.get("issues", [])
+        by_assignee: dict[str, int] = {}
+        by_type: dict[str, int] = {}
+        for i in issues:
+            a = i.get("assignee", "Unassigned")
+            by_assignee[a] = by_assignee.get(a, 0) + 1
+            t = i.get("issue_type", "?")
+            by_type[t] = by_type.get(t, 0) + 1
+
+        proj_data["resolved_current_week"] = {
+            "count": len(issues),
+            "by_assignee": by_assignee,
+            "by_type": by_type,
+        }
+
+        # --- Last week resolved tickets ---
+        result = await _jira_search(
+            {
+                "jql": f"project = {proj} AND resolved >= {last_week_start} AND resolved < {last_week_end} ORDER BY resolved DESC",
+                "max_results": 100,
+            },
+            CTX,
+        )
+        if "error" in result:
+            data["errors"].append(f"{proj}/resolved_last_week: {result['error']}")
+        else:
+            issues = result.get("issues", [])
+            by_assignee = {}
+            by_type = {}
+            for i in issues:
+                a = i.get("assignee", "Unassigned")
+                by_assignee[a] = by_assignee.get(a, 0) + 1
+                t = i.get("issue_type", "?")
+                by_type[t] = by_type.get(t, 0) + 1
+
+            proj_data["resolved_last_week"] = {
+                "count": len(issues),
+                "by_assignee": by_assignee,
+                "by_type": by_type,
+            }
+
+        # --- Legacy 30-day resolved (for backward compat) ---
         result = await _jira_search(
             {
                 "jql": f"project = {proj} AND resolved >= -30d ORDER BY resolved DESC",
@@ -46,28 +118,24 @@ async def collect() -> dict:
         )
         if "error" in result:
             data["errors"].append(f"{proj}/resolved: {result['error']}")
-            continue
+        else:
+            issues = result.get("issues", [])
+            by_assignee = {}
+            by_type = {}
+            for i in issues:
+                a = i.get("assignee", "Unassigned")
+                by_assignee[a] = by_assignee.get(a, 0) + 1
+                t = i.get("issue_type", "?")
+                by_type[t] = by_type.get(t, 0) + 1
 
-        issues = result.get("issues", [])
-        if not issues:
-            continue
+            proj_data["resolved"] = {
+                "count": len(issues),
+                "by_assignee": by_assignee,
+                "by_type": by_type,
+            }
+            data["totals"]["resolved"] += len(issues)
 
-        by_assignee: dict[str, int] = {}
-        by_type: dict[str, int] = {}
-        for i in issues:
-            a = i.get("assignee", "Unassigned")
-            by_assignee[a] = by_assignee.get(a, 0) + 1
-            t = i.get("issue_type", "?")
-            by_type[t] = by_type.get(t, 0) + 1
-
-        proj_data["resolved"] = {
-            "count": len(issues),
-            "by_assignee": by_assignee,
-            "by_type": by_type,
-        }
-        data["totals"]["resolved"] += len(issues)
-
-        # Open backlog
+        # Open backlog (no date filter — correct, leave alone)
         open_result = await _jira_search(
             {"jql": f"project = {proj} AND resolution = Unresolved", "max_results": 100},
             CTX,

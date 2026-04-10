@@ -195,7 +195,14 @@ async def _github_get_pr(args: dict[str, Any], ctx: ToolContext) -> dict[str, An
 
 @_handler("github_pr_stats")
 async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Get aggregated PR metrics for a repo over a date range."""
+    """Get aggregated PR metrics for a repo over a date range.
+
+    Supports two modes:
+    - days: N — rolling N-day lookback (legacy)
+    - since + until: RFC3339 — precise date range (new, for dual-window reports)
+    If 'since' is provided, it takes precedence over 'days'.
+    'until' is optional — if omitted, defaults to now.
+    """
     token = _get_token()
     if not token:
         return {"error": "GITHUB_TOKEN not configured"}
@@ -204,9 +211,27 @@ async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
     if not repo:
         return {"error": "repo is required (format: owner/repo)"}
 
-    days = min(args.get("days", 30), 90)
-    since = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    since = since - timedelta(days=days)
+    # Determine date range
+    since_str = args.get("since")
+    until_str = args.get("until")
+
+    if since_str:
+        since = datetime.fromisoformat(since_str)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)
+        if until_str:
+            until = datetime.fromisoformat(until_str)
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=UTC)
+        else:
+            until = datetime.now(UTC)
+        days_label = f"since:{since_str}"
+    else:
+        days = min(args.get("days", 30), 90)
+        since = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        since = since - timedelta(days=days)
+        until = datetime.now(UTC)
+        days_label = days
 
     try:
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
@@ -232,13 +257,13 @@ async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
         if not merged_at:
             continue
         merged_dt = datetime.fromisoformat(merged_at)
-        if merged_dt >= since.replace(tzinfo=UTC):
+        if merged_dt >= since.replace(tzinfo=UTC) and merged_dt < until.replace(tzinfo=UTC):
             merged_prs.append(pr)
 
     if not merged_prs:
         return {
             "repo": repo,
-            "days": days,
+            "days": days_label,
             "merged_count": 0,
             "message": "No merged PRs in this period",
         }
@@ -269,7 +294,7 @@ async def _github_pr_stats(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
 
     return {
         "repo": repo,
-        "days": days,
+        "days": days_label,
         "merged_count": len(merged_prs),
         "avg_cycle_time_hours": round(sum(cycle_times_hours) / len(cycle_times_hours), 1)
         if cycle_times_hours
