@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from deps import get_tenant_id
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from models import (
+from models import (  # noqa: TC002 — used at runtime by FastAPI
     MemoryBlockAppendRequest,
     MemoryBlockWriteRequest,
     MemorySearchRequest,
@@ -117,12 +118,16 @@ async def put_memory_block(block_name: str, body: MemoryBlockWriteRequest):
 
 
 @router.post("/blocks/{block_name}/append")
-async def append_memory_block(block_name: str, body: MemoryBlockAppendRequest):
+async def append_memory_block(
+    block_name: str, body: MemoryBlockAppendRequest, tenant_id: str = Depends(get_tenant_id)
+):
     """Append a timestamped entry to a memory block, trimming oldest."""
     try:
         from robothor.crm.dal import append_to_block
 
-        ok = append_to_block(block_name, body.entry, max_entries=body.maxEntries)
+        ok = append_to_block(
+            block_name, body.entry, max_entries=body.maxEntries, tenant_id=tenant_id
+        )
         if ok:
             return {"success": True, "block_name": block_name}
         return JSONResponse({"error": "failed to append"}, status_code=500)
