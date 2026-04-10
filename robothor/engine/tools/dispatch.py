@@ -21,6 +21,7 @@ class ToolContext:
     agent_id: str = ""
     tenant_id: str = field(default_factory=lambda: DEFAULT_TENANT)
     workspace: str = ""
+    accessible_tenant_ids: tuple[str, ...] = ()
 
 
 def get_db() -> Any:
@@ -161,6 +162,7 @@ async def _execute_tool(
     agent_id: str = "",
     tenant_id: str = "",
     workspace: str = "",
+    accessible_tenant_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Route tool call to the correct handler.
 
@@ -184,7 +186,12 @@ async def _execute_tool(
             _audit_tool_call(name, agent_id, tenant_id, status="error", error=str(e))
             return {"error": f"Adapter tool '{name}' failed: {e}"}
 
-    ctx = ToolContext(agent_id=agent_id, tenant_id=tenant_id, workspace=workspace)
+    ctx = ToolContext(
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        workspace=workspace,
+        accessible_tenant_ids=accessible_tenant_ids,
+    )
     handlers = _get_handlers()
     handler = handlers.get(name)
     if handler is None:

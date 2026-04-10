@@ -176,11 +176,14 @@ class ToolRegistry:
         tenant_id: str = "",
         workspace: str = "",
         timeout: int = 120,
+        accessible_tenant_ids: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         """Execute a tool and return the result dict.
 
         Args:
             timeout: Per-tool timeout in seconds. 0 = unlimited.
+            accessible_tenant_ids: Tenant IDs this run may access
+                (resolved from user role + tenant hierarchy).
         """
         try:
             if timeout > 0:
@@ -191,6 +194,7 @@ class ToolRegistry:
                         agent_id=agent_id,
                         tenant_id=tenant_id,
                         workspace=workspace,
+                        accessible_tenant_ids=accessible_tenant_ids,
                     )
             else:
                 return await _execute_tool(
@@ -199,6 +203,7 @@ class ToolRegistry:
                     agent_id=agent_id,
                     tenant_id=tenant_id,
                     workspace=workspace,
+                    accessible_tenant_ids=accessible_tenant_ids,
                 )
         except TimeoutError:
             logger.warning("Tool %s timed out after %ds", tool_name, timeout)
