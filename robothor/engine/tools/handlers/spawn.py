@@ -168,6 +168,7 @@ async def _handle_spawn_agent(
                 correlation_id=spawn_ctx.correlation_id,
                 agent_config=child_config,
                 spawn_context=child_spawn_ctx,
+                tenant_id=ctx.tenant_id if ctx else "",
             )
     finally:
         await release(dedup_key)
