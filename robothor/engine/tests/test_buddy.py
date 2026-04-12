@@ -431,17 +431,47 @@ class TestRefreshDaily:
 class TestBuddyStatusContext:
     """Tests for _buddy_status_context in warmup.py."""
 
-    @patch("robothor.memory.blocks.read_block")
-    def test_buddy_status_context_main(self, mock_block):
-        mock_block.return_value = {"content": "Level 5 Flame (2000 XP)"}
+    @patch("robothor.engine.buddy.BuddyEngine.get_buddy_heartbeat_context")
+    def test_buddy_status_context_main(self, mock_ctx):
+        from robothor.engine.buddy import DailyStats, LevelInfo
+
+        mock_ctx.return_value = {
+            "level_info": LevelInfo(
+                level=5,
+                total_xp=2000,
+                xp_for_current_level=1500,
+                xp_for_next_level=2100,
+                progress_pct=0.83,
+            ),
+            "streak": (3, 5),
+            "scores_today": DailyStats(
+                stat_date=date(2026, 4, 12),
+                debugging_score=80,
+                patience_score=70,
+                chaos_score=20,
+                wisdom_score=60,
+                reliability_score=85,
+            ),
+            "score_deltas": {
+                "debugging": 5,
+                "patience": -2,
+                "chaos": 0,
+                "wisdom": 3,
+                "reliability": 2,
+            },
+            "fleet_top": [{"agent_id": "email-classifier", "overall_score": 91, "rank": 1}],
+            "events": [],
+            "overall_score": 78,
+        }
         from robothor.engine.models import AgentConfig
         from robothor.engine.warmup import _buddy_status_context
 
         config = AgentConfig(id="main", name="Main")
         result = _buddy_status_context(config)
         assert result is not None
-        assert result.startswith("[BUDDY]")
+        assert "[FLEET PULSE]" in result
         assert "Level 5" in result
+        assert "D:80" in result
 
     def test_buddy_status_context_non_main(self):
         from robothor.engine.models import AgentConfig
@@ -451,15 +481,48 @@ class TestBuddyStatusContext:
         result = _buddy_status_context(config)
         assert result is None
 
-    @patch("robothor.memory.blocks.read_block")
-    def test_buddy_status_context_empty_block(self, mock_block):
-        mock_block.return_value = {"content": ""}
+    @patch("robothor.engine.buddy.BuddyEngine.get_buddy_heartbeat_context")
+    def test_buddy_status_context_with_events(self, mock_ctx):
+        from robothor.engine.buddy import DailyStats, LevelInfo
+
+        mock_ctx.return_value = {
+            "level_info": LevelInfo(
+                level=10,
+                total_xp=5500,
+                xp_for_current_level=4500,
+                xp_for_next_level=6000,
+                progress_pct=0.67,
+            ),
+            "streak": (14, 14),
+            "scores_today": DailyStats(stat_date=date(2026, 4, 12)),
+            "score_deltas": {},
+            "fleet_top": [],
+            "events": ["14-day streak milestone!"],
+            "overall_score": 75,
+        }
         from robothor.engine.models import AgentConfig
         from robothor.engine.warmup import _buddy_status_context
 
         config = AgentConfig(id="main", name="Main")
         result = _buddy_status_context(config)
-        assert result is None
+        assert result is not None
+        assert "14-day streak" in result
+
+    @patch(
+        "robothor.engine.buddy.BuddyEngine.get_buddy_heartbeat_context",
+        side_effect=Exception("DB down"),
+    )
+    @patch("robothor.memory.blocks.read_block")
+    def test_buddy_status_context_falls_back_to_block(self, mock_block, mock_ctx):
+        """Falls back to stale memory block when live computation fails."""
+        mock_block.return_value = {"content": "Level 5 Flame (2000 XP)"}
+        from robothor.engine.models import AgentConfig
+        from robothor.engine.warmup import _buddy_status_context
+
+        config = AgentConfig(id="main", name="Main")
+        result = _buddy_status_context(config)
+        assert result is not None
+        assert result.startswith("[BUDDY]")
 
 
 # ── Standalone functions ───────────────────────────────────────────────────
@@ -842,3 +905,256 @@ class TestBenchmarkIntegration:
 
         assert score is None
         assert ts is None
+
+
+# ── Heartbeat Context ────────────────────────────────────────────────────
+
+
+class TestGetBuddyHeartbeatContext:
+    """Tests for BuddyEngine.get_buddy_heartbeat_context() — TDD."""
+
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_returns_all_expected_keys(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+    ):
+        from robothor.engine.buddy import (
+            AgentBuddyStats,
+            BuddyEngine,
+            DailyStats,
+            LevelInfo,
+        )
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=12,
+            total_xp=8400,
+            xp_for_current_level=7800,
+            xp_for_next_level=9100,
+            progress_pct=0.46,
+        )
+        mock_streak.return_value = (14, 14)
+        mock_stats.return_value = DailyStats(
+            stat_date=today,
+            debugging_score=87,
+            patience_score=72,
+            chaos_score=15,
+            wisdom_score=65,
+            reliability_score=92,
+        )
+        mock_fleet.return_value = [
+            AgentBuddyStats(agent_id="email-classifier", stat_date=today, overall_score=91, rank=1),
+            AgentBuddyStats(agent_id="calendar-monitor", stat_date=today, overall_score=88, rank=2),
+        ]
+
+        # Mock yesterday's scores query
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (82, 75, 18, 60, 87)  # yesterday's scores
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        engine = BuddyEngine()
+        ctx = engine.get_buddy_heartbeat_context(today)
+
+        assert "level_info" in ctx
+        assert "streak" in ctx
+        assert "scores_today" in ctx
+        assert "score_deltas" in ctx
+        assert "fleet_top" in ctx
+        assert "events" in ctx
+        assert ctx["level_info"].level == 12
+        assert ctx["streak"] == (14, 14)
+
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_detects_streak_milestone(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+    ):
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=5,
+            total_xp=2000,
+            xp_for_current_level=1500,
+            xp_for_next_level=2100,
+            progress_pct=0.83,
+        )
+        mock_streak.return_value = (7, 7)  # milestone!
+        mock_stats.return_value = DailyStats(stat_date=today)
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None  # no yesterday data
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        engine = BuddyEngine()
+        ctx = engine.get_buddy_heartbeat_context(today)
+
+        events = ctx["events"]
+        assert any("streak" in e.lower() for e in events)
+
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_detects_level_up(self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet):
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=10,
+            total_xp=5500,
+            xp_for_current_level=4500,
+            xp_for_next_level=6000,
+            progress_pct=0.67,
+        )
+        mock_streak.return_value = (3, 10)
+        mock_stats.return_value = DailyStats(stat_date=today)
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        # Yesterday's level was 9 (via buddy_stats row)
+        cursor.fetchone.side_effect = [
+            (50, 50, 50, 50, 50),  # yesterday's scores
+            (9,),  # yesterday's level
+        ]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        engine = BuddyEngine()
+        ctx = engine.get_buddy_heartbeat_context(today)
+
+        events = ctx["events"]
+        assert any("level" in e.lower() for e in events)
+
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_computes_score_deltas(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+    ):
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=5,
+            total_xp=2000,
+            xp_for_current_level=1500,
+            xp_for_next_level=2100,
+            progress_pct=0.83,
+        )
+        mock_streak.return_value = (3, 5)
+        mock_stats.return_value = DailyStats(
+            stat_date=today,
+            debugging_score=87,
+            patience_score=72,
+            chaos_score=15,
+            wisdom_score=65,
+            reliability_score=92,
+        )
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        # Yesterday's scores: debugging=80, patience=75, chaos=18, wisdom=60, reliability=87
+        cursor.fetchone.return_value = (80, 75, 18, 60, 87)
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        engine = BuddyEngine()
+        ctx = engine.get_buddy_heartbeat_context(today)
+
+        deltas = ctx["score_deltas"]
+        assert deltas["debugging"] == 7  # 87 - 80
+        assert deltas["patience"] == -3  # 72 - 75
+        assert deltas["chaos"] == -3  # 15 - 18
+        assert deltas["wisdom"] == 5  # 65 - 60
+        assert deltas["reliability"] == 5  # 92 - 87
+
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_no_events_when_stable(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+    ):
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=5,
+            total_xp=2000,
+            xp_for_current_level=1500,
+            xp_for_next_level=2100,
+            progress_pct=0.83,
+        )
+        mock_streak.return_value = (3, 5)  # no milestone
+        mock_stats.return_value = DailyStats(
+            stat_date=today,
+            debugging_score=80,
+            patience_score=70,
+            chaos_score=20,
+            wisdom_score=60,
+            reliability_score=85,
+        )
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        # Yesterday's scores are almost the same (all deltas < 5)
+        cursor.fetchone.return_value = (78, 72, 22, 58, 83)
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        engine = BuddyEngine()
+        ctx = engine.get_buddy_heartbeat_context(today)
+
+        assert ctx["events"] == []
+
+
+# ── Escalation to auto-researcher ────────────────────────────────────────
+
+
+class TestEscalationPath:
+    """Tests for escalating repeat underperformers to auto-researcher."""
+
+    @patch("robothor.engine.buddy.BuddyEngine._create_autoagent_task", return_value=True)
+    @patch("robothor.engine.buddy.BuddyEngine._get_flag_count", return_value=1)
+    @patch("robothor.db.connection.get_connection")
+    def test_first_flag_goes_to_autoagent(self, mock_conn, mock_count, mock_task):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("slow-agent",)]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        flagged = engine.flag_underperformers(threshold=70, consecutive_days=2)
+
+        assert flagged == ["slow-agent"]
+        mock_task.assert_called_once_with("slow-agent", 70)
+
+    @patch("robothor.engine.buddy.BuddyEngine._create_researcher_task", return_value=True)
+    @patch("robothor.engine.buddy.BuddyEngine._create_autoagent_task")
+    @patch("robothor.engine.buddy.BuddyEngine._get_flag_count", return_value=3)
+    @patch("robothor.db.connection.get_connection")
+    def test_third_flag_escalates_to_researcher(
+        self, mock_conn, mock_count, mock_agent_task, mock_researcher_task
+    ):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("stubborn-agent",)]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        flagged = engine.flag_underperformers(threshold=70, consecutive_days=2)
+
+        assert flagged == ["stubborn-agent"]
+        mock_agent_task.assert_not_called()
+        mock_researcher_task.assert_called_once_with("stubborn-agent", 70)

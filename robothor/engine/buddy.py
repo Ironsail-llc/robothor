@@ -620,8 +620,13 @@ class BuddyEngine:
 
     # ── AutoAgent integration ──────────────────────────────────────────────
 
+    ESCALATION_FLAG_THRESHOLD = 3  # flag count at which we escalate to auto-researcher
+
     def flag_underperformers(self, threshold: int = 70, consecutive_days: int = 2) -> list[str]:
-        """Flag agents with consistently low scores for AutoAgent optimization.
+        """Flag agents with consistently low scores for optimization.
+
+        First flags go to auto-agent. After ESCALATION_FLAG_THRESHOLD
+        consecutive flags, escalate to auto-researcher for deeper analysis.
 
         Returns list of agent_ids that were flagged (tasks created).
         """
@@ -651,12 +656,33 @@ class BuddyEngine:
             if not candidates:
                 return []
 
-            flagged.extend(aid for aid in candidates if self._create_autoagent_task(aid, threshold))
+            for aid in candidates:
+                count = self._get_flag_count(aid)
+                if count >= self.ESCALATION_FLAG_THRESHOLD:
+                    if self._create_researcher_task(aid, threshold):
+                        flagged.append(aid)
+                else:
+                    if self._create_autoagent_task(aid, threshold):
+                        flagged.append(aid)
 
         except Exception as e:
             logger.warning("Failed to flag underperformers: %s", e)
 
         return flagged
+
+    def _get_flag_count(self, agent_id: str) -> int:
+        """Count how many times this agent has been flagged (open + resolved tasks)."""
+        try:
+            from robothor.crm.dal import list_tasks
+
+            existing = list_tasks(
+                tags=["low-score", agent_id],
+            )
+            if isinstance(existing, list):
+                return len(existing)
+        except Exception:
+            pass
+        return 0
 
     def _create_autoagent_task(self, agent_id: str, threshold: int) -> bool:
         """Create a CRM task for AutoAgent to optimize a low-scoring agent.
@@ -718,6 +744,71 @@ class BuddyEngine:
 
         except Exception as e:
             logger.warning("Failed to create autoagent task for %s: %s", agent_id, e)
+            return False
+
+    def _create_researcher_task(self, agent_id: str, threshold: int) -> bool:
+        """Escalate a repeat underperformer to auto-researcher for deeper analysis."""
+        try:
+            from robothor.crm.dal import create_task, list_tasks
+
+            # Check for existing open researcher task for this agent
+            existing = list_tasks(
+                assigned_to_agent="auto-researcher",
+                status="TODO",
+                tags=[agent_id],
+            )
+            if existing and not isinstance(existing, dict):
+                return False
+
+            # Get latest scores for context
+            scores_str = ""
+            try:
+                from robothor.db.connection import get_connection
+
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """
+                        SELECT overall_score, debugging_score, patience_score,
+                               chaos_score, wisdom_score, reliability_score
+                        FROM agent_buddy_stats
+                        WHERE agent_id = %s
+                        ORDER BY stat_date DESC LIMIT 1
+                        """,
+                        (agent_id,),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        scores_str = (
+                            f"Overall: {row[0]}, Debugging: {row[1]}, Patience: {row[2]}, "
+                            f"Chaos: {row[3]}, Wisdom: {row[4]}, Reliability: {row[5]}"
+                        )
+            except Exception:
+                pass
+
+            create_task(
+                title=f"Deep analysis {agent_id}: persistent low score (below {threshold})",
+                body=(
+                    f"Agent {agent_id} has been flagged {self.ESCALATION_FLAG_THRESHOLD}+ times "
+                    f"and auto-agent optimization has not resolved the issue.\n\n"
+                    f"**Current scores:** {scores_str}\n\n"
+                    f"Run a controlled experiment to identify the root cause. "
+                    f"Consider: prompt structure, model fit, tool selection, "
+                    f"task complexity mismatch."
+                ),
+                assigned_to_agent="auto-researcher",
+                tags=["auto-researcher", "low-score", agent_id],
+                priority="high",
+            )
+            logger.info(
+                "Escalated %s to auto-researcher (flagged %d+ times)",
+                agent_id,
+                self.ESCALATION_FLAG_THRESHOLD,
+            )
+            return True
+
+        except Exception as e:
+            logger.warning("Failed to create researcher task for %s: %s", agent_id, e)
             return False
 
     # ── Global stats (original behavior) ───────────────────────────────────
@@ -955,6 +1046,122 @@ class BuddyEngine:
             write_block("buddy_status", "\n".join(lines))
         except Exception as e:
             logger.debug("Failed to update buddy_status block: %s", e)
+
+    # ── Heartbeat context (for buddy reflection) ──────────────────────────
+
+    _STREAK_MILESTONES = frozenset({7, 14, 30, 60, 100})
+
+    def get_buddy_heartbeat_context(self, target_date: date | None = None) -> dict[str, Any]:
+        """Prepare mood-relevant data for the buddy heartbeat reflection.
+
+        Returns a dict with level info, streak, today's scores, deltas vs
+        yesterday, fleet top/bottom, and a list of notable events.
+        """
+        if target_date is None:
+            target_date = datetime.now(UTC).date()
+
+        level_info = self.get_level_info()
+        streak = self.get_streak(target_date)
+        scores_today = self.compute_daily_stats(target_date)
+
+        # ── Yesterday's scores for delta computation ──
+        score_deltas: dict[str, int] = {}
+        yesterday_level: int | None = None
+        try:
+            from robothor.db.connection import get_connection
+
+            yesterday = target_date - timedelta(days=1)
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT debugging_score, patience_score, chaos_score,
+                           wisdom_score, reliability_score
+                    FROM buddy_stats WHERE stat_date = %s
+                    """,
+                    (yesterday,),
+                )
+                row = cur.fetchone()
+                if row:
+                    score_deltas = {
+                        "debugging": scores_today.debugging_score - row[0],
+                        "patience": scores_today.patience_score - row[1],
+                        "chaos": scores_today.chaos_score - row[2],
+                        "wisdom": scores_today.wisdom_score - row[3],
+                        "reliability": scores_today.reliability_score - row[4],
+                    }
+
+                cur.execute(
+                    "SELECT level FROM buddy_stats WHERE stat_date = %s",
+                    (yesterday,),
+                )
+                lrow = cur.fetchone()
+                if lrow:
+                    yesterday_level = int(lrow[0])
+        except Exception:
+            pass
+
+        # ── Fleet rankings ──
+        fleet_top: list[dict[str, Any]] = []
+        try:
+            fleet = self.compute_fleet_scores(target_date)
+            fleet_top.extend(
+                {"agent_id": a.agent_id, "overall_score": a.overall_score, "rank": a.rank}
+                for a in fleet[:3]
+            )
+        except Exception:
+            pass
+
+        # ── Detect notable events ──
+        events: list[str] = []
+
+        # Streak milestones
+        current_streak = streak[0]
+        if current_streak in self._STREAK_MILESTONES:
+            events.append(f"{current_streak}-day streak milestone!")
+
+        # Level-up
+        if yesterday_level is not None and level_info.level > yesterday_level:
+            events.append(
+                f"Level up! {yesterday_level} → {level_info.level} ({level_info.level_name})"
+            )
+
+        # Score threshold crossings
+        overall = compute_overall_score(
+            scores_today.debugging_score,
+            scores_today.patience_score,
+            scores_today.chaos_score,
+            scores_today.wisdom_score,
+            scores_today.reliability_score,
+        )
+        if score_deltas:
+            yesterday_overall = compute_overall_score(
+                scores_today.debugging_score - score_deltas.get("debugging", 0),
+                scores_today.patience_score - score_deltas.get("patience", 0),
+                scores_today.chaos_score - score_deltas.get("chaos", 0),
+                scores_today.wisdom_score - score_deltas.get("wisdom", 0),
+                scores_today.reliability_score - score_deltas.get("reliability", 0),
+            )
+            if overall >= 85 and yesterday_overall < 85:
+                events.append("Fleet overall crossed above 85 — thriving!")
+            elif overall < 50 and yesterday_overall >= 50:
+                events.append("Fleet overall dropped below 50 — needs attention")
+
+            # Large score swings (> 10 pts in any dimension)
+            for dim, delta in score_deltas.items():
+                if abs(delta) > 10:
+                    direction = "up" if delta > 0 else "down"
+                    events.append(f"{dim.capitalize()} {direction} {abs(delta)} pts")
+
+        return {
+            "level_info": level_info,
+            "streak": streak,
+            "scores_today": scores_today,
+            "score_deltas": score_deltas,
+            "fleet_top": fleet_top,
+            "events": events,
+            "overall_score": overall,
+        }
 
     def increment_task_count(self, agent_id: str | None = None) -> None:
         """Lightweight counter increment — called by AGENT_END lifecycle hook.
