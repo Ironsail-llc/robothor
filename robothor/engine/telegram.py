@@ -1053,7 +1053,8 @@ class TelegramBot:
                 _sender = _user["display_name"] if _user else ""
                 _detail = f"chat:{chat_id}"
                 if _sender:
-                    _detail += f"|sender:{_sender}"
+                    _safe = _sender.replace("|", "")
+                    _detail += f"|sender:{_safe}"
                 _tenant = self._get_tenant_id(chat_id)
 
                 run = await self.runner.execute(
