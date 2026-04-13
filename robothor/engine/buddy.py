@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass
@@ -286,7 +287,11 @@ class BuddyEngine:
         return stats
 
     def _compute_debugging(self, target_date: date, *, agent_id: str | None = None) -> int:
-        """Debugging: error recovery rate over last 7 days."""
+        """Debugging: error recovery rate over last 7 days.
+
+        No errors in the window = perfect score (100), not neutral (50).
+        Errors present = recovery rate as percentage.
+        """
         try:
             from robothor.db.connection import get_connection
 
@@ -306,14 +311,24 @@ class BuddyEngine:
                     [start, target_date, *ac_params],
                 )
                 row = cur.fetchone()
-                if row and row[0] > 0:
-                    return min(100, int(100 * row[1] / row[0]))
+                if row:
+                    total_errors = int(row[0])
+                    if total_errors == 0:
+                        return 100  # No errors = perfect
+                    recovered = int(row[1])
+                    return min(100, int(100 * recovered / total_errors))
         except Exception:
             pass
         return 50
 
     def _compute_patience(self, target_date: date, *, agent_id: str | None = None) -> int:
-        """Patience: ratio of avg duration to timeout (consistent, not rushed)."""
+        """Patience: consistency of run durations (low variance = high patience).
+
+        Uses coefficient of variation (CV = stddev/avg) scaled so:
+          CV=0.0 → 100 (perfectly consistent)
+          CV=1.0 → 50  (moderate variance — normal for mixed agent types)
+          CV>=2.0 → 0  (extremely chaotic)
+        """
         try:
             from robothor.db.connection import get_connection
 
@@ -335,9 +350,10 @@ class BuddyEngine:
                 if row and row[0] and row[1]:
                     avg_ms = float(row[0])
                     std_ms = float(row[1])
-                    # Low variance relative to mean = high patience
+                    # Scale: CV=0→100, CV=1→50, CV>=2→0
                     cv = std_ms / avg_ms if avg_ms > 0 else 1.0
-                    return min(100, max(0, int(100 * (1.0 - min(cv, 1.0)))))
+                    score = 100 * (1.0 - min(cv, 2.0) / 2.0)
+                    return min(100, max(0, int(score)))
         except Exception:
             pass
         return 50
@@ -375,9 +391,22 @@ class BuddyEngine:
         return 50
 
     def _compute_wisdom(self, stats: DailyStats) -> int:
-        """Wisdom: insights and dreams weighted score."""
+        """Wisdom: insights and dreams weighted score.
+
+        Scaled so growth is gradual:
+          1 insight + 1 dream = 15
+          5 insights + 5 dreams = 75
+          7+ insights + 5+ dreams = 100
+        """
         raw = stats.insights_generated * 10 + stats.dreams_completed * 5
-        return min(100, raw)
+        # Logarithmic scaling: first points are easy, later points are harder
+        if raw <= 0:
+            return 0
+        # log-scale: ln(raw+1) / ln(150) * 100 → 100 at raw=150
+        import math
+
+        score = min(100, int(100 * math.log(raw + 1) / math.log(150)))
+        return score
 
     def _compute_reliability(self, target_date: date, *, agent_id: str | None = None) -> int:
         """Reliability: completion rate over last 7 days."""
@@ -1051,11 +1080,59 @@ class BuddyEngine:
 
     _STREAK_MILESTONES = frozenset({7, 14, 30, 60, 100})
 
-    def get_buddy_heartbeat_context(self, target_date: date | None = None) -> dict[str, Any]:
-        """Prepare mood-relevant data for the buddy heartbeat reflection.
+    # Cooldown durations (hours) — events won't re-fire within this window.
+    _EVENT_COOLDOWNS: dict[str, int] = {
+        "level_up": 24,
+        "streak_milestone": 24,
+        "score_threshold_up": 12,
+        "score_threshold_down": 12,
+        "score_swing": 4,
+    }
 
-        Returns a dict with level info, streak, today's scores, deltas vs
-        yesterday, fleet top/bottom, and a list of notable events.
+    _COOLDOWN_BLOCK = "buddy_event_cooldowns"
+
+    def _load_event_cooldowns(self) -> dict[str, str]:
+        """Load event cooldown timestamps from memory block."""
+        try:
+            from robothor.memory.blocks import read_block
+
+            result = read_block(self._COOLDOWN_BLOCK)
+            content = result.get("content", "")
+            if content and isinstance(content, str):
+                return dict(json.loads(content))
+        except Exception:
+            pass
+        return {}
+
+    def _save_event_cooldowns(self, state: dict[str, str]) -> None:
+        """Persist event cooldown timestamps to memory block."""
+        try:
+            from robothor.memory.blocks import write_block
+
+            write_block(self._COOLDOWN_BLOCK, json.dumps(state))
+        except Exception as e:
+            logger.debug("Failed to save buddy event cooldowns: %s", e)
+
+    def _is_on_cooldown(self, state: dict[str, str], event_key: str) -> bool:
+        """Check if an event is still within its cooldown window."""
+        last_fired_str = state.get(f"cooldown_{event_key}")
+        if not last_fired_str:
+            return False
+        try:
+            last_fired = datetime.fromisoformat(last_fired_str)
+            cooldown_hours = self._EVENT_COOLDOWNS.get(event_key, 4)
+            return datetime.now(UTC) - last_fired < timedelta(hours=cooldown_hours)
+        except Exception:
+            return False
+
+    def _mark_event_fired(self, state: dict[str, str], event_key: str) -> None:
+        """Record that an event just fired."""
+        state[f"cooldown_{event_key}"] = datetime.now(UTC).isoformat()
+
+    def _get_status_and_deltas(self, target_date: date | None = None) -> dict[str, Any]:
+        """Compute current status: level, streak, scores, deltas, fleet rankings.
+
+        Shared helper for both get_buddy_status() and get_buddy_events().
         """
         if target_date is None:
             target_date = datetime.now(UTC).date()
@@ -1112,21 +1189,6 @@ class BuddyEngine:
         except Exception:
             pass
 
-        # ── Detect notable events ──
-        events: list[str] = []
-
-        # Streak milestones
-        current_streak = streak[0]
-        if current_streak in self._STREAK_MILESTONES:
-            events.append(f"{current_streak}-day streak milestone!")
-
-        # Level-up
-        if yesterday_level is not None and level_info.level > yesterday_level:
-            events.append(
-                f"Level up! {yesterday_level} → {level_info.level} ({level_info.level_name})"
-            )
-
-        # Score threshold crossings
         overall = compute_overall_score(
             scores_today.debugging_score,
             scores_today.patience_score,
@@ -1134,6 +1196,72 @@ class BuddyEngine:
             scores_today.wisdom_score,
             scores_today.reliability_score,
         )
+
+        return {
+            "level_info": level_info,
+            "streak": streak,
+            "scores_today": scores_today,
+            "score_deltas": score_deltas,
+            "yesterday_level": yesterday_level,
+            "fleet_top": fleet_top,
+            "overall_score": overall,
+        }
+
+    def get_buddy_status(self, target_date: date | None = None) -> dict[str, Any]:
+        """Current fleet status — level, streak, scores, deltas, fleet rankings.
+
+        Safe to call on every heartbeat. No events, no side effects.
+        Used by warmup context injection.
+        """
+        ctx = self._get_status_and_deltas(target_date)
+        # Strip internal-only fields
+        ctx.pop("yesterday_level", None)
+        return ctx
+
+    def get_buddy_events(self, target_date: date | None = None) -> dict[str, Any]:
+        """Detect notable events, gated by cooldowns.
+
+        Each event fires at most once within its cooldown window.
+        Calling this method consumes eligible events (marks their cooldowns).
+        Used by delivery reflection path.
+
+        Returns the full context dict with an 'events' list. If no events
+        pass the cooldown filter, the list is empty.
+        """
+        ctx = self._get_status_and_deltas(target_date)
+        cooldown_state = self._load_event_cooldowns()
+        events: list[str] = []
+        fired_any = False
+
+        level_info = ctx["level_info"]
+        streak = ctx["streak"]
+        scores_today = ctx["scores_today"]
+        score_deltas = ctx["score_deltas"]
+        yesterday_level = ctx.pop("yesterday_level", None)
+        overall = ctx["overall_score"]
+
+        # Streak milestones
+        current_streak = streak[0]
+        if current_streak in self._STREAK_MILESTONES and not self._is_on_cooldown(
+            cooldown_state, "streak_milestone"
+        ):
+            events.append(f"{current_streak}-day streak milestone!")
+            self._mark_event_fired(cooldown_state, "streak_milestone")
+            fired_any = True
+
+        # Level-up
+        if (
+            yesterday_level is not None
+            and level_info.level > yesterday_level
+            and not self._is_on_cooldown(cooldown_state, "level_up")
+        ):
+            events.append(
+                f"Level up! {yesterday_level} → {level_info.level} ({level_info.level_name})"
+            )
+            self._mark_event_fired(cooldown_state, "level_up")
+            fired_any = True
+
+        # Score threshold crossings
         if score_deltas:
             yesterday_overall = compute_overall_score(
                 scores_today.debugging_score - score_deltas.get("debugging", 0),
@@ -1142,26 +1270,47 @@ class BuddyEngine:
                 scores_today.wisdom_score - score_deltas.get("wisdom", 0),
                 scores_today.reliability_score - score_deltas.get("reliability", 0),
             )
-            if overall >= 85 and yesterday_overall < 85:
+            if (
+                overall >= 85
+                and yesterday_overall < 85
+                and not self._is_on_cooldown(cooldown_state, "score_threshold_up")
+            ):
                 events.append("Fleet overall crossed above 85 — thriving!")
-            elif overall < 50 and yesterday_overall >= 50:
+                self._mark_event_fired(cooldown_state, "score_threshold_up")
+                fired_any = True
+            elif (
+                overall < 50
+                and yesterday_overall >= 50
+                and not self._is_on_cooldown(cooldown_state, "score_threshold_down")
+            ):
                 events.append("Fleet overall dropped below 50 — needs attention")
+                self._mark_event_fired(cooldown_state, "score_threshold_down")
+                fired_any = True
 
             # Large score swings (> 10 pts in any dimension)
             for dim, delta in score_deltas.items():
                 if abs(delta) > 10:
-                    direction = "up" if delta > 0 else "down"
-                    events.append(f"{dim.capitalize()} {direction} {abs(delta)} pts")
+                    swing_key = f"score_swing_{dim}"
+                    if not self._is_on_cooldown(cooldown_state, swing_key):
+                        direction = "up" if delta > 0 else "down"
+                        events.append(f"{dim.capitalize()} {direction} {abs(delta)} pts")
+                        self._mark_event_fired(cooldown_state, swing_key)
+                        fired_any = True
 
-        return {
-            "level_info": level_info,
-            "streak": streak,
-            "scores_today": scores_today,
-            "score_deltas": score_deltas,
-            "fleet_top": fleet_top,
-            "events": events,
-            "overall_score": overall,
-        }
+        # Persist cooldown state if any events fired
+        if fired_any:
+            self._save_event_cooldowns(cooldown_state)
+
+        ctx["events"] = events
+        return ctx
+
+    def get_buddy_heartbeat_context(self, target_date: date | None = None) -> dict[str, Any]:
+        """Legacy wrapper — returns status with cooldown-gated events.
+
+        Callers should prefer get_buddy_status() (warmup) or
+        get_buddy_events() (delivery) directly.
+        """
+        return self.get_buddy_events(target_date)
 
     def increment_task_count(self, agent_id: str | None = None) -> None:
         """Lightweight counter increment — called by AGENT_END lifecycle hook.

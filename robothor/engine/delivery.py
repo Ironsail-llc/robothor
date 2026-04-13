@@ -109,20 +109,27 @@ def _is_trivial_output(text: str) -> bool:
 
 
 def _get_buddy_context() -> dict[str, Any] | None:
-    """Get buddy heartbeat context (live scores, events, deltas)."""
+    """Get buddy events gated by cooldowns.
+
+    Returns context only when there are new, non-cooldown events.
+    Calling this consumes eligible events (marks their cooldowns).
+    """
     try:
         from robothor.engine.buddy import BuddyEngine
 
-        return BuddyEngine().get_buddy_heartbeat_context()
+        ctx = BuddyEngine().get_buddy_events()
+        if not ctx or not ctx.get("events"):
+            return None
+        return ctx
     except Exception:
         logger.debug("Failed to get buddy context for reflection")
         return None
 
 
 async def _generate_buddy_reflection(heartbeat_text: str, buddy_ctx: dict[str, Any]) -> str | None:
-    """Generate a buddy one-liner via a lightweight LLM call.
+    """Generate a buddy reflection via a lightweight LLM call.
 
-    Returns a short reflection string, or None if buddy decides to stay silent.
+    Returns a short reflection (2-3 sentences), or None if buddy decides to stay silent.
     """
     events_str = ", ".join(buddy_ctx.get("events", []))
     overall = buddy_ctx.get("overall_score", 50)
@@ -131,18 +138,29 @@ async def _generate_buddy_reflection(heartbeat_text: str, buddy_ctx: dict[str, A
     level_info = buddy_ctx.get("level_info")
     level_str = f"Level {level_info.level} {level_info.level_name}" if level_info else "Unknown"
 
+    fleet_top = buddy_ctx.get("fleet_top", [])
+    fleet_str = (
+        ", ".join(f"{a['agent_id']}={a['overall_score']}" for a in fleet_top[:3])
+        if fleet_top
+        else "no fleet data"
+    )
+
     prompt = (
-        "You are Buddy, the fleet's subconscious. You just observed this heartbeat "
-        "report being sent to the operator. You may append ONE sentence (or stay "
-        "silent by returning ONLY the word SILENT).\n\n"
-        "Speak only when genuinely insightful: a celebration, a concern, a pattern "
-        "the operator should notice. Never repeat what the heartbeat already said. "
-        "Never use bullet points. Be warm, brief, alive.\n\n"
+        "You are Buddy — the fleet's subconscious and introspective voice. "
+        "Something notable just happened. Reflect on it substantively in 2-3 "
+        "sentences. Tell the operator something they don't already know:\n"
+        "- For level-ups: what drove the XP gain, which scores improved, what to focus on next\n"
+        "- For score drops: which dimension fell and what might explain it\n"
+        "- For milestones: what patterns got us here and what would keep momentum\n\n"
+        "Be specific — reference actual scores, agent names, or dimensions. "
+        "Never be generic or vapid. No bullet points. Be direct, warm, alive.\n"
+        "If you genuinely have nothing insightful to add, return ONLY the word SILENT.\n\n"
         f"Fleet pulse: {level_str} | {streak[0]}-day streak | overall: {overall}\n"
-        f"Score changes: {deltas}\n"
-        f"Events: {events_str or 'none'}\n\n"
+        f"Score changes vs yesterday: {deltas}\n"
+        f"Fleet top agents: {fleet_str}\n"
+        f"Events: {events_str}\n\n"
         f"Heartbeat output (first 500 chars):\n{heartbeat_text[:500]}\n\n"
-        "Your reflection (one sentence, or SILENT):"
+        "Your reflection (2-3 substantive sentences, or SILENT):"
     )
 
     try:
@@ -152,7 +170,7 @@ async def _generate_buddy_reflection(heartbeat_text: str, buddy_ctx: dict[str, A
             messages=[{"role": "user", "content": prompt}],
             model="openrouter/xiaomi/mimo-v2-pro",
             temperature=0.7,
-            max_tokens=100,
+            max_tokens=200,
         )
         text = (response or "").strip()
         if not text or text.upper() == "SILENT":
@@ -179,7 +197,7 @@ async def _maybe_append_buddy_reflection(
         return text, False
 
     ctx = _get_buddy_context()
-    if not ctx or not ctx.get("events"):
+    if not ctx:
         return text, False
 
     reflection = await _generate_buddy_reflection(text, ctx)

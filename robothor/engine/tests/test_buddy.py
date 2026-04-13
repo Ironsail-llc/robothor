@@ -431,7 +431,7 @@ class TestRefreshDaily:
 class TestBuddyStatusContext:
     """Tests for _buddy_status_context in warmup.py."""
 
-    @patch("robothor.engine.buddy.BuddyEngine.get_buddy_heartbeat_context")
+    @patch("robothor.engine.buddy.BuddyEngine.get_buddy_status")
     def test_buddy_status_context_main(self, mock_ctx):
         from robothor.engine.buddy import DailyStats, LevelInfo
 
@@ -460,7 +460,6 @@ class TestBuddyStatusContext:
                 "reliability": 2,
             },
             "fleet_top": [{"agent_id": "email-classifier", "overall_score": 91, "rank": 1}],
-            "events": [],
             "overall_score": 78,
         }
         from robothor.engine.models import AgentConfig
@@ -481,8 +480,9 @@ class TestBuddyStatusContext:
         result = _buddy_status_context(config)
         assert result is None
 
-    @patch("robothor.engine.buddy.BuddyEngine.get_buddy_heartbeat_context")
-    def test_buddy_status_context_with_events(self, mock_ctx):
+    @patch("robothor.engine.buddy.BuddyEngine.get_buddy_status")
+    def test_buddy_status_context_no_events_in_warmup(self, mock_ctx):
+        """Warmup context should never include events — those go through delivery."""
         from robothor.engine.buddy import DailyStats, LevelInfo
 
         mock_ctx.return_value = {
@@ -497,7 +497,6 @@ class TestBuddyStatusContext:
             "scores_today": DailyStats(stat_date=date(2026, 4, 12)),
             "score_deltas": {},
             "fleet_top": [],
-            "events": ["14-day streak milestone!"],
             "overall_score": 75,
         }
         from robothor.engine.models import AgentConfig
@@ -506,10 +505,11 @@ class TestBuddyStatusContext:
         config = AgentConfig(id="main", name="Main")
         result = _buddy_status_context(config)
         assert result is not None
-        assert "14-day streak" in result
+        # Should NOT contain event-like strings
+        assert "milestone" not in (result or "").lower()
 
     @patch(
-        "robothor.engine.buddy.BuddyEngine.get_buddy_heartbeat_context",
+        "robothor.engine.buddy.BuddyEngine.get_buddy_status",
         side_effect=Exception("DB down"),
     )
     @patch("robothor.memory.blocks.read_block")
@@ -911,15 +911,21 @@ class TestBenchmarkIntegration:
 
 
 class TestGetBuddyHeartbeatContext:
-    """Tests for BuddyEngine.get_buddy_heartbeat_context() — TDD."""
+    """Tests for BuddyEngine.get_buddy_heartbeat_context() — TDD.
 
+    These use the legacy wrapper which delegates to get_buddy_events().
+    Cooldowns are mocked to empty state so events pass through.
+    """
+
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns", return_value={})
     @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
     @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
     @patch("robothor.engine.buddy.BuddyEngine.get_streak")
     @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
     @patch("robothor.db.connection.get_connection")
     def test_returns_all_expected_keys(
-        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, _cd_load, _cd_save
     ):
         from robothor.engine.buddy import (
             AgentBuddyStats,
@@ -967,13 +973,15 @@ class TestGetBuddyHeartbeatContext:
         assert ctx["level_info"].level == 12
         assert ctx["streak"] == (14, 14)
 
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns", return_value={})
     @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
     @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
     @patch("robothor.engine.buddy.BuddyEngine.get_streak")
     @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
     @patch("robothor.db.connection.get_connection")
     def test_detects_streak_milestone(
-        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, _cd_load, _cd_save
     ):
         from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
 
@@ -999,12 +1007,16 @@ class TestGetBuddyHeartbeatContext:
         events = ctx["events"]
         assert any("streak" in e.lower() for e in events)
 
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns", return_value={})
     @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
     @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
     @patch("robothor.engine.buddy.BuddyEngine.get_streak")
     @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
     @patch("robothor.db.connection.get_connection")
-    def test_detects_level_up(self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet):
+    def test_detects_level_up(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, _cd_load, _cd_save
+    ):
         from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
 
         today = date(2026, 4, 12)
@@ -1033,13 +1045,15 @@ class TestGetBuddyHeartbeatContext:
         events = ctx["events"]
         assert any("level" in e.lower() for e in events)
 
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns", return_value={})
     @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
     @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
     @patch("robothor.engine.buddy.BuddyEngine.get_streak")
     @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
     @patch("robothor.db.connection.get_connection")
     def test_computes_score_deltas(
-        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, _cd_load, _cd_save
     ):
         from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
 
@@ -1077,13 +1091,15 @@ class TestGetBuddyHeartbeatContext:
         assert deltas["wisdom"] == 5  # 65 - 60
         assert deltas["reliability"] == 5  # 92 - 87
 
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns", return_value={})
     @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
     @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
     @patch("robothor.engine.buddy.BuddyEngine.get_streak")
     @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
     @patch("robothor.db.connection.get_connection")
     def test_no_events_when_stable(
-        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, _cd_load, _cd_save
     ):
         from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
 
@@ -1158,3 +1174,223 @@ class TestEscalationPath:
         assert flagged == ["stubborn-agent"]
         mock_agent_task.assert_not_called()
         mock_researcher_task.assert_called_once_with("stubborn-agent", 70)
+
+
+# ── Event cooldown system ──────────────────────────────────────────────────
+
+
+class TestEventCooldowns:
+    """Tests for buddy event cooldown infrastructure."""
+
+    def test_empty_cooldown_state_allows_all(self):
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        state: dict[str, str] = {}
+        assert not engine._is_on_cooldown(state, "level_up")
+        assert not engine._is_on_cooldown(state, "streak_milestone")
+
+    def test_mark_and_check_cooldown(self):
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        state: dict[str, str] = {}
+        engine._mark_event_fired(state, "level_up")
+        assert engine._is_on_cooldown(state, "level_up")
+
+    def test_expired_cooldown_allows_event(self):
+        from datetime import UTC, datetime, timedelta
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        # Simulate a level_up fired 25 hours ago (cooldown is 24h)
+        old_time = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+        state = {"cooldown_level_up": old_time}
+        assert not engine._is_on_cooldown(state, "level_up")
+
+    def test_active_cooldown_blocks_event(self):
+        from datetime import UTC, datetime, timedelta
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        # Simulate a level_up fired 1 hour ago (cooldown is 24h)
+        recent_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        state = {"cooldown_level_up": recent_time}
+        assert engine._is_on_cooldown(state, "level_up")
+
+    def test_corrupt_cooldown_state_allows_event(self):
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        state = {"cooldown_level_up": "not-a-timestamp"}
+        assert not engine._is_on_cooldown(state, "level_up")
+
+
+class TestGetBuddyStatus:
+    """Tests for get_buddy_status() — status-only, no events."""
+
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_returns_status_without_events(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet
+    ):
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=10,
+            total_xp=5500,
+            xp_for_current_level=4500,
+            xp_for_next_level=6000,
+            progress_pct=0.67,
+        )
+        mock_streak.return_value = (14, 14)
+        mock_stats.return_value = DailyStats(stat_date=today, debugging_score=87)
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        ctx = BuddyEngine().get_buddy_status(today)
+
+        assert "level_info" in ctx
+        assert "streak" in ctx
+        assert "scores_today" in ctx
+        assert "events" not in ctx
+        assert "yesterday_level" not in ctx
+
+
+class TestGetBuddyEventsDedup:
+    """Tests for get_buddy_events() — events fire once, then cooldown blocks them."""
+
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns", return_value={})
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_level_up_fires_once(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, mock_cd_load, mock_cd_save
+    ):
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=4,
+            total_xp=1000,
+            xp_for_current_level=600,
+            xp_for_next_level=1500,
+            progress_pct=0.4,
+        )
+        mock_streak.return_value = (3, 5)
+        mock_stats.return_value = DailyStats(stat_date=today)
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (50, 50, 50, 50, 50),  # yesterday's scores
+            (1,),  # yesterday's level (level up from 1 to 4)
+        ]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        engine = BuddyEngine()
+
+        # First call — event fires
+        ctx = engine.get_buddy_events(today)
+        assert any("level" in e.lower() for e in ctx["events"])
+        mock_cd_save.assert_called_once()
+
+        # Capture the cooldown state that was saved
+        saved_state = mock_cd_save.call_args[0][0]
+        assert "cooldown_level_up" in saved_state
+
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_level_up_blocked_on_second_call(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, mock_cd_load, mock_cd_save
+    ):
+        from datetime import UTC, datetime
+
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=4,
+            total_xp=1000,
+            xp_for_current_level=600,
+            xp_for_next_level=1500,
+            progress_pct=0.4,
+        )
+        mock_streak.return_value = (3, 5)
+        mock_stats.return_value = DailyStats(stat_date=today)
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (50, 50, 50, 50, 50),
+            (1,),
+        ]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        # Simulate cooldown already set from a previous call
+        mock_cd_load.return_value = {"cooldown_level_up": datetime.now(UTC).isoformat()}
+
+        engine = BuddyEngine()
+        ctx = engine.get_buddy_events(today)
+
+        # Level-up should be blocked by cooldown
+        assert not any("level" in e.lower() for e in ctx["events"])
+        mock_cd_save.assert_not_called()
+
+    @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
+    @patch("robothor.engine.buddy.BuddyEngine._load_event_cooldowns", return_value={})
+    @patch("robothor.engine.buddy.BuddyEngine.compute_fleet_scores")
+    @patch("robothor.engine.buddy.BuddyEngine.compute_daily_stats")
+    @patch("robothor.engine.buddy.BuddyEngine.get_streak")
+    @patch("robothor.engine.buddy.BuddyEngine.get_level_info")
+    @patch("robothor.db.connection.get_connection")
+    def test_no_events_means_no_cooldown_save(
+        self, mock_conn, mock_level, mock_streak, mock_stats, mock_fleet, mock_cd_load, mock_cd_save
+    ):
+        from robothor.engine.buddy import BuddyEngine, DailyStats, LevelInfo
+
+        today = date(2026, 4, 12)
+        mock_level.return_value = LevelInfo(
+            level=5,
+            total_xp=2000,
+            xp_for_current_level=1500,
+            xp_for_next_level=2100,
+            progress_pct=0.83,
+        )
+        mock_streak.return_value = (3, 5)  # no milestone
+        mock_stats.return_value = DailyStats(
+            stat_date=today,
+            debugging_score=80,
+            patience_score=70,
+            chaos_score=20,
+            wisdom_score=60,
+            reliability_score=85,
+        )
+        mock_fleet.return_value = []
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (78, 72, 22, 58, 83)
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        engine = BuddyEngine()
+        ctx = engine.get_buddy_events(today)
+
+        assert ctx["events"] == []
+        mock_cd_save.assert_not_called()

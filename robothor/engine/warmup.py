@@ -599,20 +599,20 @@ def _git_status_context(config: AgentConfig) -> str | None:
 def _buddy_status_context(config: AgentConfig) -> str | None:
     """Inject live buddy fleet pulse into main agent warmup.
 
-    Computes scores, deltas, and events fresh at each heartbeat invocation
-    instead of reading a stale daily memory block.
+    Shows current level, scores, deltas, and fleet rankings.
+    Does NOT include events — those flow exclusively through the
+    delivery reflection path with cooldown gating.
     """
     if config.id != "main":
         return None
     try:
         from robothor.engine.buddy import BuddyEngine
 
-        ctx = BuddyEngine().get_buddy_heartbeat_context()
+        ctx = BuddyEngine().get_buddy_status()
         li = ctx["level_info"]
         streak_current, streak_longest = ctx["streak"]
         scores = ctx["scores_today"]
         deltas = ctx.get("score_deltas", {})
-        events = ctx.get("events", [])
 
         lines = [
             f"[FLEET PULSE] Level {li.level} {li.level_name} ({li.total_xp:,} XP) | "
@@ -635,9 +635,6 @@ def _buddy_status_context(config: AgentConfig) -> str | None:
         if fleet_top:
             top_strs = [f"{a['agent_id']} ({a['overall_score']})" for a in fleet_top[:3]]
             lines.append(f"Fleet top: {', '.join(top_strs)}")
-
-        if events:
-            lines.append(f"Events: {'; '.join(events)}")
 
         return "\n".join(lines)
     except Exception:
