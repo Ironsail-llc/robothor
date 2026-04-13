@@ -232,10 +232,13 @@ class AgentRunner:
         session.run.user_id = user_id
         session.run.user_role = user_role
 
-        # Sub-agent: link to parent run
+        # Sub-agent: link to parent run + inherit user identity
         if spawn_context:
             session.run.parent_run_id = spawn_context.parent_run_id
             session.run.nesting_depth = spawn_context.nesting_depth + 1
+            if not user_id and spawn_context.user_id:
+                session.run.user_id = spawn_context.user_id
+                session.run.user_role = spawn_context.user_role
 
         # Resolve hierarchical tenant access.
         # owner/admin roles see child tenants; others see only their own.
