@@ -74,26 +74,38 @@ class TestDeliveryStatus:
         assert run.delivery_status == "no_output"
 
     @pytest.mark.asyncio
-    async def test_trailing_heartbeat_ok_stripped(self, _setup_sender):
-        """Trailing HEARTBEAT_OK is stripped but report still delivered."""
+    async def test_trivial_heartbeat_output_suppressed(self):
+        """Short filler output from heartbeat runs is suppressed."""
         config = _make_config()
-        run = _make_run(output_text="All systems nominal.\n\nHEARTBEAT_OK")
+        run = _make_run(
+            output_text="All clear — no open tasks, no emails. Board is clean.",
+            trigger_detail="heartbeat:0 6-22 * * *",
+        )
+        result = await deliver(config, run)
+        assert result is True
+        assert run.delivery_status == "suppressed_trivial"
+
+    @pytest.mark.asyncio
+    async def test_substantial_heartbeat_output_delivered(self, _setup_sender):
+        """Heartbeat output >300 chars is always delivered."""
+        config = _make_config()
+        long_report = "**Friday Apr 10 — 8 AM ET**\n\n" + "x" * 300
+        run = _make_run(
+            output_text=long_report,
+            trigger_detail="heartbeat:0 6-22 * * *",
+        )
         result = await deliver(config, run)
         assert result is True
         assert run.delivery_status == "delivered"
-        # Verify the cleaned text was sent (without HEARTBEAT_OK)
-        sent_text = _setup_sender.call_args[0][1]
-        assert "HEARTBEAT_OK" not in sent_text
-        assert "All systems nominal." in sent_text
 
     @pytest.mark.asyncio
-    async def test_bare_heartbeat_ok_treated_as_no_output(self):
-        """Bare HEARTBEAT_OK (alone) results in no_output."""
+    async def test_trivial_output_from_non_heartbeat_still_delivered(self, _setup_sender):
+        """'All clear' from a non-heartbeat run is NOT suppressed."""
         config = _make_config()
-        run = _make_run(output_text="  HEARTBEAT_OK  \n")
+        run = _make_run(output_text="All clear — board is clean.")
         result = await deliver(config, run)
         assert result is True
-        assert run.delivery_status == "no_output"
+        assert run.delivery_status == "delivered"
 
     @pytest.mark.asyncio
     async def test_none_mode_silent(self):
@@ -172,6 +184,114 @@ class TestLogToolEvent:
                 duration_ms=10,
                 success=True,
             )
+
+
+# ─── Buddy Reflection in Delivery Tests ──────────────────────────
+
+
+class TestBuddyReflection:
+    """Tests for buddy post-delivery reflection — TDD."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_sender(self):
+        sender = AsyncMock()
+        set_telegram_sender(sender)
+        yield sender
+        set_telegram_sender(None)  # type: ignore[arg-type]
+
+    @pytest.mark.asyncio
+    async def test_reflection_skipped_for_non_heartbeat(self):
+        """Buddy reflection only fires for heartbeat runs."""
+        from robothor.engine.delivery import _maybe_append_buddy_reflection
+
+        config = _make_config(id="main")
+        run = _make_run(trigger_detail=None)  # not a heartbeat
+        result, has_reflection = await _maybe_append_buddy_reflection("Hello world", run, config)
+        assert result == "Hello world"  # unchanged
+        assert has_reflection is False
+
+    @pytest.mark.asyncio
+    async def test_reflection_skipped_for_non_main_agent(self):
+        """Buddy reflection only fires for the main agent."""
+        from robothor.engine.delivery import _maybe_append_buddy_reflection
+
+        config = _make_config(id="email-classifier")
+        run = _make_run(trigger_detail="heartbeat:0 6-22 * * *")
+        result, has_reflection = await _maybe_append_buddy_reflection("Report here", run, config)
+        assert result == "Report here"  # unchanged
+        assert has_reflection is False
+
+    @pytest.mark.asyncio
+    @patch("robothor.engine.delivery._get_buddy_context")
+    async def test_reflection_skipped_when_no_events(self, mock_ctx):
+        """Buddy stays silent when there are no noteworthy events."""
+        from robothor.engine.delivery import _maybe_append_buddy_reflection
+
+        mock_ctx.return_value = {"events": []}
+        config = _make_config(id="main")
+        run = _make_run(trigger_detail="heartbeat:0 6-22 * * *")
+        result, has_reflection = await _maybe_append_buddy_reflection("Report here", run, config)
+        assert result == "Report here"  # unchanged
+        assert has_reflection is False
+
+    @pytest.mark.asyncio
+    @patch("robothor.engine.delivery._generate_buddy_reflection")
+    @patch("robothor.engine.delivery._get_buddy_context")
+    async def test_reflection_appended_when_events_exist(self, mock_ctx, mock_gen):
+        """Buddy appends a reflection when there are notable events."""
+        from robothor.engine.delivery import _maybe_append_buddy_reflection
+
+        mock_ctx.return_value = {"events": ["Level up to Blaze!"]}
+        mock_gen.return_value = "The fleet just leveled up — momentum is building."
+
+        config = _make_config(id="main")
+        run = _make_run(trigger_detail="heartbeat:0 6-22 * * *")
+        result, has_reflection = await _maybe_append_buddy_reflection("Report here", run, config)
+
+        assert "Report here" in result
+        assert "---" in result
+        assert "momentum is building" in result
+        assert has_reflection is True
+
+    @pytest.mark.asyncio
+    @patch("robothor.engine.delivery._generate_buddy_reflection")
+    @patch("robothor.engine.delivery._get_buddy_context")
+    async def test_reflection_empty_response_no_append(self, mock_ctx, mock_gen):
+        """If LLM returns empty, no reflection is appended."""
+        from robothor.engine.delivery import _maybe_append_buddy_reflection
+
+        mock_ctx.return_value = {"events": ["minor score change"]}
+        mock_gen.return_value = None  # LLM decided to stay silent
+
+        config = _make_config(id="main")
+        run = _make_run(trigger_detail="heartbeat:0 6-22 * * *")
+        result, has_reflection = await _maybe_append_buddy_reflection("Report here", run, config)
+        assert result == "Report here"
+        assert has_reflection is False
+
+    @pytest.mark.asyncio
+    @patch("robothor.engine.delivery._generate_buddy_reflection")
+    @patch("robothor.engine.delivery._get_buddy_context")
+    async def test_reflection_with_trivial_heartbeat_still_delivers(
+        self, mock_ctx, mock_gen, _setup_sender
+    ):
+        """If heartbeat is trivial but buddy has something to say, output is delivered."""
+        mock_ctx.return_value = {"events": ["14-day streak milestone!"]}
+        mock_gen.return_value = "Two weeks straight — the fleet hasn't missed a beat."
+
+        config = _make_config(id="main")
+        run = _make_run(
+            output_text="All quiet — nothing new.",
+            trigger_detail="heartbeat:0 6-22 * * *",
+        )
+        result = await deliver(config, run)
+
+        # Buddy reflection appended → text is longer and different from trivial pattern
+        assert result is True
+        assert run.delivery_status == "delivered"
+        # Verify the sender got the combined text
+        sent_text = _setup_sender.call_args[0][1] if _setup_sender.call_args else ""
+        assert "Two weeks straight" in sent_text
 
 
 # ─── Tool Stats Tests ──────────────────────────────────────────────

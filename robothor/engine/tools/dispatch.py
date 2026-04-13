@@ -135,9 +135,9 @@ def _audit_tool_call(
     agent_id: str,
     tenant_id: str,
     *,
+    user_id: str = "",
     status: str = "ok",
     error: str | None = None,
-    user_id: str = "",
 ) -> None:
     """Record a tool invocation in the audit log (non-blocking, never raises)."""
     try:
@@ -153,6 +153,7 @@ def _audit_tool_call(
             action=tool_name,
             category="agent",
             actor=agent_id or "unknown",
+            user_id=user_id,
             details=details,
             status=status,
         )
@@ -191,7 +192,7 @@ async def _execute_tool(
         except Exception as e:
             logger.error("Adapter tool %s (server=%s) failed: %s", name, route, e)
             _audit_tool_call(
-                name, agent_id, tenant_id, status="error", error=str(e), user_id=user_id
+                name, agent_id, tenant_id, user_id=user_id, status="error", error=str(e)
             )
             return {"error": f"Adapter tool '{name}' failed: {e}"}
 
@@ -211,7 +212,7 @@ async def _execute_tool(
     result = cast("dict[str, Any]", await handler(args, ctx))
     if isinstance(result, dict) and "error" in result:
         _audit_tool_call(
-            name, agent_id, tenant_id, status="error", error=result["error"], user_id=user_id
+            name, agent_id, tenant_id, user_id=user_id, status="error", error=result["error"]
         )
     else:
         _audit_tool_call(name, agent_id, tenant_id, user_id=user_id)

@@ -597,19 +597,61 @@ def _git_status_context(config: AgentConfig) -> str | None:
 
 
 def _buddy_status_context(config: AgentConfig) -> str | None:
-    """Inject buddy gamification status into main agent warmup."""
+    """Inject live buddy fleet pulse into main agent warmup.
+
+    Computes scores, deltas, and events fresh at each heartbeat invocation
+    instead of reading a stale daily memory block.
+    """
     if config.id != "main":
         return None
     try:
-        from robothor.memory.blocks import read_block
+        from robothor.engine.buddy import BuddyEngine
 
-        _tid = os.environ.get("ROBOTHOR_TENANT_ID", "") or DEFAULT_TENANT
-        result = read_block("buddy_status", tenant_id=_tid)
-        content = result.get("content", "") if isinstance(result, dict) else ""
-        if content and content.strip():
-            return f"[BUDDY] {content.strip()}"
+        ctx = BuddyEngine().get_buddy_heartbeat_context()
+        li = ctx["level_info"]
+        streak_current, streak_longest = ctx["streak"]
+        scores = ctx["scores_today"]
+        deltas = ctx.get("score_deltas", {})
+        events = ctx.get("events", [])
+
+        lines = [
+            f"[FLEET PULSE] Level {li.level} {li.level_name} ({li.total_xp:,} XP) | "
+            f"{streak_current}-day streak"
+            + (f" (record: {streak_longest})" if streak_longest > streak_current else ""),
+            f"Scores: D:{scores.debugging_score} P:{scores.patience_score} "
+            f"C:{scores.chaos_score} W:{scores.wisdom_score} R:{scores.reliability_score}",
+        ]
+
+        if deltas:
+            delta_parts = []
+            for dim in ("reliability", "debugging", "patience", "wisdom", "chaos"):
+                d = deltas.get(dim, 0)
+                if d != 0:
+                    delta_parts.append(f"{dim[0].upper()}{'+' if d > 0 else ''}{d}")
+            if delta_parts:
+                lines.append(f"vs yesterday: {', '.join(delta_parts)}")
+
+        fleet_top = ctx.get("fleet_top", [])
+        if fleet_top:
+            top_strs = [f"{a['agent_id']} ({a['overall_score']})" for a in fleet_top[:3]]
+            lines.append(f"Fleet top: {', '.join(top_strs)}")
+
+        if events:
+            lines.append(f"Events: {'; '.join(events)}")
+
+        return "\n".join(lines)
     except Exception:
-        pass
+        # Fall back to stale memory block if live computation fails
+        try:
+            from robothor.memory.blocks import read_block
+
+            _tid = os.environ.get("ROBOTHOR_TENANT_ID", "") or DEFAULT_TENANT
+            result = read_block("buddy_status", tenant_id=_tid)
+            content = result.get("content", "") if isinstance(result, dict) else ""
+            if content and content.strip():
+                return f"[BUDDY] {content.strip()}"
+        except Exception:
+            pass
     return None
 
 

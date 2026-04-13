@@ -69,6 +69,125 @@ async def _persist_delivery_status(run: AgentRun) -> None:
         logger.warning("Failed to persist delivery status for run %s", run.id)
 
 
+_TRIVIAL_PATTERNS = [
+    "all clear",
+    "all quiet",
+    "nothing new",
+    "board is clean",
+    "no open tasks",
+    "standing down",
+    "no updates",
+    "nothing to report",
+    "inbox empty",
+    "fleet clean",
+    "no new activity",
+    "board unchanged",
+    "no changes",
+    "no movement",
+    "nothing actionable",
+]
+
+
+def _is_heartbeat_run(run: AgentRun) -> bool:
+    """Check if this run came from a heartbeat trigger."""
+    return bool(run.trigger_detail and run.trigger_detail.startswith("heartbeat:"))
+
+
+def _is_trivial_output(text: str) -> bool:
+    """Detect 'nothing to report' output that shouldn't be delivered.
+
+    Short messages (<300 chars) containing common filler phrases are suppressed.
+    Substantial reports always get through.
+    """
+    if len(text) > 300:
+        return False
+    lower = text.lower()
+    return any(p in lower for p in _TRIVIAL_PATTERNS)
+
+
+# ── Buddy reflection (subconscious one-liner) ────────────────────────────
+
+
+def _get_buddy_context() -> dict[str, Any] | None:
+    """Get buddy heartbeat context (live scores, events, deltas)."""
+    try:
+        from robothor.engine.buddy import BuddyEngine
+
+        return BuddyEngine().get_buddy_heartbeat_context()
+    except Exception:
+        logger.debug("Failed to get buddy context for reflection")
+        return None
+
+
+async def _generate_buddy_reflection(heartbeat_text: str, buddy_ctx: dict[str, Any]) -> str | None:
+    """Generate a buddy one-liner via a lightweight LLM call.
+
+    Returns a short reflection string, or None if buddy decides to stay silent.
+    """
+    events_str = ", ".join(buddy_ctx.get("events", []))
+    overall = buddy_ctx.get("overall_score", 50)
+    streak = buddy_ctx.get("streak", (0, 0))
+    deltas = buddy_ctx.get("score_deltas", {})
+    level_info = buddy_ctx.get("level_info")
+    level_str = f"Level {level_info.level} {level_info.level_name}" if level_info else "Unknown"
+
+    prompt = (
+        "You are Buddy, the fleet's subconscious. You just observed this heartbeat "
+        "report being sent to the operator. You may append ONE sentence (or stay "
+        "silent by returning ONLY the word SILENT).\n\n"
+        "Speak only when genuinely insightful: a celebration, a concern, a pattern "
+        "the operator should notice. Never repeat what the heartbeat already said. "
+        "Never use bullet points. Be warm, brief, alive.\n\n"
+        f"Fleet pulse: {level_str} | {streak[0]}-day streak | overall: {overall}\n"
+        f"Score changes: {deltas}\n"
+        f"Events: {events_str or 'none'}\n\n"
+        f"Heartbeat output (first 500 chars):\n{heartbeat_text[:500]}\n\n"
+        "Your reflection (one sentence, or SILENT):"
+    )
+
+    try:
+        from robothor.engine.llm import chat_completion
+
+        response = await chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            model="openrouter/xiaomi/mimo-v2-pro",
+            temperature=0.7,
+            max_tokens=100,
+        )
+        text = (response or "").strip()
+        if not text or text.upper() == "SILENT":
+            return None
+        return text
+    except Exception as e:
+        logger.debug("Buddy reflection LLM call failed: %s", e)
+        return None
+
+
+async def _maybe_append_buddy_reflection(
+    text: str, run: AgentRun, config: AgentConfig
+) -> tuple[str, bool]:
+    """Optionally append a buddy one-liner to heartbeat output.
+
+    Only fires for the main agent's heartbeat runs. Stays silent when
+    there are no noteworthy events.
+
+    Returns (text, has_reflection) tuple.
+    """
+    if not _is_heartbeat_run(run):
+        return text, False
+    if config.id != "main":
+        return text, False
+
+    ctx = _get_buddy_context()
+    if not ctx or not ctx.get("events"):
+        return text, False
+
+    reflection = await _generate_buddy_reflection(text, ctx)
+    if reflection:
+        return f"{text}\n\n---\n{reflection}", True
+    return text, False
+
+
 async def deliver(config: AgentConfig, run: AgentRun) -> bool:
     """Deliver agent output based on the delivery mode.
 
@@ -117,12 +236,16 @@ async def deliver(config: AgentConfig, run: AgentRun) -> bool:
             await _persist_delivery_status(run)
             return True
 
-    # Strip any trailing HEARTBEAT_OK the LLM may hallucinate
     text = run.output_text.strip()
-    text = text.removesuffix("HEARTBEAT_OK").strip()
-    if not text:
-        logger.debug("Output was only HEARTBEAT_OK for %s, treating as no output", config.id)
-        run.delivery_status = "no_output"
+
+    # Buddy reflection — append subconscious one-liner to main heartbeat
+    text, has_reflection = await _maybe_append_buddy_reflection(text, run, config)
+
+    # Suppress trivial heartbeat output — short filler like "All quiet" or "Nothing new"
+    # Skip suppression if buddy added a reflection (it decided something was worth saying)
+    if _is_heartbeat_run(run) and _is_trivial_output(text) and not has_reflection:
+        logger.debug("Suppressed trivial heartbeat output for %s: %s", config.id, text[:80])
+        run.delivery_status = "suppressed_trivial"
         await _persist_delivery_status(run)
         return True
 
