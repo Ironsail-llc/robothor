@@ -21,6 +21,8 @@ class ToolContext:
     agent_id: str = ""
     tenant_id: str = field(default_factory=lambda: DEFAULT_TENANT)
     workspace: str = ""
+    user_id: str = ""
+    user_role: str = ""
     accessible_tenant_ids: tuple[str, ...] = ()
 
 
@@ -135,12 +137,15 @@ def _audit_tool_call(
     *,
     status: str = "ok",
     error: str | None = None,
+    user_id: str = "",
 ) -> None:
     """Record a tool invocation in the audit log (non-blocking, never raises)."""
     try:
         from robothor.audit.logger import log_event
 
         details: dict[str, Any] = {"tenant_id": tenant_id}
+        if user_id:
+            details["user_id"] = user_id
         if error:
             details["error"] = error[:500]
         log_event(
@@ -162,6 +167,8 @@ async def _execute_tool(
     agent_id: str = "",
     tenant_id: str = "",
     workspace: str = "",
+    user_id: str = "",
+    user_role: str = "",
     accessible_tenant_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Route tool call to the correct handler.
@@ -179,17 +186,21 @@ async def _execute_tool(
             pool = get_mcp_client_pool()
             session = await pool.get_session(route)
             result: dict[str, Any] = await session.call_tool(name, args)
-            _audit_tool_call(name, agent_id, tenant_id)
+            _audit_tool_call(name, agent_id, tenant_id, user_id=user_id)
             return result
         except Exception as e:
             logger.error("Adapter tool %s (server=%s) failed: %s", name, route, e)
-            _audit_tool_call(name, agent_id, tenant_id, status="error", error=str(e))
+            _audit_tool_call(
+                name, agent_id, tenant_id, status="error", error=str(e), user_id=user_id
+            )
             return {"error": f"Adapter tool '{name}' failed: {e}"}
 
     ctx = ToolContext(
         agent_id=agent_id,
         tenant_id=tenant_id,
         workspace=workspace,
+        user_id=user_id,
+        user_role=user_role,
         accessible_tenant_ids=accessible_tenant_ids,
     )
     handlers = _get_handlers()
@@ -199,7 +210,9 @@ async def _execute_tool(
 
     result = cast("dict[str, Any]", await handler(args, ctx))
     if isinstance(result, dict) and "error" in result:
-        _audit_tool_call(name, agent_id, tenant_id, status="error", error=result["error"])
+        _audit_tool_call(
+            name, agent_id, tenant_id, status="error", error=result["error"], user_id=user_id
+        )
     else:
-        _audit_tool_call(name, agent_id, tenant_id)
+        _audit_tool_call(name, agent_id, tenant_id, user_id=user_id)
     return result
