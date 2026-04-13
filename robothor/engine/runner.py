@@ -228,7 +228,7 @@ class AgentRunner:
             tool_offload_threshold=agent_config.tool_offload_threshold,
         )
 
-        # User identity
+        # User identity threading
         session.run.user_id = user_id
         session.run.user_role = user_role
 
