@@ -197,6 +197,8 @@ class AgentRunner:
         execution_mode: bool = False,
         deep_plan: bool = False,
         tenant_id: str | None = None,
+        user_id: str = "",
+        user_role: str = "",
     ) -> AgentRun:
         """Execute an agent with the given message.
 
@@ -225,6 +227,10 @@ class AgentRunner:
             correlation_id=correlation_id,
             tool_offload_threshold=agent_config.tool_offload_threshold,
         )
+
+        # User identity threading
+        session.run.user_id = user_id
+        session.run.user_role = user_role
 
         # Sub-agent: link to parent run
         if spawn_context:
@@ -1339,6 +1345,8 @@ class AgentRunner:
                             agent_id=agent_config.id,
                             tenant_id=session.run.tenant_id,
                             workspace=str(self.config.workspace),
+                            user_id=session.run.user_id,
+                            user_role=session.run.user_role,
                             timeout=_tool_timeout,
                         )
                 else:
@@ -1348,6 +1356,8 @@ class AgentRunner:
                         agent_id=agent_config.id,
                         tenant_id=session.run.tenant_id,
                         workspace=str(self.config.workspace),
+                        user_id=session.run.user_id,
+                        user_role=session.run.user_role,
                         timeout=_tool_timeout,
                     )
                 tool_elapsed = int((time.monotonic() - tool_start) * 1000)
