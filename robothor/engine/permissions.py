@@ -17,12 +17,20 @@ Evaluation order (first match wins):
     3. ``__default__`` DENY  →  blocked
     4. ``__default__`` ALLOW →  allowed
     5. No match              →  denied (fail-closed for unconfigured roles)
+
+Hierarchical tenant access resolution:
+    Given a user's current tenant and role, determines which tenants they
+    can access.  Owner/admin roles get access to child tenants; regular
+    users only see their own tenant.
+
+    The hierarchy is read from ``crm_tenants.parent_tenant_id``.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import logging
+from typing import Any
 
 from robothor.constants import DEFAULT_TENANT
 
@@ -85,65 +93,73 @@ def check_tool_permission(
         return "Permission check unavailable — access denied"
 
 
+def _get_child_tenants(tenant_id: str) -> list[str]:
+    """Return direct child tenant IDs from the CRM database.
+
+    Returns an empty list if the DB is unavailable or the tenant has
+    no children — callers always degrade gracefully.
+    """
+    try:
+        from robothor.crm.dal import list_tenants
+
+        children: list[dict[str, Any]] = list_tenants(parent_id=tenant_id, active_only=True)
+        return [t["id"] for t in children if "id" in t]
+    except Exception:
+        logger.debug("Could not fetch child tenants for %s", tenant_id, exc_info=True)
+        return []
+
+
 def resolve_accessible_tenants(
     tenant_id: str,
-    role: str,
+    user_role: str | None = None,
+    *,
+    max_depth: int = 3,
 ) -> tuple[str, ...]:
-    """Resolve which tenants a user can access.
+    """Return the tuple of tenant IDs a user may access.
 
-    - All users can access their own tenant.
-    - ``owner`` and ``admin`` roles in a tenant with ``child_data_access=TRUE``
-      can also read data from child tenants.
+    Rules:
+        - Every user can access their own ``tenant_id``.
+        - ``owner`` and ``admin`` roles additionally get all descendant
+          tenants (children, grandchildren, ...) up to *max_depth* levels.
+        - Other roles (``member``, ``viewer``, ``None``) only see their
+          own tenant.
 
     Args:
         tenant_id: The user's home tenant.
-        role: The user's role.
+        user_role: Role string (``"owner"``, ``"admin"``, ``"member"``,
+            ``"viewer"``, or ``None``).
+        max_depth: Maximum hierarchy depth to traverse (safety cap).
 
     Returns:
-        Tuple of accessible tenant IDs (always includes own tenant).
+        A tuple of tenant ID strings, always containing at least
+        ``tenant_id`` itself.
     """
     if not tenant_id:
         return (DEFAULT_TENANT,)
 
-    if role not in ("owner", "admin"):
-        return (tenant_id,)
+    accessible = [tenant_id]
 
+    if user_role not in ("owner", "admin"):
+        return tuple(accessible)
+
+    # BFS traversal of child tenants
+    queue = [tenant_id]
+    depth = 0
     try:
-        from robothor.db.connection import get_connection
-
-        with get_connection() as conn:
-            cur = conn.cursor()
-
-            # Check if this tenant has child_data_access enabled
-            cur.execute(
-                "SELECT child_data_access FROM crm_tenants WHERE id = %s",
-                (tenant_id,),
-            )
-            row = cur.fetchone()
-            if not row or not row[0]:
-                return (tenant_id,)
-
-            # Recursive CTE to find all descendant tenants
-            cur.execute(
-                """
-                WITH RECURSIVE children AS (
-                    SELECT id FROM crm_tenants
-                    WHERE parent_tenant_id = %s AND active = TRUE
-                    UNION ALL
-                    SELECT t.id FROM crm_tenants t
-                    JOIN children c ON t.parent_tenant_id = c.id
-                    WHERE t.active = TRUE
-                )
-                SELECT id FROM children
-                """,
-                (tenant_id,),
-            )
-            child_ids = [r[0] for r in cur.fetchall()]
-            return (tenant_id, *child_ids)
-
+        while queue and depth < max_depth:
+            next_level: list[str] = []
+            for parent in queue:
+                children = _get_child_tenants(parent)
+                for child in children:
+                    if child not in accessible:
+                        accessible.append(child)
+                        next_level.append(child)
+            queue = next_level
+            depth += 1
     except Exception:
-        logger.debug("Tenant hierarchy lookup failed", exc_info=True)
-        return (tenant_id,)
+        logger.debug("Tenant hierarchy traversal failed, using partial results", exc_info=True)
+
+    return tuple(accessible)
 
 
 def seed_default_permissions() -> None:

@@ -129,39 +129,35 @@ class TestResolveAccessibleTenants:
         result = resolve_accessible_tenants("", "owner")
         assert len(result) == 1
 
-    def test_owner_without_child_access_gets_own_only(self):
-        """Owner in tenant without child_data_access gets own tenant only."""
-        with patch("robothor.db.connection.get_connection") as mock_conn:
-            mock_cursor = mock_conn.return_value.__enter__.return_value.cursor.return_value
-            mock_cursor.fetchone.return_value = (False,)  # child_data_access = False
-
+    def test_owner_without_children_gets_own_only(self):
+        """Owner in tenant with no children gets own tenant only."""
+        with patch("robothor.engine.permissions._get_child_tenants", return_value=[]):
             result = resolve_accessible_tenants("parent", "owner")
             assert result == ("parent",)
 
     def test_owner_with_child_access_gets_children(self):
-        """Owner in tenant with child_data_access gets own + child tenants."""
-        with patch("robothor.db.connection.get_connection") as mock_conn:
-            mock_cursor = mock_conn.return_value.__enter__.return_value.cursor.return_value
-            # First call: check child_data_access
-            # Second call: recursive CTE for children
-            mock_cursor.fetchone.return_value = (True,)
-            mock_cursor.fetchall.return_value = [("child-1",), ("child-2",)]
+        """Owner gets own + child tenants via BFS traversal."""
+        with patch("robothor.engine.permissions._get_child_tenants") as mock_children:
+            # First call for "parent" returns two children, subsequent calls return none
+            mock_children.side_effect = lambda tid: (
+                ["child-1", "child-2"] if tid == "parent" else []
+            )
 
             result = resolve_accessible_tenants("parent", "owner")
             assert result == ("parent", "child-1", "child-2")
 
     def test_admin_with_child_access(self):
         """Admin role also gets hierarchical access."""
-        with patch("robothor.db.connection.get_connection") as mock_conn:
-            mock_cursor = mock_conn.return_value.__enter__.return_value.cursor.return_value
-            mock_cursor.fetchone.return_value = (True,)
-            mock_cursor.fetchall.return_value = [("child-1",)]
+        with patch("robothor.engine.permissions._get_child_tenants") as mock_children:
+            mock_children.side_effect = lambda tid: ["child-1"] if tid == "parent" else []
 
             result = resolve_accessible_tenants("parent", "admin")
             assert result == ("parent", "child-1")
 
     def test_db_error_returns_own_tenant(self):
         """DB errors return just the user's own tenant."""
-        with patch("robothor.db.connection.get_connection", side_effect=Exception("DB down")):
+        with patch(
+            "robothor.engine.permissions._get_child_tenants", side_effect=Exception("DB down")
+        ):
             result = resolve_accessible_tenants("test-tenant", "owner")
             assert result == ("test-tenant",)
