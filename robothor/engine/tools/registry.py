@@ -185,11 +185,6 @@ class ToolRegistry:
         Args:
             timeout: Per-tool timeout in seconds. 0 = unlimited.
         """
-        _extra = {
-            "user_id": user_id,
-            "user_role": user_role,
-            "accessible_tenant_ids": accessible_tenant_ids,
-        }
         try:
             if timeout > 0:
                 async with asyncio.timeout(timeout):
@@ -199,7 +194,9 @@ class ToolRegistry:
                         agent_id=agent_id,
                         tenant_id=tenant_id,
                         workspace=workspace,
-                        **_extra,
+                        user_id=user_id,
+                        user_role=user_role,
+                        accessible_tenant_ids=accessible_tenant_ids,
                     )
             else:
                 return await _execute_tool(
@@ -208,7 +205,9 @@ class ToolRegistry:
                     agent_id=agent_id,
                     tenant_id=tenant_id,
                     workspace=workspace,
-                    **_extra,
+                    user_id=user_id,
+                    user_role=user_role,
+                    accessible_tenant_ids=accessible_tenant_ids,
                 )
         except TimeoutError:
             logger.warning("Tool %s timed out after %ds", tool_name, timeout)
