@@ -544,26 +544,27 @@ class TestStandaloneFunctions:
     def test_compute_overall_score(self):
         from robothor.engine.buddy import compute_overall_score
 
-        # All 100s: reliability(30)*100 + debugging(25)*100 + patience(20)*100
-        #           + wisdom(15)*100 + (100-0)(10)*100 = 100
         score = compute_overall_score(
-            debugging=100, patience=100, chaos=0, wisdom=100, reliability=100
+            debugging=100, patience=100, effectiveness=100, benchmark_score=100, reliability=100
         )
         assert score == 100
 
     def test_compute_overall_score_all_zeros(self):
         from robothor.engine.buddy import compute_overall_score
 
-        score = compute_overall_score(debugging=0, patience=0, chaos=100, wisdom=0, reliability=0)
+        score = compute_overall_score(
+            debugging=0, patience=0, effectiveness=0, benchmark_score=0, reliability=0
+        )
         assert score == 0
 
     def test_compute_overall_score_mixed(self):
         from robothor.engine.buddy import compute_overall_score
 
+        # 90*0.25 + 80*0.20 + 70*0.15 + 60*0.25 + 50*0.15 = 22.5+16+10.5+15+7.5 = 71.5 → 71
         score = compute_overall_score(
-            debugging=80, patience=70, chaos=20, wisdom=60, reliability=90
+            debugging=80, patience=70, effectiveness=60, benchmark_score=50, reliability=90
         )
-        assert score == 78
+        assert score == 71
 
 
 # ── AgentBuddyStats ───────────────────────────────────────────────────────
@@ -947,8 +948,8 @@ class TestGetBuddyHeartbeatContext:
             stat_date=today,
             debugging_score=87,
             patience_score=72,
-            chaos_score=15,
-            wisdom_score=65,
+            effectiveness_score=80,
+            benchmark_dim_score=65,
             reliability_score=92,
         )
         mock_fleet.return_value = [
@@ -956,9 +957,9 @@ class TestGetBuddyHeartbeatContext:
             AgentBuddyStats(agent_id="calendar-monitor", stat_date=today, overall_score=88, rank=2),
         ]
 
-        # Mock yesterday's scores query
+        # Mock yesterday's scores: debugging, patience, effectiveness, benchmark, reliability
         cursor = MagicMock()
-        cursor.fetchone.return_value = (82, 75, 18, 60, 87)  # yesterday's scores
+        cursor.fetchone.return_value = (82, 75, 75, 60, 87)
         mock_conn.return_value = _mock_conn_ctx(cursor)
 
         engine = BuddyEngine()
@@ -1070,15 +1071,15 @@ class TestGetBuddyHeartbeatContext:
             stat_date=today,
             debugging_score=87,
             patience_score=72,
-            chaos_score=15,
-            wisdom_score=65,
+            effectiveness_score=80,
+            benchmark_dim_score=65,
             reliability_score=92,
         )
         mock_fleet.return_value = []
 
         cursor = MagicMock()
-        # Yesterday's scores: debugging=80, patience=75, chaos=18, wisdom=60, reliability=87
-        cursor.fetchone.return_value = (80, 75, 18, 60, 87)
+        # Yesterday's scores: debugging=80, patience=75, effectiveness=75, benchmark=60, reliability=87
+        cursor.fetchone.return_value = (80, 75, 75, 60, 87)
         mock_conn.return_value = _mock_conn_ctx(cursor)
 
         engine = BuddyEngine()
@@ -1087,8 +1088,8 @@ class TestGetBuddyHeartbeatContext:
         deltas = ctx["score_deltas"]
         assert deltas["debugging"] == 7  # 87 - 80
         assert deltas["patience"] == -3  # 72 - 75
-        assert deltas["chaos"] == -3  # 15 - 18
-        assert deltas["wisdom"] == 5  # 65 - 60
+        assert deltas["effectiveness"] == 5  # 80 - 75
+        assert deltas["benchmark"] == 5  # 65 - 60
         assert deltas["reliability"] == 5  # 92 - 87
 
     @patch("robothor.engine.buddy.BuddyEngine._save_event_cooldowns")
@@ -1116,15 +1117,15 @@ class TestGetBuddyHeartbeatContext:
             stat_date=today,
             debugging_score=80,
             patience_score=70,
-            chaos_score=20,
-            wisdom_score=60,
+            effectiveness_score=60,
+            benchmark_dim_score=55,
             reliability_score=85,
         )
         mock_fleet.return_value = []
 
         cursor = MagicMock()
         # Yesterday's scores are almost the same (all deltas < 5)
-        cursor.fetchone.return_value = (78, 72, 22, 58, 83)
+        cursor.fetchone.return_value = (78, 72, 58, 53, 83)
         mock_conn.return_value = _mock_conn_ctx(cursor)
 
         engine = BuddyEngine()
@@ -1379,14 +1380,14 @@ class TestGetBuddyEventsDedup:
             stat_date=today,
             debugging_score=80,
             patience_score=70,
-            chaos_score=20,
-            wisdom_score=60,
+            effectiveness_score=60,
+            benchmark_dim_score=55,
             reliability_score=85,
         )
         mock_fleet.return_value = []
 
         cursor = MagicMock()
-        cursor.fetchone.return_value = (78, 72, 22, 58, 83)
+        cursor.fetchone.return_value = (78, 72, 58, 53, 83)
         mock_conn.return_value = _mock_conn_ctx(cursor)
 
         engine = BuddyEngine()
@@ -1394,3 +1395,435 @@ class TestGetBuddyEventsDedup:
 
         assert ctx["events"] == []
         mock_cd_save.assert_not_called()
+
+
+# ── Effectiveness dimension (replaces Chaos) ────────────────────────────
+
+
+class TestComputeEffectiveness:
+    """Tests for _compute_effectiveness — outcome-based scoring.
+
+    Replaces the old Chaos dimension. Reads outcome_assessment from
+    agent_runs and computes satisfaction_rate * 100.
+    """
+
+    @patch("robothor.db.connection.get_connection")
+    def test_all_successful(self, mock_conn):
+        """100% successful outcomes → effectiveness = 100."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("successful", 10)]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_effectiveness(date(2026, 4, 14), agent_id="test-agent")
+        assert score == 100
+
+    @patch("robothor.db.connection.get_connection")
+    def test_mixed_outcomes(self, mock_conn):
+        """7 successful + 3 partial/incorrect → effectiveness = 70."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            ("successful", 7),
+            ("partial", 2),
+            ("incorrect", 1),
+        ]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_effectiveness(date(2026, 4, 14), agent_id="test-agent")
+        assert score == 70
+
+    @patch("robothor.db.connection.get_connection")
+    def test_no_assessed_runs(self, mock_conn):
+        """No outcome_assessment data → neutral 50."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_effectiveness(date(2026, 4, 14), agent_id="test-agent")
+        assert score == 50
+
+    @patch("robothor.db.connection.get_connection")
+    def test_all_incorrect(self, mock_conn):
+        """All outcomes are incorrect → effectiveness = 0."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("incorrect", 5)]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_effectiveness(date(2026, 4, 14), agent_id="test-agent")
+        assert score == 0
+
+    @patch("robothor.db.connection.get_connection")
+    def test_abandoned_excluded(self, mock_conn):
+        """Abandoned runs are excluded from scoring (like analytics.py)."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            ("successful", 8),
+            ("partial", 2),
+            ("abandoned", 5),  # should be excluded
+        ]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_effectiveness(date(2026, 4, 14), agent_id="test-agent")
+        assert score == 80  # 8 / (8+2) = 0.80
+
+    @patch("robothor.db.connection.get_connection")
+    def test_global_mode_no_agent_id(self, mock_conn):
+        """Works without agent_id for global scoring."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("successful", 10), ("partial", 5)]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_effectiveness(date(2026, 4, 14))
+        assert score == 66  # int(100 * 10/15) = 66
+
+    @patch("robothor.db.connection.get_connection", side_effect=Exception("DB down"))
+    def test_exception_returns_neutral(self, mock_conn):
+        """DB errors return neutral 50."""
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_effectiveness(date(2026, 4, 14))
+        assert score == 50
+
+
+# ── Benchmark dimension (replaces Wisdom) ────────────────────────────
+
+
+class TestComputeBenchmarkScore:
+    """Tests for _compute_benchmark_score — reads latest benchmark aggregate.
+
+    Replaces the old Wisdom dimension (which was hardcoded to 50 per-agent).
+    """
+
+    @patch("robothor.memory.blocks.read_block")
+    def test_with_benchmark(self, mock_read):
+        """Benchmark score 0.85 → dimension score 85."""
+        mock_read.return_value = {
+            "content": json.dumps(
+                {
+                    "aggregate_score": 0.85,
+                    "timestamp": "2026-04-14T12:00:00+00:00",
+                }
+            )
+        }
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_benchmark_score("email-classifier")
+        assert score == 85
+
+    @patch("robothor.memory.blocks.read_block")
+    def test_perfect_benchmark(self, mock_read):
+        """Benchmark score 1.0 → dimension score 100."""
+        mock_read.return_value = {
+            "content": json.dumps(
+                {
+                    "aggregate_score": 1.0,
+                    "timestamp": "2026-04-14T12:00:00+00:00",
+                }
+            )
+        }
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_benchmark_score("test-agent")
+        assert score == 100
+
+    @patch("robothor.memory.blocks.read_block")
+    def test_no_benchmark(self, mock_read):
+        """No benchmark data → neutral 50."""
+        mock_read.return_value = None
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_benchmark_score("new-agent")
+        assert score == 50
+
+    @patch("robothor.memory.blocks.read_block")
+    def test_zero_benchmark(self, mock_read):
+        """Benchmark score 0.0 → dimension score 0."""
+        mock_read.return_value = {
+            "content": json.dumps(
+                {
+                    "aggregate_score": 0.0,
+                    "timestamp": "2026-04-14T12:00:00+00:00",
+                }
+            )
+        }
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._compute_benchmark_score("failing-agent")
+        assert score == 0
+
+
+# ── Updated overall score formula ────────────────────────────────────
+
+
+class TestUpdatedOverallScore:
+    """Tests for updated compute_overall_score with effectiveness + benchmark."""
+
+    def test_new_signature(self):
+        """compute_overall_score accepts effectiveness and benchmark_score params."""
+        from robothor.engine.buddy import compute_overall_score
+
+        score = compute_overall_score(
+            debugging=80,
+            patience=70,
+            effectiveness=90,
+            benchmark_score=85,
+            reliability=95,
+        )
+        # 95*0.25 + 80*0.20 + 70*0.15 + 90*0.25 + 85*0.15
+        # = 23.75 + 16.0 + 10.5 + 22.5 + 12.75 = 85.5 → 85
+        assert score == 85
+
+    def test_all_zeros(self):
+        from robothor.engine.buddy import compute_overall_score
+
+        score = compute_overall_score(
+            debugging=0, patience=0, effectiveness=0, benchmark_score=0, reliability=0
+        )
+        assert score == 0
+
+    def test_all_hundreds(self):
+        from robothor.engine.buddy import compute_overall_score
+
+        score = compute_overall_score(
+            debugging=100, patience=100, effectiveness=100, benchmark_score=100, reliability=100
+        )
+        assert score == 100
+
+    def test_weights_sum_to_one(self):
+        """Verify that weight constants sum to 1.0."""
+        from robothor.engine.buddy import (
+            WEIGHT_BENCHMARK,
+            WEIGHT_DEBUGGING,
+            WEIGHT_EFFECTIVENESS,
+            WEIGHT_PATIENCE,
+            WEIGHT_RELIABILITY,
+        )
+
+        total = (
+            WEIGHT_RELIABILITY
+            + WEIGHT_DEBUGGING
+            + WEIGHT_PATIENCE
+            + WEIGHT_EFFECTIVENESS
+            + WEIGHT_BENCHMARK
+        )
+        assert abs(total - 1.0) < 0.001
+
+
+# ── Updated dataclasses ──────────────────────────────────────────────
+
+
+class TestUpdatedDataclasses:
+    """Tests for updated DailyStats and AgentBuddyStats."""
+
+    def test_daily_stats_has_new_fields(self):
+        from robothor.engine.buddy import DailyStats
+
+        stats = DailyStats(
+            stat_date=date(2026, 4, 14),
+            effectiveness_score=80,
+            benchmark_dim_score=75,
+        )
+        assert stats.effectiveness_score == 80
+        assert stats.benchmark_dim_score == 75
+
+    def test_agent_buddy_stats_has_new_fields(self):
+        from robothor.engine.buddy import AgentBuddyStats
+
+        stats = AgentBuddyStats(
+            agent_id="test",
+            stat_date=date(2026, 4, 14),
+            effectiveness_score=90,
+            benchmark_dim_score=85,
+        )
+        assert stats.effectiveness_score == 90
+        assert stats.benchmark_dim_score == 85
+
+    def test_agent_buddy_stats_defaults(self):
+        from robothor.engine.buddy import AgentBuddyStats
+
+        stats = AgentBuddyStats(agent_id="test", stat_date=date(2026, 4, 14))
+        assert stats.effectiveness_score == 50
+        assert stats.benchmark_dim_score == 50
+
+
+# ── Per-agent compute uses new dimensions ────────────────────────────
+
+
+class TestPerAgentComputeNewDimensions:
+    """Verify compute_agent_scores populates effectiveness and benchmark scores."""
+
+    @patch("robothor.engine.buddy.BuddyEngine._get_latest_benchmark", return_value=(0.85, None))
+    @patch("robothor.engine.buddy.BuddyEngine._get_agent_total_xp", return_value=500)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_reliability", return_value=90)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_benchmark_score", return_value=85)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_effectiveness", return_value=80)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_patience", return_value=70)
+    @patch("robothor.engine.buddy.BuddyEngine._compute_debugging", return_value=80)
+    @patch("robothor.engine.buddy.BuddyEngine._agent_run_count", return_value=10)
+    @patch("robothor.db.connection.get_connection")
+    def test_uses_new_dimensions(
+        self,
+        mock_conn,
+        mock_runcount,
+        mock_dbg,
+        mock_pat,
+        mock_eff,
+        mock_bench_dim,
+        mock_rel,
+        mock_xp,
+        mock_bench,
+    ):
+        cursor = MagicMock()
+        call_idx = [0]
+        results = [
+            [(5,)],  # tasks_completed
+            [(10,)],  # emails_processed
+            [(1,)],  # errors_avoided
+        ]
+
+        def fetchone():
+            idx = call_idx[0]
+            call_idx[0] += 1
+            return results[idx][0] if idx < len(results) else None
+
+        cursor.fetchone = fetchone
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        stats = engine.compute_agent_scores("test-agent", date(2026, 4, 14))
+
+        assert stats is not None
+        assert stats.effectiveness_score == 80
+        assert stats.benchmark_dim_score == 85
+        assert stats.overall_score > 0
+        # Overall should use new formula, not old chaos/wisdom
+        # 90*0.25 + 80*0.20 + 70*0.15 + 80*0.25 + 85*0.15 = 81.25 → 81
+        assert stats.overall_score == 81
+
+
+# ── Goal evaluation ──────────────────────────────────────────────────
+
+
+class TestEvaluateGoals:
+    """Tests for _evaluate_goals — per-agent goal attainment scoring."""
+
+    @patch("robothor.db.connection.get_connection")
+    def test_all_goals_met(self, mock_conn):
+        """All goals met → score = 1.0."""
+        cursor = MagicMock()
+        # completion_rate query: total=100, completed=98
+        cursor.fetchone.return_value = (100, 98)
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        goals = [
+            {
+                "id": "high-completion",
+                "metric": "completion_rate",
+                "target": ">0.95",
+                "weight": 1.0,
+            },
+        ]
+        score = engine._evaluate_goals("test-agent", goals, date(2026, 4, 14))
+        assert score == 1.0
+
+    @patch("robothor.db.connection.get_connection")
+    def test_no_goals_met(self, mock_conn):
+        """No goals met → score = 0.0."""
+        cursor = MagicMock()
+        # completion_rate query: total=100, completed=50
+        cursor.fetchone.return_value = (100, 50)
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        goals = [
+            {
+                "id": "high-completion",
+                "metric": "completion_rate",
+                "target": ">0.95",
+                "weight": 1.0,
+            },
+        ]
+        score = engine._evaluate_goals("test-agent", goals, date(2026, 4, 14))
+        assert score == 0.0
+
+    @patch("robothor.db.connection.get_connection")
+    def test_weighted_partial(self, mock_conn):
+        """Mix of met/unmet with different weights."""
+        cursor = MagicMock()
+        # First call: completion_rate → total=100, completed=98 (meets >0.95)
+        # Second call: avg_duration_ms → avg=2000000 (does NOT meet <1800000)
+        cursor.fetchone.side_effect = [(100, 98), (2000000.0,)]
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        goals = [
+            {
+                "id": "high-completion",
+                "metric": "completion_rate",
+                "target": ">0.95",
+                "weight": 2.0,
+            },
+            {"id": "fast", "metric": "avg_duration_ms", "target": "<1800000", "weight": 1.0},
+        ]
+        score = engine._evaluate_goals("test-agent", goals, date(2026, 4, 14))
+        # Met: weight=2.0, Unmet: weight=1.0. Score = 2.0/3.0 ≈ 0.667
+        assert abs(score - 2.0 / 3.0) < 0.01
+
+    def test_empty_goals(self):
+        """Empty goals list → score = 1.0 (vacuously true)."""
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        score = engine._evaluate_goals("test-agent", [], date(2026, 4, 14))
+        assert score == 1.0
+
+    @patch("robothor.db.connection.get_connection")
+    def test_less_than_operator(self, mock_conn):
+        """Target with < operator."""
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (500000.0,)  # avg_duration_ms = 500s (meets <1800000)
+        mock_conn.return_value = _mock_conn_ctx(cursor)
+
+        from robothor.engine.buddy import BuddyEngine
+
+        engine = BuddyEngine()
+        goals = [
+            {"id": "fast", "metric": "avg_duration_ms", "target": "<1800000", "weight": 1.0},
+        ]
+        score = engine._evaluate_goals("test-agent", goals, date(2026, 4, 14))
+        assert score == 1.0

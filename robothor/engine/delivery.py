@@ -147,7 +147,7 @@ async def _generate_buddy_reflection(heartbeat_text: str, buddy_ctx: dict[str, A
 
     # Format deltas as readable string
     delta_parts = []
-    for dim in ("reliability", "debugging", "patience", "wisdom", "chaos"):
+    for dim in ("reliability", "debugging", "patience", "effectiveness", "benchmark"):
         d = deltas.get(dim, 0)
         if d != 0:
             delta_parts.append(f"{dim} {'+' if d > 0 else ''}{d}")

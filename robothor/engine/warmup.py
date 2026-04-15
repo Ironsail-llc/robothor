@@ -619,12 +619,12 @@ def _buddy_status_context(config: AgentConfig) -> str | None:
             f"{streak_current}-day streak"
             + (f" (record: {streak_longest})" if streak_longest > streak_current else ""),
             f"Scores: D:{scores.debugging_score} P:{scores.patience_score} "
-            f"C:{scores.chaos_score} W:{scores.wisdom_score} R:{scores.reliability_score}",
+            f"Eff:{scores.effectiveness_score} Bench:{scores.benchmark_dim_score} R:{scores.reliability_score}",
         ]
 
         if deltas:
             delta_parts = []
-            for dim in ("reliability", "debugging", "patience", "wisdom", "chaos"):
+            for dim in ("reliability", "debugging", "patience", "effectiveness", "benchmark"):
                 d = deltas.get(dim, 0)
                 if d != 0:
                     delta_parts.append(f"{dim[0].upper()}{'+' if d > 0 else ''}{d}")
