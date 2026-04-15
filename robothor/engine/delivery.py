@@ -10,6 +10,7 @@ Modes:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -97,12 +98,13 @@ def _is_trivial_output(text: str) -> bool:
     """Detect 'nothing to report' output that shouldn't be delivered.
 
     Short messages (<300 chars) containing common filler phrases are suppressed.
+    Uses word-boundary matching to avoid false positives on substrings.
     Substantial reports always get through.
     """
     if len(text) > 300:
         return False
     lower = text.lower()
-    return any(p in lower for p in _TRIVIAL_PATTERNS)
+    return any(re.search(r"\b" + re.escape(p) + r"\b", lower) for p in _TRIVIAL_PATTERNS)
 
 
 # ── Buddy reflection (subconscious one-liner) ────────────────────────────

@@ -66,7 +66,7 @@ from robothor.engine.tracking import create_run, create_step, create_steps_batch
 # Max seconds to wait for the next streaming chunk before aborting and
 # falling back to the next model.  Prevents stalled streams from hanging
 # the entire run (the stream *creation* timeout is separate — 120 s).
-STREAM_CHUNK_TIMEOUT = 120
+STREAM_CHUNK_TIMEOUT = 90
 
 
 class _StallWatchdog:
@@ -2546,7 +2546,7 @@ class AgentRunner:
             "messages": messages,
             "temperature": temperature,
             "max_tokens": get_output_tokens(model, input_est),
-            "timeout": 900 if model.startswith("ollama_chat/") else 600,
+            "timeout": 600 if model.startswith("ollama_chat/") else 300,
         }
         if stream:
             kwargs["stream"] = True

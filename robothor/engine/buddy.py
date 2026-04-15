@@ -1392,7 +1392,7 @@ class BuddyEngine:
 
         Returns count of reviews written.
         """
-        from robothor.crm.dal import create_review
+        from robothor.crm.dal import create_review, get_reviews
 
         count = 0
         for stats in fleet:
@@ -1404,6 +1404,14 @@ class BuddyEngine:
                 rating, label = 5, "excellent"
             else:
                 continue  # 60-89 is normal — no review needed
+
+            # Dedup: skip if a system review already exists for this agent today
+            try:
+                existing = get_reviews(stats.agent_id, days=1, reviewer_type="system")
+                if existing:
+                    continue
+            except Exception:
+                pass  # If check fails, write the review anyway
 
             create_review(
                 agent_id=stats.agent_id,
@@ -1557,8 +1565,8 @@ class BuddyEngine:
         overall = compute_overall_score(
             scores_today.debugging_score,
             scores_today.patience_score,
-            scores_today.chaos_score,
-            scores_today.wisdom_score,
+            scores_today.effectiveness_score,
+            scores_today.benchmark_dim_score,
             scores_today.reliability_score,
         )
 
