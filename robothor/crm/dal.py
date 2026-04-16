@@ -480,9 +480,14 @@ def merge_companies(
 def list_people(
     search: str | None = None, limit: int = 20, tenant_id: str = DEFAULT_TENANT
 ) -> list[dict[str, Any]]:
-    """List people, optionally filtered by search term."""
+    """List people, optionally filtered by search term.
+
+    When ``search`` is a name that matches the operator, the operator's row
+    is sorted first so agent-facing tools like ``list_people("Philip")``
+    resolve to the operator before other contacts sharing the name.
+    """
     if search:
-        return search_people(search, tenant_id)
+        return search_people(search, tenant_id, prefer_owner=True)
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(

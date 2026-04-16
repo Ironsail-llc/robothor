@@ -315,6 +315,30 @@ class TestSearchPeoplePreferOwner:
         assert "CASE WHEN" not in search_sql
 
 
+# ─── list_people delegates owner-priority ──────────────────────────────────
+
+
+class TestListPeopleOwnerPriority:
+    def test_list_people_with_search_uses_prefer_owner(self, monkeypatch):
+        """Agent-facing list_people must route name searches through owner-preferring order."""
+        captured: dict[str, Any] = {}
+
+        def fake_search_people(name, tenant_id=DEFAULT_TENANT, prefer_owner=False):
+            captured["prefer_owner"] = prefer_owner
+            captured["name"] = name
+            captured["tenant_id"] = tenant_id
+            return []
+
+        monkeypatch.setattr("robothor.crm.dal.search_people", fake_search_people)
+
+        from robothor.crm.dal import list_people
+
+        list_people(search="Philip", tenant_id=DEFAULT_TENANT)
+
+        assert captured["prefer_owner"] is True
+        assert captured["name"] == "Philip"
+
+
 # ─── resolve_contact owner-priority ─────────────────────────────────────────
 
 
