@@ -146,7 +146,7 @@ async def upsert_entity(
             """
             INSERT INTO memory_entities (name, entity_type, aliases, tenant_id)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (name, entity_type) DO UPDATE
+            ON CONFLICT (tenant_id, name, entity_type) DO UPDATE
             SET mention_count = memory_entities.mention_count + 1,
                 last_seen = NOW()
             RETURNING id
@@ -187,7 +187,7 @@ async def add_relation(
             """
             INSERT INTO memory_relations (source_entity_id, target_entity_id, relation_type, fact_id, confidence, tenant_id)
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (source_entity_id, target_entity_id, relation_type) DO UPDATE
+            ON CONFLICT (tenant_id, source_entity_id, target_entity_id, relation_type) DO UPDATE
             SET confidence = GREATEST(memory_relations.confidence, EXCLUDED.confidence)
             RETURNING id
             """,

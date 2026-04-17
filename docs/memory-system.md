@@ -1,21 +1,57 @@
 # Memory System
 
-The memory system is Genus OS's core -- a three-tier architecture where facts are extracted, deduplicated, scored, and organized into a knowledge graph. Memories decay, strengthen, get superseded by newer information, and consolidate over time.
+The memory system is Genus OS's core — a multi-store architecture where facts are extracted, deduplicated, scored, clustered into episodes, abstracted into procedures, and organized into a knowledge graph. Memory decays, strengthens, gets superseded, consolidates, and — when agents act on it unsuccessfully — self-invalidates.
 
-## Tables
+## Stores
 
-| Table | Purpose |
+| Store | Purpose |
 |-------|---------|
-| `short_term_memory` | 48h TTL, auto-expires, access-tracked |
-| `long_term_memory` | Permanent, summarized, importance-scored |
-| `memory_facts` | Structured facts with lifecycle columns |
-| `memory_entities` | Knowledge graph nodes (person, project, tech, ...) |
-| `memory_relations` | Knowledge graph edges (uses, works_at, manages, ...) |
-| `agent_memory_blocks` | Named text blocks for agent working memory |
-| `ingested_items` | Dedup tracking (content hash per source+item) |
+| `memory_facts` | Atomic distilled facts with lifecycle scoring (importance, decay, outcome_failures) |
+| `memory_entities` | Knowledge graph nodes (person, project, tech, …) |
+| `memory_relations` | Knowledge graph edges (uses, works_at, manages, …) |
+| `memory_insights` | LLM-discovered cross-domain connections |
+| `memory_episodes` | Time-bucketed event clusters (added 2026-04) |
+| `memory_procedures` | Skill library — named playbooks with success/failure tracking (added 2026-04) |
+| `agent_memory_blocks` | Named text blocks (persona, user_profile, preferences, self_model, …) |
+| `agent_breadcrumbs` | 7-day cross-run scratchpad per agent (added 2026-04) |
+| `chat_messages` | Verbatim conversation turns with embeddings + 90-day TTL (added 2026-04) |
+| `fact_access_log` | Per-run retrieval audit for outcome attribution (added 2026-04) |
+| `ingested_items` | Dedup tracking (content hash per source+item+tenant) |
 | `ingestion_watermarks` | Per-source progress and error tracking |
 
-All embedding columns are `vector(1024)` with IVFFlat indexes for cosine similarity search.
+All embedding columns are `vector(1024)` with HNSW indexes (m=16, ef_construction=200).
+
+## Retrieval
+
+`search_facts(query, …)` implements hybrid retrieval:
+
+1. Vector search (HNSW cosine, top 30)
+2. BM25 keyword search (GIN tsvector, top 30)
+3. **Reciprocal Rank Fusion** (k=60)
+4. Optional entity-graph expansion (follow relations)
+5. Optional **cross-encoder reranker** (Qwen3-Reranker-0.6B) — on by default; kill-switch via `MEMORY_RERANK_ENABLED=0`
+6. Optional appended `memory_insights`, `memory_episodes`, and verbatim `chat_messages` (low-weight RRF merge)
+
+## Lifecycle
+
+Nightly in `robothor/memory/lifecycle.py::run_lifecycle_maintenance`:
+
+1. Importance scoring (LLM-judged, 200/run, 600s budget)
+2. Decay computation (recency × access × reinforcement × importance × **outcome penalty**)
+3. Garbage pruning (low decay + low importance + zero accesses)
+4. Consolidation (similar facts merged, superseded via `is_active=FALSE`)
+5. Unconsolidated sweep
+6. Cross-domain insight discovery (72h window)
+7. Cross-entity relationship inference
+8. **Episode building** — cluster recent facts by time + entity overlap, LLM-title+summarize, embed
+9. **Preference tracking** — extract from high-importance facts, detect drift (stale flag)
+10. **Chat TTL** — delete 90d+ un-pinned, un-referenced verbatim turns
+11. **Breadcrumb pruning + promotion** — hot breadcrumbs promoted to `memory_facts`
+12. **Access log GC** — trim attribution history past 30d
+
+## Outcome-Driven Invalidation
+
+Every `search_memory` call logs fact IDs to `fact_access_log` keyed by `run_id`. When a run fails, `delivery.py` calls `bump_failure_for_run(run_id)` which increments `outcome_failures` on every fact the agent consulted. The decay scorer subtracts a per-failure penalty (capped at 0.4). Three or more failures also drop confidence. Self-correcting memory without dogmatic deletion.
 
 ## Fact Store
 

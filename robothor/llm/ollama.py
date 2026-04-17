@@ -224,7 +224,7 @@ async def chat(
     last_error: Exception | None = None
     for attempt in range(1):
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 resp = await client.post(f"{url}/api/chat", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
@@ -427,7 +427,7 @@ async def get_embeddings_batch_async(
     last_error: Exception | None = None
     for attempt in range(3):
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 resp = await client.post(f"{url}/api/embed", json=payload)
                 resp.raise_for_status()
                 embeddings: list[list[float]] = resp.json()["embeddings"]

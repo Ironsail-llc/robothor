@@ -68,25 +68,21 @@ def compute_decay_score(
     access_count: int,
     reinforcement_count: int,
     importance_score: float,
+    outcome_failures: int = 0,
 ) -> float:
     """Compute a decay score for a memory fact.
 
     The score represents how "alive" a memory is. Higher = more relevant.
     Recent, frequently accessed, reinforced, and important memories score higher.
-
-    Formula:
-        recency = exp(-hours_since_access / half_life)
-        access_boost = log(1 + access_count) / 5, capped at 0.3
-        reinforcement_boost = log(1 + reinforcement_count) / 5, capped at 0.2
-        importance_floor = importance_score * 0.4
-        score = max(importance_floor, recency) + access_boost + reinforcement_boost
-        clamped to [0.0, 1.0]
+    Facts that have been blamed for failed runs take a capped penalty so
+    repeated misattribution retires them faster.
 
     Args:
         last_accessed: When the memory was last accessed.
         access_count: Number of times the memory has been accessed.
         reinforcement_count: Number of times the memory was reinforced.
         importance_score: LLM-judged importance (0.0-1.0).
+        outcome_failures: Count of failed runs that consulted this fact.
 
     Returns:
         Decay score between 0.0 and 1.0.
@@ -108,6 +104,11 @@ def compute_decay_score(
 
     base = max(recency, importance_floor)
     score = base + access_boost + reinforcement_boost
+
+    if outcome_failures > 0:
+        from robothor.memory.outcomes import compute_outcome_penalty
+
+        score -= compute_outcome_penalty(outcome_failures)
 
     return max(0.0, min(1.0, score))
 
@@ -848,7 +849,8 @@ async def run_lifecycle_maintenance() -> dict[str, Any]:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
-            SELECT id, last_accessed, access_count, reinforcement_count, importance_score
+            SELECT id, last_accessed, access_count, reinforcement_count,
+                   importance_score, outcome_failures
             FROM memory_facts
             WHERE is_active = TRUE
             """
@@ -862,6 +864,7 @@ async def run_lifecycle_maintenance() -> dict[str, Any]:
                 access_count=fact["access_count"],
                 reinforcement_count=fact["reinforcement_count"],
                 importance_score=fact["importance_score"],
+                outcome_failures=fact.get("outcome_failures", 0) or 0,
             )
             cur.execute(
                 "UPDATE memory_facts SET decay_score = %s WHERE id = %s", (score, fact["id"])
@@ -992,6 +995,94 @@ async def run_lifecycle_maintenance() -> dict[str, Any]:
         step_timings["relationship_inference"],
     )
 
+    # Step 8: Episodic memory — cluster recent facts into time-bucketed episodes.
+    t6 = time.monotonic()
+    episode_stats: dict[str, Any] = {"candidates": 0, "clusters": 0, "episodes_stored": 0}
+    try:
+        from robothor.memory.episodes import build_episodes_from_facts
+
+        episode_stats = await build_episodes_from_facts(hours_back=72)
+    except Exception as e:
+        logger.warning("Episode building failed: %s", e)
+    step_timings["episodes"] = time.monotonic() - t6
+    logger.info("Step 8 (episodes): %s (%.1fs)", episode_stats, step_timings["episodes"])
+
+    # Step 9: Preference tracking — extract new preferences, detect drift.
+    t7 = time.monotonic()
+    preference_stats: dict[str, Any] = {
+        "extract": {"candidates": 0, "new": 0, "reinforced": 0, "skipped": 0},
+        "drift": {"checked": 0, "marked_stale": 0},
+    }
+    try:
+        from robothor.memory.preferences import (
+            detect_drift,
+            extract_preferences_from_facts,
+        )
+
+        preference_stats["extract"] = await extract_preferences_from_facts(hours_back=72)
+        preference_stats["drift"] = await detect_drift()
+    except Exception as e:
+        logger.warning("Preference tracking failed: %s", e)
+    step_timings["preferences"] = time.monotonic() - t7
+    logger.info(
+        "Step 9 (preferences): %s (%.1fs)",
+        preference_stats,
+        step_timings["preferences"],
+    )
+
+    # Step 10: Chat turn TTL — delete old un-pinned, un-referenced chat turns.
+    t8 = time.monotonic()
+    chat_pruned = 0
+    try:
+        from robothor.engine.chat_store import cleanup_stale_chat_turns
+
+        chat_pruned = await asyncio.to_thread(cleanup_stale_chat_turns, 90)
+    except Exception as e:
+        logger.warning("Chat turn TTL failed: %s", e)
+    step_timings["chat_ttl"] = time.monotonic() - t8
+    logger.info(
+        "Step 10 (chat_ttl): %d pruned (%.1fs)",
+        chat_pruned,
+        step_timings["chat_ttl"],
+    )
+
+    # Step 11: Breadcrumbs — prune expired + promote hot ones to memory_facts.
+    t9 = time.monotonic()
+    breadcrumb_stats: dict[str, Any] = {"pruned": 0, "promoted": 0}
+    try:
+        from robothor.memory.breadcrumbs import (
+            promote_hot_breadcrumbs,
+            prune_expired_breadcrumbs,
+        )
+
+        breadcrumb_stats["pruned"] = await asyncio.to_thread(prune_expired_breadcrumbs)
+        promo = await promote_hot_breadcrumbs()
+        breadcrumb_stats["promoted"] = promo.get("promoted", 0)
+    except Exception as e:
+        logger.warning("Breadcrumb maintenance failed: %s", e)
+    step_timings["breadcrumbs"] = time.monotonic() - t9
+    logger.info(
+        "Step 11 (breadcrumbs): %s (%.1fs)",
+        breadcrumb_stats,
+        step_timings["breadcrumbs"],
+    )
+
+    # Step 12: Outcome access log GC — trim attribution history past 30 days.
+    t10 = time.monotonic()
+    access_log_pruned = 0
+    try:
+        from robothor.memory.outcomes import cleanup_old_access_logs
+
+        access_log_pruned = await asyncio.to_thread(cleanup_old_access_logs, 30)
+    except Exception as e:
+        logger.warning("Access log cleanup failed: %s", e)
+    step_timings["access_log_cleanup"] = time.monotonic() - t10
+    logger.info(
+        "Step 12 (access log cleanup): %d pruned (%.1fs)",
+        access_log_pruned,
+        step_timings["access_log_cleanup"],
+    )
+
     total_time = time.monotonic() - t0
     logger.info("Lifecycle maintenance complete in %.1fs: %s", total_time, step_timings)
 
@@ -1005,6 +1096,11 @@ async def run_lifecycle_maintenance() -> dict[str, Any]:
         "facts_pruned": prune_result.get("total_pruned", 0),
         "consolidation_groups": consolidation_groups,
         "unconsolidated_swept": swept,
+        "episodes": episode_stats,
+        "preferences": preference_stats,
+        "chat_turns_pruned": chat_pruned,
+        "breadcrumbs": breadcrumb_stats,
+        "access_log_pruned": access_log_pruned,
         "insights": insight_result,
         "relations_inferred": len(inferred_relations),
         "step_timings": step_timings,

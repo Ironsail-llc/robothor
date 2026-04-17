@@ -180,26 +180,25 @@ async def memory_blocks(llm_client) -> dict[str, Any]:
 
     # --- contacts_summary ---
     try:
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT fact_text FROM memory_facts
-            WHERE source_type = 'engagement_score'
-              AND created_at > NOW() - INTERVAL '2 days'
-            ORDER BY created_at DESC
-            LIMIT 50
-        """)
-        scores = [r["fact_text"] for r in cur.fetchall()]
+        with get_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("""
+                SELECT fact_text FROM memory_facts
+                WHERE source_type = 'engagement_score'
+                  AND created_at > NOW() - INTERVAL '2 days'
+                ORDER BY created_at DESC
+                LIMIT 50
+            """)
+            scores = [r["fact_text"] for r in cur.fetchall()]
 
-        cur.execute("""
-            SELECT fact_text FROM memory_facts
-            WHERE metadata->>'type' = 'relationship_brief'
-              AND created_at > NOW() - INTERVAL '2 days'
-            ORDER BY created_at DESC
-            LIMIT 20
-        """)
-        briefs = [r["fact_text"] for r in cur.fetchall()]
-        conn.close()
+            cur.execute("""
+                SELECT fact_text FROM memory_facts
+                WHERE metadata->>'type' = 'relationship_brief'
+                  AND created_at > NOW() - INTERVAL '2 days'
+                ORDER BY created_at DESC
+                LIMIT 20
+            """)
+            briefs = [r["fact_text"] for r in cur.fetchall()]
 
         if scores or briefs:
             input_text = "Engagement scores:\n" + "\n".join(scores[:20])
@@ -257,17 +256,16 @@ Write a concise, structured summary.""",
                     "Upcoming meetings: " + ", ".join([m.get("summary", "?") for m in meetings[:5]])
                 )
 
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT fact_text FROM memory_facts
-            WHERE metadata->>'type' = 'cross_system_pattern'
-              AND created_at > NOW() - INTERVAL '2 days'
-            ORDER BY created_at DESC
-            LIMIT 10
-        """)
-        patterns = [r["fact_text"] for r in cur.fetchall()]
-        conn.close()
+        with get_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("""
+                SELECT fact_text FROM memory_facts
+                WHERE metadata->>'type' = 'cross_system_pattern'
+                  AND created_at > NOW() - INTERVAL '2 days'
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
+            patterns = [r["fact_text"] for r in cur.fetchall()]
 
         if patterns:
             context_parts.append("Patterns detected:\n" + "\n".join(patterns[:5]))
@@ -298,17 +296,16 @@ Write a concise handoff note for the next session.""",
 
     # --- operational_findings ---
     try:
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT fact_text FROM memory_facts
-            WHERE (category IN ('technical', 'project') OR source_type = 'decision')
-              AND created_at > NOW() - INTERVAL '7 days'
-            ORDER BY created_at DESC
-            LIMIT 20
-        """)
-        tech_facts = [r["fact_text"] for r in cur.fetchall()]
-        conn.close()
+        with get_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("""
+                SELECT fact_text FROM memory_facts
+                WHERE (category IN ('technical', 'project') OR source_type = 'decision')
+                  AND created_at > NOW() - INTERVAL '7 days'
+                ORDER BY created_at DESC
+                LIMIT 20
+            """)
+            tech_facts = [r["fact_text"] for r in cur.fetchall()]
 
         if tech_facts:
             input_text = "\n".join(tech_facts)
@@ -344,16 +341,15 @@ async def entity_enrichment() -> dict[str, Any]:
     try:
         from robothor.memory.entities import extract_entities_batch
 
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT f.id FROM memory_facts f
-            WHERE f.created_at > NOW() - INTERVAL '4 hours'
-              AND (f.entities IS NULL OR array_length(f.entities, 1) IS NULL)
-            LIMIT 50
-        """)
-        unlinked_ids = [r["id"] for r in cur.fetchall()]
-        conn.close()
+        with get_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("""
+                SELECT f.id FROM memory_facts f
+                WHERE f.created_at > NOW() - INTERVAL '4 hours'
+                  AND (f.entities IS NULL OR array_length(f.entities, 1) IS NULL)
+                LIMIT 50
+            """)
+            unlinked_ids = [r["id"] for r in cur.fetchall()]
 
         results["facts_processed"] = len(unlinked_ids)
 
@@ -393,236 +389,237 @@ def contact_reconciliation() -> dict[str, Any]:
         from robothor.memory.contact_matching import find_best_match
         from robothor.owner_config import load_owner_config
 
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        with get_connection() as conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Resolve the operator's memory_entities row + nickname set once.
-        # Without this, find_best_match can't prefer the owner on name-only
-        # ties (e.g. "Alice" matching both "Alice Owner" and "Alice Example"
-        # with equal score), so the tiebreak added in PR #97 was unreachable
-        # from production. See robothor/memory/contact_matching.find_best_match.
-        owner_candidate_id = None
-        owner_nicknames: set[str] = set()
-        try:
-            owner_cfg = load_owner_config()
-            owner_person = get_owner_person(tenant_id=owner_cfg.tenant_id)
-            if owner_person:
-                # Look up the memory_entities row that mirrors the owner,
-                # keyed by name (periodic_analysis runs against memory_entities).
-                cur.execute(
-                    """
-                    SELECT id FROM memory_entities
+            # Resolve the operator's memory_entities row + nickname set once.
+            # Without this, find_best_match can't prefer the owner on name-only
+            # ties (e.g. "Alice" matching both "Alice Owner" and "Alice Example"
+            # with equal score), so the tiebreak added in PR #97 was unreachable
+            # from production. See robothor/memory/contact_matching.find_best_match.
+            owner_candidate_id = None
+            owner_nicknames: set[str] = set()
+            try:
+                owner_cfg = load_owner_config()
+                owner_person = get_owner_person(tenant_id=owner_cfg.tenant_id)
+                if owner_person:
+                    # Look up the memory_entities row that mirrors the owner.
+                    cur.execute(
+                        """
+                        SELECT id FROM memory_entities
+                        WHERE entity_type = 'person'
+                          AND LOWER(name) = LOWER(%s)
+                        LIMIT 1
+                        """,
+                        (
+                            f"{owner_person['first_name']} {owner_person['last_name']}".strip(),
+                        ),
+                    )
+                    owner_row = cur.fetchone()
+                    if owner_row:
+                        owner_candidate_id = owner_row["id"]
+                owner_nicknames = {
+                    n.lower()
+                    for n in (
+                        *owner_cfg.nicknames,
+                        owner_cfg.first_name,
+                        owner_cfg.last_name,
+                    )
+                    if n
+                }
+            except Exception as e:
+                logger.debug(
+                    "owner context unavailable for find_best_match tiebreak: %s", e
+                )
+
+            # --- Reconciliation: link memory_entity_id ---
+
+            # Get contact_identifiers rows with NULL memory_entity_id
+            # Skip service accounts and bots by filtering known non-person names
+            cur.execute("""
+                SELECT id, display_name, channel, identifier, person_id
+                FROM contact_identifiers
+                WHERE memory_entity_id IS NULL
+                  AND display_name NOT IN ('test', 'Gemini', 'LinkedIn', 'robothor', 'OpenRouter Team')
+            """)
+            unlinked = cur.fetchall()
+
+            if unlinked:
+                # Get all person entities from memory
+                cur.execute("""
+                    SELECT id, name, entity_type, mention_count, aliases
+                    FROM memory_entities
                     WHERE entity_type = 'person'
-                      AND LOWER(name) = LOWER(%s)
-                    LIMIT 1
-                    """,
-                    (f"{owner_person['first_name']} {owner_person['last_name']}".strip(),),
-                )
-                owner_row = cur.fetchone()
-                if owner_row:
-                    owner_candidate_id = owner_row["id"]
-            owner_nicknames = {
-                n.lower()
-                for n in (
-                    *owner_cfg.nicknames,
-                    owner_cfg.first_name,
-                    owner_cfg.last_name,
-                )
-                if n
-            }
-        except Exception as e:
-            logger.debug("owner context unavailable for find_best_match tiebreak: %s", e)
+                """)
+                person_entities = cur.fetchall()
 
-        # --- Reconciliation: link memory_entity_id ---
+                for row in unlinked:
+                    display_name = row.get("display_name", "")
+                    if not display_name:
+                        continue
 
-        # Get contact_identifiers rows with NULL memory_entity_id
-        # Skip service accounts and bots by filtering known non-person names
-        cur.execute("""
-            SELECT id, display_name, channel, identifier, person_id
-            FROM contact_identifiers
-            WHERE memory_entity_id IS NULL
-              AND display_name NOT IN ('test', 'Gemini', 'LinkedIn', 'robothor', 'OpenRouter Team')
-        """)
-        unlinked = cur.fetchall()
+                    match = find_best_match(
+                        display_name,
+                        person_entities,
+                        threshold=0.75,
+                        owner_candidate_id=owner_candidate_id,
+                        owner_nicknames=owner_nicknames,
+                    )
 
-        if unlinked:
-            # Get all person entities from memory
+                    if match:
+                        cur.execute(
+                            """
+                            UPDATE contact_identifiers
+                            SET memory_entity_id = %s, updated_at = NOW()
+                            WHERE id = %s AND memory_entity_id IS NULL
+                        """,
+                            (match["id"], row["id"]),
+                        )
+                        results["entities_linked"] += 1
+                        logger.info(
+                            "  Linked '%s' → entity '%s' (score=%.2f)",
+                            display_name,
+                            match["name"],
+                            match["match_score"],
+                        )
+
+                conn.commit()
+
+            # --- Discovery: find people who should be in CRM ---
+
+            # Get entity IDs already in contact_identifiers
+            cur.execute("""
+                SELECT DISTINCT memory_entity_id FROM contact_identifiers
+                WHERE memory_entity_id IS NOT NULL
+            """)
+            linked_entity_ids = {r["memory_entity_id"] for r in cur.fetchall()}
+
+            # Get display_names already in contact_identifiers (for name-based dedup)
+            cur.execute("SELECT DISTINCT display_name FROM contact_identifiers")
+            existing_names = {r["display_name"].lower() for r in cur.fetchall() if r["display_name"]}
+
+            # Also get existing CRM contact names to avoid creating duplicates
+            try:
+                from crm_fetcher import fetch_all_contacts
+
+                crm_contacts = fetch_all_contacts()
+                for c in crm_contacts:
+                    full = f"{c.get('firstName', '')} {c.get('lastName', '')}".strip().lower()
+                    if full:
+                        existing_names.add(full)
+                    # Also add individual first names for matching
+                    first = c.get("firstName", "").strip().lower()
+                    if first:
+                        existing_names.add(first)
+            except Exception:
+                pass
+
+            # High-mention person entities not already linked
             cur.execute("""
                 SELECT id, name, entity_type, mention_count, aliases
                 FROM memory_entities
                 WHERE entity_type = 'person'
+                  AND mention_count >= 5
+                ORDER BY mention_count DESC
             """)
-            person_entities = cur.fetchall()
+            high_mention_entities = cur.fetchall()
 
-            for row in unlinked:
-                display_name = row.get("display_name", "")
-                if not display_name:
-                    continue
+            # Also gather recent meeting attendees
+            meeting_attendees = set()
+            transcripts_path = MEMORY_DIR / "meet-transcripts.json"
+            if transcripts_path.exists():
+                try:
+                    transcripts_data = json.loads(transcripts_path.read_text())
+                    # Format: {entries: {doc_id: {date, attendees, ...}}}
+                    entries = transcripts_data.get("entries", {})
+                    if isinstance(entries, dict):
+                        entries = entries.values()
+                    cutoff = datetime.now() - timedelta(days=7)
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+                        date_str = entry.get("date", "")
+                        if date_str:
+                            try:
+                                meeting_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                                if meeting_date.tzinfo:
+                                    meeting_date = meeting_date.replace(tzinfo=None)
+                                if meeting_date < cutoff:
+                                    continue
+                            except (ValueError, TypeError):
+                                pass
+                        for attendee in entry.get("attendees", []):
+                            if attendee and len(attendee) > 2:
+                                meeting_attendees.add(attendee)
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
-                match = find_best_match(
-                    display_name,
-                    person_entities,
-                    threshold=0.75,
-                    owner_candidate_id=owner_candidate_id,
-                    owner_nicknames=owner_nicknames,
-                )
+            # Build candidates list from existing names for fuzzy dedup
+            existing_name_list = [{"name": n} for n in existing_names]
 
-                if match:
-                    cur.execute(
-                        """
-                        UPDATE contact_identifiers
-                        SET memory_entity_id = %s, updated_at = NOW()
-                        WHERE id = %s AND memory_entity_id IS NULL
-                    """,
-                        (match["id"], row["id"]),
-                    )
-                    results["entities_linked"] += 1
-                    logger.info(
-                        "  Linked '%s' → entity '%s' (score=%.2f)",
-                        display_name,
-                        match["name"],
-                        match["match_score"],
-                    )
-
-            conn.commit()
-
-        # --- Discovery: find people who should be in CRM ---
-
-        # Get entity IDs already in contact_identifiers
-        cur.execute("""
-            SELECT DISTINCT memory_entity_id FROM contact_identifiers
-            WHERE memory_entity_id IS NOT NULL
-        """)
-        linked_entity_ids = {r["memory_entity_id"] for r in cur.fetchall()}
-
-        # Get display_names already in contact_identifiers (for name-based dedup)
-        cur.execute("SELECT DISTINCT display_name FROM contact_identifiers")
-        existing_names = {r["display_name"].lower() for r in cur.fetchall() if r["display_name"]}
-
-        # Also get existing CRM contact names to avoid creating duplicates
-        try:
-            from crm_fetcher import fetch_all_contacts
-
-            crm_contacts = fetch_all_contacts()
-            for c in crm_contacts:
-                full = f"{c.get('firstName', '')} {c.get('lastName', '')}".strip().lower()
-                if full:
-                    existing_names.add(full)
-                # Also add individual first names for matching
-                first = c.get("firstName", "").strip().lower()
-                if first:
-                    existing_names.add(first)
-        except Exception:
-            pass
-
-        # High-mention person entities not already linked
-        cur.execute("""
-            SELECT id, name, entity_type, mention_count, aliases
-            FROM memory_entities
-            WHERE entity_type = 'person'
-              AND mention_count >= 5
-            ORDER BY mention_count DESC
-        """)
-        high_mention_entities = cur.fetchall()
-
-        # Also gather recent meeting attendees
-        meeting_attendees = set()
-        transcripts_path = MEMORY_DIR / "meet-transcripts.json"
-        if transcripts_path.exists():
+            # Build set of known last names to detect reversed/artifact names
+            known_last_names = set()
             try:
-                transcripts_data = json.loads(transcripts_path.read_text())
-                # Format: {entries: {doc_id: {date, attendees, ...}}}
-                entries = transcripts_data.get("entries", {})
-                if isinstance(entries, dict):
-                    entries = entries.values()
-                cutoff = datetime.now() - timedelta(days=7)
-                for entry in entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    date_str = entry.get("date", "")
-                    if date_str:
-                        try:
-                            meeting_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-                            if meeting_date.tzinfo:
-                                meeting_date = meeting_date.replace(tzinfo=None)
-                            if meeting_date < cutoff:
-                                continue
-                        except (ValueError, TypeError):
-                            pass
-                    for attendee in entry.get("attendees", []):
-                        if attendee and len(attendee) > 2:
-                            meeting_attendees.add(attendee)
-            except (json.JSONDecodeError, TypeError):
+                for c in crm_contacts:
+                    ln = c.get("lastName", "").strip().lower()
+                    if ln:
+                        known_last_names.add(ln)
+            except Exception:
                 pass
 
-        # Build candidates list from existing names for fuzzy dedup
-        existing_name_list = [{"name": n} for n in existing_names]
+            # Process high-mention entities
+            discovered = []
+            for entity in high_mention_entities:
+                if entity["id"] in linked_entity_ids:
+                    continue
+                if entity["name"].lower() in existing_names:
+                    continue
+                # Fuzzy check against existing CRM contacts
+                if find_best_match(entity["name"], existing_name_list, threshold=0.8):
+                    continue
+                # Skip reversed names (last name first) — parsing artifacts
+                name_parts = entity["name"].split()
+                if len(name_parts) >= 2 and name_parts[0].lower() in known_last_names:
+                    logger.debug("  Skipping reversed entity name: '%s'", entity["name"])
+                    continue
+                # Skip generic single-word names that are too common
+                if len(name_parts) == 1 and entity["mention_count"] < 10:
+                    continue
 
-        # Build set of known last names to detect reversed/artifact names
-        known_last_names = set()
-        try:
-            for c in crm_contacts:
-                ln = c.get("lastName", "").strip().lower()
-                if ln:
-                    known_last_names.add(ln)
-        except Exception:
-            pass
+                discovered.append(entity)
+                results["contacts_discovered"] += 1
 
-        # Process high-mention entities
-        discovered = []
-        for entity in high_mention_entities:
-            if entity["id"] in linked_entity_ids:
-                continue
-            if entity["name"].lower() in existing_names:
-                continue
-            # Fuzzy check against existing CRM contacts
-            if find_best_match(entity["name"], existing_name_list, threshold=0.8):
-                continue
-            # Skip reversed names (last name first) — parsing artifacts
-            name_parts = entity["name"].split()
-            if len(name_parts) >= 2 and name_parts[0].lower() in known_last_names:
-                logger.debug("  Skipping reversed entity name: '%s'", entity["name"])
-                continue
-            # Skip generic single-word names that are too common
-            if len(name_parts) == 1 and entity["mention_count"] < 10:
-                continue
+            # Process meeting attendees not in CRM
+            for attendee in meeting_attendees:
+                if attendee.lower() in existing_names:
+                    continue
+                # Fuzzy check against existing CRM contacts
+                if find_best_match(attendee, existing_name_list, threshold=0.8):
+                    continue
+                # Skip reversed names like "Doe Smith" or "Johnson Jane"
+                att_parts = attendee.split()
+                if len(att_parts) >= 2 and att_parts[0].lower() in known_last_names:
+                    logger.debug("  Skipping reversed name: '%s'", attendee)
+                    continue
+                # Check if already in discovered entities
+                if discovered and find_best_match(
+                    attendee, [{"name": d["name"]} for d in discovered], threshold=0.85
+                ):
+                    continue
 
-            discovered.append(entity)
-            results["contacts_discovered"] += 1
+                discovered.append(
+                    {
+                        "id": None,
+                        "name": attendee,
+                        "mention_count": 1,
+                        "source": "meeting",
+                    }
+                )
+                results["contacts_discovered"] += 1
 
-        # Process meeting attendees not in CRM
-        for attendee in meeting_attendees:
-            if attendee.lower() in existing_names:
-                continue
-            # Fuzzy check against existing CRM contacts
-            if find_best_match(attendee, existing_name_list, threshold=0.8):
-                continue
-            # Skip reversed names like "Doe Smith" or "Johnson Jane"
-            att_parts = attendee.split()
-            if len(att_parts) >= 2 and att_parts[0].lower() in known_last_names:
-                logger.debug("  Skipping reversed name: '%s'", attendee)
-                continue
-            # Check if already in discovered entities
-            if discovered and find_best_match(
-                attendee, [{"name": d["name"]} for d in discovered], threshold=0.85
-            ):
-                continue
-
-            discovered.append(
-                {
-                    "id": None,
-                    "name": attendee,
-                    "mention_count": 1,
-                    "source": "meeting",
-                }
-            )
-            results["contacts_discovered"] += 1
-
-        # Create CRM records for discovered contacts
-        if discovered:
-            _create_crm_records(discovered, cur, conn, results)
-
-        conn.close()
+            # Create CRM records for discovered contacts
+            if discovered:
+                _create_crm_records(discovered, cur, conn, results)
 
     except Exception as e:
         logger.error("Contact reconciliation failed: %s", e)
@@ -659,7 +656,7 @@ def _create_crm_records(
                     INSERT INTO contact_identifiers
                         (channel, identifier, display_name, person_id, memory_entity_id)
                     VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (channel, identifier) DO NOTHING
+                    ON CONFLICT (tenant_id, channel, identifier) DO NOTHING
                 """,
                     ("crm", f"person:{person_id}", name, person_id, entity.get("id")),
                 )

@@ -178,3 +178,44 @@ async def analyze_knowledge_gaps() -> dict[str, Any]:
         "thin_clusters": await find_thin_entity_clusters(),
         "uncertainty_signals": await find_uncertainty_signals(),
     }
+
+
+async def get_memory_density_metrics() -> dict[str, Any]:
+    """Summary gap metrics for reactive curiosity decisions.
+
+    Returns counts of orphans, low-confidence facts, imbalances, thin clusters,
+    plus a boolean `should_spawn` signal set when enough gaps accumulate to
+    warrant an out-of-cycle curiosity-engine run.
+    """
+    orphans = await find_orphaned_entities(limit=50)
+    low_conf = await find_low_confidence_facts(limit=50)
+    imbalances = await find_entity_type_imbalances()
+    thin = await find_thin_entity_clusters(limit=50)
+    uncertainty = await find_uncertainty_signals(limit=50)
+
+    orphan_count = len(orphans)
+    low_conf_count = len(low_conf)
+    thin_count = len(thin)
+    imbalance_count = len(imbalances)
+    uncertainty_count = len(uncertainty)
+
+    # Heuristic: spawn reactively when the gap surface is meaningfully large.
+    # Any single dimension can trip it independently — orphans/thin/uncertainty
+    # are all signals that curiosity should run sooner rather than waiting
+    # for the Sunday cron.
+    should_spawn = (
+        orphan_count >= 20
+        or thin_count >= 15
+        or uncertainty_count >= 10
+        or low_conf_count >= 30
+        or imbalance_count >= 3
+    )
+
+    return {
+        "orphan_count": orphan_count,
+        "low_confidence_count": low_conf_count,
+        "thin_cluster_count": thin_count,
+        "imbalance_count": imbalance_count,
+        "uncertainty_count": uncertainty_count,
+        "should_spawn": should_spawn,
+    }
