@@ -809,7 +809,14 @@ def _segment_transcript(transcript: str, max_chars: int = 3000) -> list[str]:
 
 
 async def ingest_google_meet() -> dict[str, int]:
-    """Ingest Google Meet transcripts from meet-transcripts.json."""
+    """Ingest Google Meet transcripts from meet-transcripts.json.
+
+    Bounded by a wall-clock budget (220s) and a per-run doc cap so we always
+    finish ahead of the 300s outer timeout. Dedup makes subsequent runs
+    resume cleanly on any unprocessed docs.
+    """
+    import time as _time
+
     from robothor.memory.ingest_state import (
         content_hash,
         is_already_ingested,
@@ -817,6 +824,10 @@ async def ingest_google_meet() -> dict[str, int]:
         record_ingested,
         update_watermark,
     )
+
+    _MEET_BUDGET_S = 220.0  # leave headroom under the 300s source timeout
+    _MEET_MAX_DOCS_PER_RUN = 3
+    _t_start = _time.monotonic()
 
     results = {"new": 0, "skipped": 0, "errors": 0}
     transcripts_path = MEMORY_DIR / "meet-transcripts.json"
@@ -827,8 +838,22 @@ async def ingest_google_meet() -> dict[str, int]:
 
     try:
         data = json.loads(transcripts_path.read_text())
+        docs_processed = 0
 
         for doc_id, entry in data.get("entries", {}).items():
+            if docs_processed >= _MEET_MAX_DOCS_PER_RUN:
+                logger.info(
+                    "google_meet: hit per-run doc cap (%d), resuming next cycle",
+                    _MEET_MAX_DOCS_PER_RUN,
+                )
+                break
+            if _time.monotonic() - _t_start > _MEET_BUDGET_S:
+                logger.info(
+                    "google_meet: wall-clock budget exhausted (%.0fs), resuming next cycle",
+                    _MEET_BUDGET_S,
+                )
+                break
+
             h = content_hash(entry, ["docId", "modifiedTime"])
 
             if is_already_ingested("google_meet", doc_id, h):
@@ -906,6 +931,7 @@ Attendees: {attendees}
 
             record_ingested("google_meet", doc_id, h, all_fact_ids)
             results["new"] += 1
+            docs_processed += 1
 
         update_watermark("google_meet", results["new"])
 

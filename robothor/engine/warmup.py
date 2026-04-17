@@ -124,6 +124,32 @@ def build_warmth_preamble(
     except Exception as e:
         logger.debug("Warmup context hooks failed for %s: %s", config.id, e)
 
+    # 5b. Agent breadcrumbs — mid-task state from recent runs of this agent.
+    try:
+        from robothor.memory.breadcrumbs import (
+            format_breadcrumbs_for_warmup,
+            load_recent_breadcrumbs,
+        )
+
+        breadcrumbs = load_recent_breadcrumbs(config.id, limit=5, tenant_id=tenant_id)
+        bc_section = format_breadcrumbs_for_warmup(breadcrumbs)
+        if bc_section:
+            sections.append(bc_section)
+    except Exception as e:
+        logger.debug("Warmup breadcrumbs failed for %s: %s", config.id, e)
+
+    # 5c. Stale preferences — surface anything needing re-confirmation.
+    try:
+        from robothor.memory.preferences import get_stale_preferences
+
+        stale = get_stale_preferences(tenant_id=tenant_id)
+        if stale:
+            lines = ["# Preferences flagged as possibly stale (verify with operator)"]
+            lines.extend(f"- {p.get('preference', '?')}" for p in stale[:5])
+            sections.append("\n".join(lines))
+    except Exception as e:
+        logger.debug("Warmup preferences failed for %s: %s", config.id, e)
+
     # 6. Agent-aware context hooks (git status, etc.)
     try:
         agent_ctx = _run_agent_context_hooks(config)

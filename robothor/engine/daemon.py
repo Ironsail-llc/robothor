@@ -278,6 +278,7 @@ async def main() -> None:
         ),
         asyncio.create_task(_watchdog(config, scheduler), name="watchdog"),
         asyncio.create_task(_autodream_loop(), name="autodream"),
+        asyncio.create_task(_curiosity_density_loop(scheduler), name="curiosity-density"),
     ]
 
     logger.info("All subsystems started")
@@ -524,6 +525,58 @@ async def _watchdog(config: EngineConfig, scheduler: CronScheduler) -> None:
                     )
             except Exception:
                 pass
+
+
+_CURIOSITY_COOLDOWN_SECONDS = 6 * 3600  # 6h minimum between reactive spawns
+_CURIOSITY_CHECK_INTERVAL = 30 * 60  # check density every 30 min
+_curiosity_last_spawn_ts: float = 0.0
+
+
+async def _curiosity_density_loop(scheduler: Any) -> None:
+    """Reactive curiosity engine spawner.
+
+    Every 30 minutes, polls gap_analysis metrics. If knowledge density is low
+    (orphans / thin clusters / uncertainty signals cross thresholds) AND the
+    reactive cooldown has elapsed, spawn the curiosity-engine agent off-cycle
+    so it can fill gaps without waiting for the Sunday cron.
+
+    The cron-scheduled Sunday run remains as a floor.
+    """
+    global _curiosity_last_spawn_ts  # noqa: PLW0603
+
+    from robothor.engine.dedup import running_agents
+    from robothor.memory.gap_analysis import get_memory_density_metrics
+
+    # Initial wait so we don't spawn immediately after boot
+    await asyncio.sleep(300)
+
+    while True:
+        await asyncio.sleep(_CURIOSITY_CHECK_INTERVAL)
+        try:
+            now = time.time()
+            if now - _curiosity_last_spawn_ts < _CURIOSITY_COOLDOWN_SECONDS:
+                continue
+            if "curiosity-engine" in running_agents():
+                continue
+
+            metrics = await get_memory_density_metrics()
+            if not metrics.get("should_spawn"):
+                continue
+
+            logger.info(
+                "curiosity-density: reactive spawn triggered "
+                "(orphans=%d thin=%d uncertainty=%d low_conf=%d)",
+                metrics["orphan_count"],
+                metrics["thin_cluster_count"],
+                metrics["uncertainty_count"],
+                metrics["low_confidence_count"],
+            )
+            _curiosity_last_spawn_ts = now
+            await scheduler._run_agent("curiosity-engine")  # noqa: SLF001
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.warning("curiosity-density loop error: %s", e)
 
 
 async def _autodream_loop() -> None:

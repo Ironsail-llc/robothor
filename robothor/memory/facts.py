@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -209,7 +210,9 @@ async def extract_facts(content: str, max_retries: int = 3) -> list[dict[str, An
     Retries on empty results because thinking models sometimes exhaust
     their token budget on reasoning before producing content.
 
-    Hard-capped at 45s total to prevent Ollama hangs from blocking agent runs.
+    Hard-capped at 180s total to prevent Ollama hangs from blocking agent runs.
+    This budget accommodates realistic conversation chunks (~3KB) on qwen3:32b
+    with structured JSON output.
 
     Args:
         content: Unstructured text content.
@@ -219,9 +222,9 @@ async def extract_facts(content: str, max_retries: int = 3) -> list[dict[str, An
         List of extracted fact dictionaries, or empty list on failure.
     """
     try:
-        return await asyncio.wait_for(_extract_facts_inner(content, max_retries), timeout=45.0)
+        return await asyncio.wait_for(_extract_facts_inner(content, max_retries), timeout=180.0)
     except TimeoutError:
-        logger.warning("extract_facts hard timeout (45s) — returning empty")
+        logger.warning("extract_facts hard timeout (180s) — returning empty")
         return []
 
 
@@ -239,6 +242,7 @@ async def _extract_facts_inner(
                 system="Extract facts from the content as a JSON array.",
                 max_tokens=1024,
                 format=FACT_EXTRACTION_SCHEMA,
+                think=False,
             )
             logger.info("LLM returned %d chars", len(raw) if raw else 0)
             if not raw or not raw.strip():
@@ -405,13 +409,21 @@ async def search_insights(
     return results
 
 
+def _reranker_enabled_default() -> bool:
+    """Feature flag for reranker. Default on; kill-switch via env."""
+    raw = os.environ.get("MEMORY_RERANK_ENABLED", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
 async def search_facts(
     query: str,
     limit: int = 10,
     active_only: bool = True,
-    use_reranker: bool = False,
+    use_reranker: bool | None = None,
     expand_entities: bool = False,
     include_insights: bool = False,
+    include_episodes: bool = False,
+    include_chat_turns: bool = False,
     tenant_id: str = "",
 ) -> list[dict[str, Any]]:
     """Hybrid search: vector similarity + BM25 keyword matching with RRF fusion.
@@ -427,12 +439,16 @@ async def search_facts(
         query: Search query text.
         limit: Maximum number of results.
         active_only: If True, only return active (non-superseded) facts.
-        use_reranker: If True, run reranker on candidates.
+        use_reranker: If True, run reranker on candidates. If None (default),
+            honors MEMORY_RERANK_ENABLED env flag (on by default).
         expand_entities: If True, pull related entity facts.
 
     Returns:
         List of matching fact dictionaries sorted by relevance.
     """
+    if use_reranker is None:
+        use_reranker = _reranker_enabled_default()
+
     embedding = await llm_client.get_embedding_async(query)
 
     active_clause = "AND is_active = TRUE" if active_only else ""
@@ -545,12 +561,21 @@ async def search_facts(
     # Optional reranker pass
     if use_reranker and candidates:
         try:
-            from brain.memory_system.reranker import rerank_with_fallback
+            import time
+
+            from robothor.rag.reranker import rerank_with_fallback
 
             for c in candidates:
                 c["content"] = c.get("fact_text", "")
+            t0 = time.time()
             reranked: list[dict[str, Any]] = await rerank_with_fallback(
                 query, candidates, top_k=limit
+            )
+            logger.info(
+                "search_facts rerank: %d candidates → %d results in %dms",
+                len(candidates),
+                len(reranked),
+                int((time.time() - t0) * 1000),
             )
             if include_insights:
                 try:
@@ -559,8 +584,8 @@ async def search_facts(
                 except Exception:
                     pass
             return reranked
-        except Exception:
-            pass  # Fall through to return without reranker
+        except Exception as e:
+            logger.warning("search_facts rerank failed, falling back: %s", e)
 
     result = candidates[:limit]
 
@@ -571,6 +596,33 @@ async def search_facts(
             result.extend(insights)
         except Exception:
             pass  # Insight search is best-effort
+
+    # Append episodic summaries if requested
+    if include_episodes:
+        try:
+            from robothor.memory.episodes import search_episodes
+
+            episodes = await search_episodes(query, limit=3, tenant_id=tenant_id)
+            result.extend(episodes)
+        except Exception:
+            pass  # Episode search is best-effort
+
+    # Append verbatim chat turns (low-weight — facts still dominate)
+    if include_chat_turns:
+        try:
+            from robothor.engine.chat_store import search_chat_turns
+
+            turns = await asyncio.to_thread(
+                search_chat_turns, embedding, limit=5, tenant_id=_tenant
+            )
+            for t in turns:
+                t["fact_text"] = f"[{t['role']}] {t['content']}"
+                t["category"] = "chat_turn"
+                t["confidence"] = 0.5
+                t["rrf_score"] = 0.3 * float(t.get("similarity", 0))
+            result.extend(turns)
+        except Exception:
+            pass  # Chat turn search is best-effort
 
     return result
 

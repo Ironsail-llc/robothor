@@ -215,6 +215,24 @@ async def deliver(config: AgentConfig, run: AgentRun) -> bool:
 
     Returns True if delivery succeeded.
     """
+    # Outcome-driven fact invalidation: when a run failed, bump outcome_failures
+    # on every fact that was retrieved during the run. Best-effort, fire-and-forget
+    # via asyncio.to_thread so delivery isn't blocked.
+    try:
+        run_failed = bool(run.error_message) or (
+            getattr(run, "status", None) is not None
+            and str(getattr(run.status, "value", run.status)).upper() == "FAILED"
+        )
+        if run_failed and run.id:
+            from robothor.memory.outcomes import bump_failure_for_run
+
+            tenant_id = getattr(run, "tenant_id", None) or getattr(config, "tenant_id", None)
+            import asyncio as _aio
+
+            await _aio.to_thread(bump_failure_for_run, str(run.id), tenant_id)
+    except Exception as e:
+        logger.debug("Outcome attribution failed (non-fatal): %s", e)
+
     # Sub-agent output should never reach Telegram (belt-and-suspenders)
     if run.parent_run_id is not None:
         logger.debug("Suppressing delivery for sub-agent run %s", run.id)

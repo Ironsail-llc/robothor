@@ -24,17 +24,39 @@ def _handler(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
 @_handler("search_memory")
 async def _search_memory(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     from robothor.memory.facts import search_facts
+    from robothor.memory.outcomes import log_fact_access
 
     results = await search_facts(
-        args.get("query", ""), limit=args.get("limit", 10), tenant_id=ctx.tenant_id
+        args.get("query", ""),
+        limit=args.get("limit", 10),
+        tenant_id=ctx.tenant_id,
+        expand_entities=True,
+        include_insights=True,
+        include_episodes=True,
     )
+
+    # Log fact access for outcome attribution (best-effort).
+    run_id = getattr(ctx, "run_id", None)
+    agent_id = getattr(ctx, "agent_id", None)
+    if run_id:
+        fact_ids = [
+            r["id"]
+            for r in results
+            if r.get("source") in (None, "fact", "entity_expansion") and r.get("id")
+        ]
+        if fact_ids:
+            await asyncio.to_thread(log_fact_access, str(run_id), fact_ids, agent_id, ctx.tenant_id)
+
     return {
         "results": [
             {
-                "fact": r["fact_text"],
-                "category": r["category"],
-                "confidence": r["confidence"],
+                "fact": r.get("fact_text") or r.get("insight_text") or "",
+                "category": r.get("category", "")
+                if isinstance(r.get("category"), str)
+                else (r.get("categories") or [None])[0] or "",
+                "confidence": r.get("confidence", 0),
                 "similarity": round(r.get("similarity", 0), 4),
+                "source": r.get("source", "fact"),
             }
             for r in results
         ]
@@ -107,6 +129,90 @@ async def _get_knowledge_gaps(args: dict[str, Any], ctx: ToolContext) -> dict[st
     from robothor.memory.gap_analysis import analyze_knowledge_gaps
 
     return await analyze_knowledge_gaps()
+
+
+@_handler("record_procedure")
+async def _record_procedure(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Save a reusable procedure (steps, prerequisites, tags)."""
+    from robothor.memory.procedures import record_procedure
+
+    proc_id = await record_procedure(
+        name=args.get("name", ""),
+        steps=list(args.get("steps") or []),
+        description=args.get("description", ""),
+        prerequisites=list(args.get("prerequisites") or []),
+        applicable_tags=list(args.get("tags") or []),
+        created_by_agent=getattr(ctx, "agent_id", "unknown"),
+        tenant_id=ctx.tenant_id,
+    )
+    return {"id": proc_id, "name": args.get("name", "")}
+
+
+@_handler("find_procedure")
+async def _find_procedure(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Find procedures applicable to a task (semantic + optional tag filter)."""
+    from robothor.memory.procedures import find_applicable_procedures
+
+    results = await find_applicable_procedures(
+        task_description=args.get("task", ""),
+        tags=list(args.get("tags") or []) or None,
+        limit=args.get("limit", 3),
+        tenant_id=ctx.tenant_id,
+    )
+    return {
+        "procedures": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "description": r["description"],
+                "steps": r["steps"],
+                "prerequisites": r["prerequisites"],
+                "tags": r["applicable_tags"],
+                "success_count": r["success_count"],
+                "failure_count": r["failure_count"],
+                "confidence": r["confidence"],
+                "similarity": round(r.get("similarity", 0), 4),
+            }
+            for r in results
+        ]
+    }
+
+
+@_handler("report_procedure_outcome")
+async def _report_procedure_outcome(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Record success/failure of a procedure you just applied."""
+    from robothor.memory.procedures import report_procedure_outcome
+
+    return await report_procedure_outcome(
+        procedure_id=int(args.get("procedure_id", 0)),
+        success=bool(args.get("success", False)),
+        notes=args.get("notes", ""),
+        tenant_id=ctx.tenant_id,
+    )
+
+
+@_handler("leave_breadcrumb")
+async def _leave_breadcrumb(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Persist mid-task state so the next run picks up where you left off.
+
+    `content` may be a short note string or a structured dict — both are
+    accepted. The next run this agent performs will see the latest 5
+    breadcrumbs in its warmup context.
+    """
+    from robothor.memory.breadcrumbs import leave_breadcrumb
+
+    content = args.get("content", "")
+    agent_id = getattr(ctx, "agent_id", "unknown")
+    run_id = getattr(ctx, "run_id", None)
+    bc_id = await asyncio.to_thread(
+        leave_breadcrumb,
+        agent_id,
+        content,
+        str(run_id) if run_id else None,
+        args.get("ttl_days", 7),
+        ctx.tenant_id,
+    )
+    return {"breadcrumb_id": bc_id, "agent_id": agent_id}
 
 
 @_handler("append_to_block")
