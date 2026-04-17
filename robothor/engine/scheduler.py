@@ -572,8 +572,11 @@ def _build_heartbeat_config(agent_config: AgentConfig) -> AgentConfig:
     warmup_peer_agents = hb.warmup_peer_agents or agent_config.warmup_peer_agents
 
     # Cost cap: heartbeat override wins; fall back to parent agent's cap.
+    # When the heartbeat sets its own budget we force hard-budget semantics so
+    # the override actually bites; otherwise inherit whatever the parent agent
+    # configured.
     max_cost_usd = hb.cost_budget_usd or agent_config.max_cost_usd
-    hard_budget = True if hb.cost_budget_usd > 0 else agent_config.hard_budget
+    hard_budget = hb.cost_budget_usd > 0 or agent_config.hard_budget
 
     return AgentConfig(
         id=agent_config.id,

@@ -71,8 +71,17 @@ def _parse_search_space(search_space: str) -> list[str]:
         token = token.split("(", 1)[0].strip()
         token = token.split()[0] if token.split() else ""
         # Require at least one "/" or "." — rules out bare words like "model",
-        # "reduce", "timeouts" that got caught in the old comma-split.
-        if token and _FILE_PATH_RE.match(token) and ("/" in token or "." in token):
+        # "reduce", "timeouts" that got caught in the old comma-split. Reject
+        # absolute paths and any token that contains `..` so a malicious
+        # manifest cannot pollute unrelated `experiment_lock:*` keys or
+        # clobber block storage outside the workspace.
+        if (
+            token
+            and _FILE_PATH_RE.match(token)
+            and ("/" in token or "." in token)
+            and not token.startswith("/")
+            and ".." not in token.split("/")
+        ):
             candidates.append(token)
 
     # Dedup preserving order.
@@ -106,21 +115,26 @@ def _suggest_measure_action(errors: list[str], metric_command: str) -> str:
 
 
 def _lock_is_stale(last_written_at: str | None) -> bool:
-    """True if a lock's last_written_at is older than LOCK_STALENESS_HOURS."""
+    """True if a lock's last_written_at is older than LOCK_STALENESS_HOURS.
+
+    "Now" is read from ``_now_iso()`` so tests can anchor time via that seam.
+    """
     if not last_written_at:
         return False
     try:
-        # Parse ISO with timezone awareness.
         written = datetime.fromisoformat(last_written_at)
-        if written.tzinfo is None:
-            written = written.replace(tzinfo=UTC)
         now = datetime.fromisoformat(_now_iso())
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
-        age_hours = (now - written).total_seconds() / 3600.0
-        return age_hours >= LOCK_STALENESS_HOURS
     except (ValueError, TypeError):
         return False
+    if written.tzinfo is None:
+        # Naive timestamp is a bug signal (all writers emit tz-aware ISO)
+        # — coerce to UTC so a one-off bad write doesn't wedge the lock.
+        logger.warning("Lock timestamp %r was naive — assuming UTC", last_written_at)
+        written = written.replace(tzinfo=UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    age_hours = (now - written).total_seconds() / 3600.0
+    return age_hours >= LOCK_STALENESS_HOURS
 
 
 def _handler(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:

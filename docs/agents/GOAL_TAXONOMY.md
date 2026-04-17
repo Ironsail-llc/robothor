@@ -1,6 +1,6 @@
 # Agent Goal Taxonomy
 
-Every agent in Robothor has an explicit **goals** contract in its YAML manifest. Goals are the primary signal the self-improvement loop uses to decide what to fix. When a goal breaches persistently, the improvement-analyst selects a corrective-action template (see `brain/policies/corrective-actions.yaml`) and queues a Nightwatch task to fix the root cause — prompt, flow, tools, model, config, whatever is needed to restore the goal.
+Every agent in Robothor has an explicit **goals** contract in its YAML manifest. Goals are the primary signal the self-improvement loop uses to decide what to fix. When a goal breaches persistently, the improvement-analyst selects a corrective-action template (see `docs/agents/corrective-actions.yaml`) and queues a Nightwatch task to fix the root cause — prompt, flow, tools, model, config, whatever is needed to restore the goal.
 
 This file is the shared reference. Every manifest must follow it.
 
@@ -98,7 +98,7 @@ As a calibration guide:
 
 ## See also
 
-- `brain/policies/corrective-actions.yaml` — category → remediation template library.
+- `docs/agents/corrective-actions.yaml` — category → remediation template library.
 - `robothor/engine/goals.py` — metric computation + breach detection.
 - `infra/migrations/031_agent_reviews.sql` — where ratings and action items live.
 - `infra/migrations/030_buddy_effectiveness.sql` — buddy's `effectiveness_score` is populated from goal achievement.

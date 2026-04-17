@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from robothor.constants import DEFAULT_TENANT
@@ -110,9 +110,16 @@ def parse_goals_from_manifest(manifest: dict[str, Any]) -> list[GoalSpec]:
 
     specs: list[GoalSpec] = []
 
+    def _append(entry: Any, *, category: str) -> None:
+        if not isinstance(entry, dict):
+            logger.warning("Skipping non-dict goal entry in category %r: %r", category, entry)
+            return
+        specs.append(_goal_from_dict(entry, category=category))
+
     if isinstance(raw, list):
         # Legacy flat list — treat as correctness goals for back-compat.
-        specs.extend(_goal_from_dict(entry, category="correctness") for entry in raw)
+        for entry in raw:
+            _append(entry, category="correctness")
         return specs
 
     if isinstance(raw, dict):
@@ -122,7 +129,8 @@ def parse_goals_from_manifest(manifest: dict[str, Any]) -> list[GoalSpec]:
                 continue
             if not isinstance(entries, list):
                 continue
-            specs.extend(_goal_from_dict(entry, category=category) for entry in entries)
+            for entry in entries:
+                _append(entry, category=category)
 
     return specs
 
@@ -151,13 +159,15 @@ def compute_goal_metrics(
     agent_id: str,
     window_days: int = 7,
     tenant_id: str = DEFAULT_TENANT,
+    as_of: datetime | None = None,
 ) -> dict[str, Any]:
     """Return a flat dict of metric values for an agent over a rolling window.
 
     Delegates to `analytics.get_agent_stats` for the heavy lifting, then adds
-    derived metrics the goals system uses.
+    derived metrics the goals system uses. ``as_of`` anchors the window's
+    right edge (default: now).
     """
-    stats = get_agent_stats(agent_id, days=window_days, tenant_id=tenant_id) or {}
+    stats = get_agent_stats(agent_id, days=window_days, tenant_id=tenant_id, as_of=as_of) or {}
     metrics: dict[str, Any] = dict(stats)
 
     total = stats.get("total_runs") or 0
@@ -165,8 +175,6 @@ def compute_goal_metrics(
         timeouts = stats.get("timeouts") or 0
         metrics["timeout_rate"] = round(timeouts / total, 4)
 
-    # delivery_success_rate can be computed here when the analytics layer
-    # grows it; for now pass through whatever get_agent_stats produced.
     return metrics
 
 
@@ -179,20 +187,22 @@ def _get_daily_metric_history(
 ) -> list[dict[str, Any]]:
     """Return one metrics dict per day over the lookback period.
 
-    Each entry represents metrics computed over the trailing `window_days`
-    ending on that day, so entries are rolling snapshots. Used by
-    detect_goal_breach to count consecutive breaches.
+    Each entry is a trailing-``window_days`` snapshot anchored at a distinct
+    day, so consecutive entries differ — ``detect_goal_breach`` relies on
+    this to count real consecutive breach days.
 
     Most recent day is LAST in the returned list.
     """
+    now = datetime.now(UTC)
     history: list[dict[str, Any]] = []
     for days_ago in range(lookback_days, 0, -1):
-        # In production this would query agent_runs with a time offset.
-        # For the unit test surface, the caller patches this function.
-        snapshot = compute_goal_metrics(agent_id, window_days=window_days, tenant_id=tenant_id)
+        # days_ago counts down from lookback_days..1 — subtract (days_ago-1)
+        # so the final iteration (days_ago=1) lands on "now".
+        as_of = now - timedelta(days=days_ago - 1)
+        snapshot = compute_goal_metrics(
+            agent_id, window_days=window_days, tenant_id=tenant_id, as_of=as_of
+        )
         history.append(snapshot)
-        # Unused: timedelta exists for future windowed query shape
-        _ = timedelta(days=days_ago)
     return history
 
 
@@ -338,48 +348,23 @@ def register_review(
 ) -> str | None:
     """Insert an agent_reviews row.
 
-    Used by the nightly auto-review hook to persist goal achievement into
-    the existing reviews table (migration 031).
+    Thin wrapper around `robothor.crm.dal.create_review` — kept so the goal
+    module can offer a focused signature, but the DB logic (UUID generation,
+    rating clamping, SQL) lives in the DAL to avoid the dual-path anti-pattern.
     """
-    try:
-        from robothor.db.connection import get_connection
-    except ImportError:
-        logger.warning("DB not available — skipping review write")
-        return None
+    from robothor.crm.dal import create_review
 
-    if rating < 1 or rating > 5:
-        raise ValueError(f"rating must be 1..5, got {rating}")
-
-    import json as _json
-
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO agent_reviews (
-                    tenant_id, agent_id, run_id, reviewer, reviewer_type,
-                    rating, categories, feedback, action_items
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (
-                    tenant_id,
-                    agent_id,
-                    run_id,
-                    reviewer,
-                    reviewer_type,
-                    rating,
-                    _json.dumps(categories),
-                    feedback,
-                    action_items,
-                ),
-            )
-            row = cur.fetchone()
-            return str(row[0]) if row else None
-    except Exception as e:
-        logger.warning("Could not write agent_review: %s", e)
-        return None
+    return create_review(
+        agent_id=agent_id,
+        reviewer=reviewer,
+        reviewer_type=reviewer_type,
+        rating=rating,
+        categories=categories,
+        feedback=feedback,
+        action_items=action_items,
+        run_id=run_id,
+        tenant_id=tenant_id,
+    )
 
 
 # ─── Fleet-wide goal sweep ────────────────────────────────────────────
@@ -419,8 +404,16 @@ def compute_achievement_score(
 
     Returns dict with: score, rating (1-5), satisfied_goals, breached_goals,
     per_goal (list of {id, metric, target, actual, satisfied}).
+
+    Each goal is evaluated against its own ``window_days`` — groups goals by
+    window and issues one ``compute_goal_metrics`` call per distinct window so
+    a 30-day revert-rate goal is not silently scored against a 7-day snapshot.
     """
-    metrics = compute_goal_metrics(agent_id, window_days=7, tenant_id=tenant_id)
+    distinct_windows = {g.window_days for g in goals}
+    snapshots: dict[int, dict[str, Any]] = {
+        w: compute_goal_metrics(agent_id, window_days=w, tenant_id=tenant_id)
+        for w in distinct_windows
+    }
 
     total_weight = 0.0
     weighted_satisfied = 0.0
@@ -429,7 +422,7 @@ def compute_achievement_score(
     breached_ids: list[str] = []
 
     for goal in goals:
-        metric_value = metrics.get(goal.metric)
+        metric_value = snapshots[goal.window_days].get(goal.metric)
         is_satisfied = _evaluate_target(metric_value, goal.target)
         total_weight += goal.weight
         if is_satisfied:

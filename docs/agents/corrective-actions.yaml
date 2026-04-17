@@ -36,14 +36,14 @@ quality.required_sections_present:
     - "Switch to a model with larger context if input is too big"
 
 quality.operator_rating_avg:
-  description: "Philip rated the agent's output poorly"
+  description: "The operator rated the agent's output poorly"
   investigation_steps:
     - "Pull the last 10 agent_reviews rows with feedback text"
     - "Identify the most common complaint pattern"
   remediations_in_order:
     - "Translate feedback into instruction-file rules"
     - "Adjust tone/formatting conventions per the feedback"
-    - "Consider whether the goal's target is right — if Philip is consistently dissatisfied, the bar may be too low"
+    - "Consider whether the goal's target is right — if the operator is consistently dissatisfied, the bar may be too low"
 
 quality.satisfaction_rate:
   description: "Automated outcome assessment flags too many 'partial' or 'incorrect' runs"

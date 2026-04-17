@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +11,8 @@ from robothor.engine.goals import (
     GoalBreach,
     GoalSpec,
     _evaluate_target,
+    _get_daily_metric_history,
+    compute_achievement_score,
     compute_goal_metrics,
     detect_goal_breach,
     parse_goals_from_manifest,
@@ -109,6 +112,78 @@ class TestParseGoalsFromManifest:
         goals = parse_goals_from_manifest(manifest)
         assert goals[0].weight == 1.0
         assert goals[0].window_days == 7
+
+    def test_skips_non_dict_entries(self, caplog):
+        """A stray string/None in a goals list must not crash the sweep.
+        _goal_from_dict calls .items() so any non-dict raises AttributeError,
+        and sweep_all_goals has no per-manifest try/except — one typo would
+        kill every agent's nightly review."""
+        manifest = {
+            "goals": {
+                "quality": [
+                    "oops — forgot the dict syntax",
+                    {"id": "real", "metric": "min_output_chars", "target": ">500"},
+                    None,
+                ],
+            },
+        }
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            goals = parse_goals_from_manifest(manifest)
+        assert [g.id for g in goals] == ["real"]
+        assert any("non-dict goal entry" in r.message for r in caplog.records)
+
+    def test_skips_non_dict_in_legacy_flat_list(self, caplog):
+        manifest = {"goals": ["oops", {"id": "ok", "metric": "error_rate", "target": "<0.05"}]}
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            goals = parse_goals_from_manifest(manifest)
+        assert [g.id for g in goals] == ["ok"]
+
+
+# ─── compute_achievement_score ────────────────────────────────────────
+
+
+class TestComputeAchievementScore:
+    def test_honors_per_goal_window_days(self):
+        """Regression: compute_achievement_score used to hardcode window_days=7,
+        silently scoring 30/60/90-day goals against a 7-day snapshot. Goals
+        must be evaluated against their declared window."""
+        goals = [
+            GoalSpec(
+                id="fast-revert",
+                category="correctness",
+                metric="revert_rate",
+                target="<0.05",
+                weight=1.0,
+                window_days=7,
+            ),
+            GoalSpec(
+                id="slow-revert",
+                category="correctness",
+                metric="revert_rate",
+                target="<0.05",
+                weight=1.0,
+                window_days=60,
+            ),
+        ]
+
+        calls: list[int] = []
+
+        def fake_compute(agent_id, window_days, tenant_id):
+            calls.append(window_days)
+            if window_days == 7:
+                return {"revert_rate": 0.02}
+            return {"revert_rate": 0.10}
+
+        with patch("robothor.engine.goals.compute_goal_metrics", side_effect=fake_compute):
+            result = compute_achievement_score("some-agent", goals)
+
+        assert sorted(calls) == [7, 60]
+        assert "fast-revert" in result["satisfied_goals"]
+        assert "slow-revert" in result["breached_goals"]
 
 
 # ─── compute_goal_metrics + detect_goal_breach ────────────────────────
@@ -211,6 +286,53 @@ class TestComputeAndDetect:
             breaches = detect_goal_breach("some-agent", [goal])
         # Only 2 consecutive recent breaches — below the 3-day threshold
         assert breaches == []
+
+    def test_daily_history_passes_distinct_as_of_per_day(self):
+        """Regression: _get_daily_metric_history used to call the stats layer
+        with identical args for every day, producing N identical snapshots
+        and telling detect_goal_breach that every currently-breached goal
+        had been breached for N consecutive days. Real production path: each
+        iteration must pass a distinct ``as_of`` so the stats layer can
+        anchor the window at that point in time."""
+        seen: list[Any] = []
+
+        def fake_stats(agent_id, days, tenant_id, as_of=None):
+            seen.append(as_of)
+            return {"total_runs": 0}
+
+        with patch("robothor.engine.goals.get_agent_stats", side_effect=fake_stats):
+            history = _get_daily_metric_history(
+                agent_id="agent", metric="error_rate", window_days=7, lookback_days=5
+            )
+
+        assert len(history) == 5
+        assert len(seen) == 5
+        # Every as_of is distinct and non-None — no shared snapshot.
+        assert len({str(x) for x in seen}) == 5
+        assert all(x is not None for x in seen)
+        # Most-recent-day is last; each earlier entry is further in the past.
+        from itertools import pairwise
+
+        for earlier, later in pairwise(seen):
+            assert earlier < later
+
+    def test_compute_goal_metrics_threads_as_of(self):
+        """``as_of`` must propagate through compute_goal_metrics to get_agent_stats."""
+        captured: dict[str, Any] = {}
+
+        def fake_stats(agent_id, days, tenant_id, as_of=None):
+            captured["as_of"] = as_of
+            captured["days"] = days
+            return {"total_runs": 0}
+
+        import datetime as _dt
+
+        anchor = _dt.datetime(2026, 4, 1, tzinfo=_dt.UTC)
+        with patch("robothor.engine.goals.get_agent_stats", side_effect=fake_stats):
+            compute_goal_metrics("agent", window_days=30, as_of=anchor)
+
+        assert captured["as_of"] == anchor
+        assert captured["days"] == 30
 
 
 # ─── suggest_corrective_actions ───────────────────────────────────────

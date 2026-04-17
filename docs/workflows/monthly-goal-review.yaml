@@ -2,7 +2,7 @@ id: monthly-goal-review
 name: Monthly Goal Review
 description: >
   Meta-review: are our agent goal targets right? Are we measuring the right
-  things? Are weights calibrated? Delivered to Philip's Telegram on the 1st
+  things? Are weights calibrated? Delivered to the operator's Telegram on the 1st
   of each month. Guards against goal gaming (hitting targets but operator
   dissatisfied).
 version: "2026-04-16"
@@ -36,8 +36,8 @@ steps:
          - Weights to rebalance
          - New metrics to add
          - Metrics to retire (no template to fix, no actionable signal)
-      4. Deliver a Telegram message to Philip with the top adjustments,
-         framed as questions. Philip approves or rejects. Approved changes
+      4. Deliver a Telegram message to the operator with the top adjustments,
+         framed as questions. The operator approves or rejects. Approved changes
          become Nightwatch PRs.
 
       Rules:
