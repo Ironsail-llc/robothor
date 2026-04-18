@@ -235,7 +235,7 @@ class TestInvokeClaudeCode:
             prompt="Fix the bug",
             system_prompt="You are a fixer",
             allowed_tools="Read,Edit",
-            budget=0.5,
+            fallback_model=None,
         )
         assert result.get("result") == "Done"
         assert "error" not in result
@@ -254,7 +254,7 @@ class TestInvokeClaudeCode:
             prompt="Fix",
             system_prompt="System",
             allowed_tools="Read",
-            budget=0.5,
+            fallback_model=None,
         )
         assert "error" in result
 
@@ -268,7 +268,7 @@ class TestInvokeClaudeCode:
             prompt="Fix",
             system_prompt="System",
             allowed_tools="Read",
-            budget=0.5,
+            fallback_model=None,
         )
         assert "timed out" in result["error"]
 
@@ -283,13 +283,52 @@ class TestInvokeClaudeCode:
                 prompt="Fix",
                 system_prompt="System",
                 allowed_tools="Read",
-                budget=0.5,
+                fallback_model=None,
             )
         # Check env passed to subprocess
         call_kwargs = mock_run.call_args[1]
         env = call_kwargs.get("env", {})
         assert "CLAUDE_SESSION" not in env
         assert "PATH" in env
+
+    @patch("nightwatch_lib.subprocess.run")
+    def test_fallback_model_retried_on_primary_failure(self, mock_run):
+        """If the primary model returns rc!=0, the fallback model is tried once."""
+        from nightwatch_lib import invoke_claude_code
+
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stdout="", stderr="primary boom"),
+            MagicMock(returncode=0, stdout='{"result": "ok"}', stderr=""),
+        ]
+        result = invoke_claude_code(
+            cwd=Path("/tmp/test"),
+            prompt="Fix",
+            system_prompt="System",
+            allowed_tools="Read",
+            model="claude-sonnet-4-6",
+            fallback_model="claude-opus-4-6",
+        )
+        assert mock_run.call_count == 2
+        assert result.get("result") == "ok"
+
+    @patch("nightwatch_lib.subprocess.run")
+    def test_no_fallback_when_primary_succeeds(self, mock_run):
+        """If the primary model succeeds, the fallback is NOT invoked."""
+        from nightwatch_lib import invoke_claude_code
+
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout='{"result": "primary-ok"}', stderr=""
+        )
+        result = invoke_claude_code(
+            cwd=Path("/tmp/test"),
+            prompt="Fix",
+            system_prompt="System",
+            allowed_tools="Read",
+            model="claude-sonnet-4-6",
+            fallback_model="claude-opus-4-6",
+        )
+        assert mock_run.call_count == 1
+        assert result.get("result") == "primary-ok"
 
 
 # ---------------------------------------------------------------------------

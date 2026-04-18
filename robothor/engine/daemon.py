@@ -65,12 +65,18 @@ def _cleanup_stale_runs() -> int:
 
         with get_connection() as conn:
             cur = conn.cursor()
+            # Absolute safety-net reaper for runs the in-process stall
+            # watchdog never caught (e.g. daemon restart, crashed watchdog
+            # task). With the stall watchdog now covering init too (see
+            # runner.py), this is a last-resort cleanup — the threshold is
+            # intentionally generous so legitimate hour-long tasks are not
+            # killed here.
             cur.execute(
                 "UPDATE agent_runs SET status='timeout', "
                 "completed_at=NOW(), "
                 "duration_ms=EXTRACT(EPOCH FROM (NOW()-started_at))*1000, "
-                "error_message='Reaped by watchdog: stuck in initialization (no LLM call reached)' "
-                "WHERE status='running' AND started_at < NOW() - INTERVAL '30 minutes' "
+                "error_message='Reaped by daemon safety net (>4h running, watchdog did not fire)' "
+                "WHERE status='running' AND started_at < NOW() - INTERVAL '4 hours' "
                 "RETURNING id, agent_id"
             )
             rows = cur.fetchall()
