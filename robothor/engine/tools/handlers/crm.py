@@ -362,16 +362,59 @@ async def _delete_task(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]
 
 @_handler("resolve_task")
 async def _resolve_task(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    from robothor.crm.dal import resolve_task
+    """Resolve a task. If the task body has a ``` ```accept … ``` ``` block,
+    run it first and block the resolve when any command fails.
+
+    Acceptance is non-gameable (deterministic shell commands, not LLM). If no
+    block is present, behavior is unchanged — a bare resolve_task call.
+    """
+    from robothor.crm.dal import get_task, resolve_task
+    from robothor.engine.thread_pool import parse_accept_block, run_accept
+
+    task_id = args["id"]
+    resolution = args.get("resolution", "")
+
+    # Acceptance check — run deterministic block if present in body.
+    # Never let an acceptance fetch error block a resolve; fall through.
+    accept_result: dict[str, object] | None = None
+    try:
+        task = await asyncio.to_thread(get_task, task_id, tenant_id=ctx.tenant_id)
+    except Exception:
+        task = None
+    if task and task.get("body"):
+        commands = parse_accept_block(task["body"])
+        if commands:
+            accept_result = await asyncio.to_thread(run_accept, commands)
+            if not accept_result["passed"]:
+                return {
+                    "success": False,
+                    "id": task_id,
+                    "acceptance_failed": accept_result["failures"],
+                    "message": (
+                        f"Acceptance block failed ({len(accept_result['failures'])} of "
+                        f"{accept_result['ran']} commands). Task not resolved. Fix the "
+                        "underlying issue or update the accept block if the criteria are wrong."
+                    ),
+                }
+            # On pass, prepend a marker to the resolution so the audit trail
+            # records that acceptance was checked, not assumed.
+            resolution = (
+                f"[acceptance: {accept_result['ran']}/{accept_result['ran']} passed] " + resolution
+                if resolution
+                else f"[acceptance: {accept_result['ran']}/{accept_result['ran']} passed]"
+            )
 
     resolve_result = await asyncio.to_thread(
         resolve_task,
-        task_id=args["id"],
-        resolution=args.get("resolution", ""),
+        task_id=task_id,
+        resolution=resolution,
         agent_id=ctx.agent_id,
         tenant_id=ctx.tenant_id,
     )
-    return {"success": resolve_result, "id": args["id"]}
+    out: dict[str, Any] = {"success": resolve_result, "id": task_id}
+    if accept_result is not None:
+        out["acceptance"] = {"passed": True, "commands_ran": accept_result["ran"]}
+    return out
 
 
 @_handler("list_agent_tasks")

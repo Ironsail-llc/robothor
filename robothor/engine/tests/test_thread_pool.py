@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from robothor.engine.thread_pool import (
     MAX_THREADS,
+    PENDING_EXPIRY_SECONDS,
     Thread,
     _thread_pool_context,
     format_thread_pool,
+    is_pending,
     list_threads,
+    parse_accept_block,
+    pending_marker,
+    run_accept,
 )
 
 
@@ -80,6 +86,7 @@ class TestListThreads:
             True,  # sla_breached
             3,  # total_children
             1,  # open_children
+            "body text",  # body (for pending-marker filter)
         )
         mock_get_conn.return_value = _mock_conn_with_rows([row])
         threads = list_threads()
@@ -101,10 +108,11 @@ class TestListThreads:
     def test_respects_limit_param(self, mock_get_conn):
         mock_get_conn.return_value = _mock_conn_with_rows([])
         list_threads(limit=3)
-        # execute() should have been called with (tenant_id, 3)
+        # execute() should have been called with (tenant_id, 6) because
+        # list_threads fetches 2x to leave headroom for pending-filter.
         cur = mock_get_conn.return_value.cursor.return_value
         args = cur.execute.call_args
-        assert args[0][1][1] == 3
+        assert args[0][1][1] == 6
 
     @patch("robothor.db.connection.get_connection")
     def test_default_limit_is_max_threads(self, mock_get_conn):
@@ -112,7 +120,16 @@ class TestListThreads:
         list_threads()
         cur = mock_get_conn.return_value.cursor.return_value
         args = cur.execute.call_args
-        assert args[0][1][1] == MAX_THREADS
+        assert args[0][1][1] == MAX_THREADS * 2
+
+    @patch("robothor.db.connection.get_connection")
+    def test_include_pending_skips_fetch_inflation(self, mock_get_conn):
+        mock_get_conn.return_value = _mock_conn_with_rows([])
+        list_threads(limit=5, include_pending=True)
+        cur = mock_get_conn.return_value.cursor.return_value
+        args = cur.execute.call_args
+        # When pending is included, no need to over-fetch.
+        assert args[0][1][1] == 5
 
     @patch("robothor.db.connection.get_connection")
     def test_defaults_title_to_placeholder(self, mock_get_conn):
@@ -129,6 +146,7 @@ class TestListThreads:
             False,
             0,
             0,
+            None,
         )
         mock_get_conn.return_value = _mock_conn_with_rows([row])
         threads = list_threads()
@@ -237,6 +255,150 @@ class TestThreadPoolContext:
 # ─── Priority ordering (integration — checks SQL construction) ─────────
 
 
+class TestAcceptBlock:
+    def test_no_block_returns_empty_list(self):
+        assert parse_accept_block("no accept block here") == []
+        assert parse_accept_block("") == []
+        assert parse_accept_block(None) == []
+
+    def test_single_command_block(self):
+        body = "some text\n\n```accept\ntest -f /etc/hostname\n```\n"
+        assert parse_accept_block(body) == ["test -f /etc/hostname"]
+
+    def test_multiple_commands_parsed(self):
+        body = "```accept\ntest -f /etc/hostname\necho hello\ntrue\n```\n"
+        assert parse_accept_block(body) == [
+            "test -f /etc/hostname",
+            "echo hello",
+            "true",
+        ]
+
+    def test_comments_stripped(self):
+        body = "```accept\n# this is a comment, ignored\ntrue\n# another comment\nfalse\n```\n"
+        assert parse_accept_block(body) == ["true", "false"]
+
+    def test_blank_lines_stripped(self):
+        body = "```accept\n\ntrue\n\n```\n"
+        assert parse_accept_block(body) == ["true"]
+
+
+class TestRunAccept:
+    def test_empty_commands_returns_passed(self):
+        result = run_accept([])
+        assert result == {"passed": True, "failures": [], "ran": 0}
+
+    def test_all_passing_commands(self):
+        result = run_accept(["true", "echo hello"])
+        assert result["passed"] is True
+        assert result["failures"] == []
+        assert result["ran"] == 2
+
+    def test_failing_command_recorded(self):
+        result = run_accept(["true", "false"])
+        assert result["passed"] is False
+        assert len(result["failures"]) == 1
+        assert result["failures"][0]["command"] == "false"
+        assert result["failures"][0]["exit_code"] == 1
+
+    def test_timeout_recorded(self):
+        # Tiny timeout on a sleep forces a timeout
+        result = run_accept(["sleep 5"], timeout=1)
+        assert result["passed"] is False
+        assert "timeout" in result["failures"][0]["error"].lower()
+
+
+class TestPendingMarker:
+    def test_renders_marker_format(self):
+        marker = pending_marker("abc-123", "2026-04-18T19:00:00+00:00")
+        assert marker == "<!-- pending: run=abc-123 ts=2026-04-18T19:00:00+00:00 -->"
+
+    def test_renders_with_default_timestamp(self):
+        marker = pending_marker("abc-123")
+        assert "pending: run=abc-123" in marker
+        assert "ts=" in marker
+
+    def test_is_pending_detects_fresh_marker(self):
+        now = datetime.now(UTC)
+        ts = now.isoformat(timespec="seconds")
+        body = f"Task body here.\n{pending_marker('run-1', ts)}"
+        assert is_pending(body) is True
+
+    def test_is_pending_ignores_expired_marker(self):
+        expired = datetime.now(UTC) - timedelta(seconds=PENDING_EXPIRY_SECONDS + 60)
+        body = f"body\n{pending_marker('run-1', expired.isoformat())}"
+        assert is_pending(body) is False
+
+    def test_is_pending_false_for_no_marker(self):
+        assert is_pending("regular task body with no marker") is False
+        assert is_pending(None) is False
+
+    def test_is_pending_handles_malformed_ts(self):
+        body = "<!-- pending: run=abc ts=not-a-date -->"
+        assert is_pending(body) is False
+
+
+class TestListThreadsFiltersPending:
+    @patch("robothor.db.connection.get_connection")
+    def test_pending_threads_filtered_from_pool(self, mock_get_conn):
+        fresh_marker = pending_marker("run-1")
+        pending_row = (
+            "11111111-aaaa-bbbb-cafe-000000000000",
+            "Pending",
+            "IN_PROGRESS",
+            "normal",
+            False,
+            0,
+            "main",
+            1,
+            0,
+            False,
+            0,
+            0,
+            f"Body with {fresh_marker}",
+        )
+        free_row = (
+            "22222222-aaaa-bbbb-cafe-000000000000",
+            "Free",
+            "TODO",
+            "normal",
+            False,
+            0,
+            "main",
+            1,
+            0,
+            False,
+            0,
+            0,
+            "Body with no marker",
+        )
+        mock_get_conn.return_value = _mock_conn_with_rows([pending_row, free_row])
+        threads = list_threads()
+        assert [t.short_id for t in threads] == ["22222222"]
+
+    @patch("robothor.db.connection.get_connection")
+    def test_include_pending_flag_returns_all(self, mock_get_conn):
+        fresh_marker = pending_marker("run-1")
+        pending_row = (
+            "11111111-aaaa-bbbb-cafe-000000000000",
+            "Pending",
+            "IN_PROGRESS",
+            "normal",
+            False,
+            0,
+            "main",
+            1,
+            0,
+            False,
+            0,
+            0,
+            f"Body with {fresh_marker}",
+        )
+        mock_get_conn.return_value = _mock_conn_with_rows([pending_row])
+        threads = list_threads(include_pending=True)
+        assert len(threads) == 1
+        assert threads[0].short_id == "11111111"
+
+
 class TestPriorityOrdering:
     """Validates that the SQL used by list_threads sorts correctly.
 
@@ -261,9 +423,10 @@ class TestPriorityOrdering:
             False,
             0,
             0,
+            None,  # body
         )
         sla_breached = (
-            "22222222-aaaa-bbbb-cccc-dddddddddddd",
+            "22222222-aaaa-bbbb-cafe-000000000000",
             "SLA breached",
             "TODO",
             "normal",
@@ -275,9 +438,10 @@ class TestPriorityOrdering:
             True,
             0,
             0,
+            None,
         )
         old_stale = (
-            "33333333-aaaa-bbbb-cccc-dddddddddddd",
+            "33333333-aaaa-bbbb-cafe-000000000000",
             "Oldest stale",
             "IN_PROGRESS",
             "normal",
@@ -289,6 +453,7 @@ class TestPriorityOrdering:
             False,
             0,
             0,
+            None,
         )
         # Simulating the ORDER BY from thread_pool._LIST_SQL returning these
         # in this sequence: Philip-blocked → SLA-breached → stale.
