@@ -39,6 +39,10 @@ COOLDOWNS: dict[str, int] = {
     "fleet_quiet": 6,
     "score_swing": 4,
     "streak_milestone": 24,
+    # Self-improvement pipeline health
+    "nightwatch_silent": 24,
+    "autoresearcher_paused": 12,
+    "autoagent_init_hang": 12,
 }
 
 STREAK_MILESTONES = {7, 14, 30, 60, 100}
@@ -178,6 +182,140 @@ def detect_streak_milestone() -> dict[str, Any] | None:
     if current_streak in STREAK_MILESTONES:
         return {"streak": current_streak}
     return None
+
+
+# ── Self-improvement pipeline health ─────────────────────────────────────────
+
+
+def detect_nightwatch_silent() -> dict[str, Any] | None:
+    """Return info if Nightwatch has produced zero PRs for 2+ consecutive nights.
+
+    Reads brain/memory/overnight-pr-status.md and checks the last N run results.
+    Alert when the status file shows consecutive failed/no-PR runs or the file
+    is stale (no run in >36h).
+    """
+    import re
+    from pathlib import Path
+
+    workspace = Path(os.environ.get("ROBOTHOR_WORKSPACE") or Path.home() / "robothor")
+    status_path = workspace / "brain" / "memory" / "overnight-pr-status.md"
+    if not status_path.exists():
+        return None
+
+    try:
+        text = status_path.read_text()
+    except OSError:
+        return None
+
+    # Parse "Last run:" timestamp and "Status:" line.
+    last_run_match = re.search(r"^Last run:\s*(\S+)", text, re.MULTILINE)
+    status_match = re.search(r"^Status:\s*(.+)$", text, re.MULTILINE)
+    if not last_run_match:
+        return None
+
+    try:
+        last_run = datetime.fromisoformat(last_run_match.group(1))
+        if last_run.tzinfo is None:
+            last_run = last_run.replace(tzinfo=UTC)
+    except Exception:
+        return None
+
+    age_hours = (datetime.now(UTC) - last_run).total_seconds() / 3600.0
+
+    # Stale file — cron may be misconfigured or the script is failing silently.
+    if age_hours > 36:
+        return {
+            "reason": "stale_status_file",
+            "last_run_iso": last_run.isoformat(),
+            "age_hours": round(age_hours, 1),
+        }
+
+    # Check the nightwatch log for a streak of consecutive no-PR outcomes.
+    log_path = workspace / "brain" / "logs" / "nightwatch.log"
+    if not log_path.exists():
+        return None
+
+    try:
+        lines = log_path.read_text().splitlines()
+    except OSError:
+        return None
+
+    # Look at recent log lines; find each run's terminal "Nightwatch complete — …" line
+    complete_lines = [row for row in lines[-400:] if "Nightwatch complete" in row]
+    if len(complete_lines) < 2:
+        return None
+
+    recent = complete_lines[-3:]
+    no_pr_count = sum(1 for row in recent if ("no PR created" in row or "No PR created" in row))
+    if no_pr_count >= 2:
+        return {
+            "reason": "no_pr_streak",
+            "recent_runs": no_pr_count,
+            "last_status": status_match.group(1).strip() if status_match else "unknown",
+        }
+    return None
+
+
+def detect_autoresearcher_paused() -> dict[str, Any] | None:
+    """Return info if auto-researcher has self-paused.
+
+    Reads brain/journals/auto-researcher/current.json. Alerts when status is
+    'paused' or next_action is 'PAUSE' — both indicate the agent needs human
+    input to proceed.
+    """
+    from pathlib import Path
+
+    workspace = Path(os.environ.get("ROBOTHOR_WORKSPACE") or Path.home() / "robothor")
+    journal = workspace / "brain" / "journals" / "auto-researcher" / "current.json"
+    if not journal.exists():
+        return None
+
+    try:
+        data = json.loads(journal.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    status = (data.get("status") or "").lower()
+    next_action = (data.get("next_action") or "").upper()
+    if status == "paused" or next_action == "PAUSE":
+        return {
+            "experiment_id": data.get("experiment_id", "unknown"),
+            "iteration": data.get("iteration", 0),
+            # hypothesis field often contains the repair note
+            "reason": (data.get("hypothesis") or "")[:400],
+        }
+    return None
+
+
+def detect_autoagent_init_hang() -> dict[str, Any] | None:
+    """Return info if >30% of recent auto-agent runs were init hangs.
+
+    Queries agent_runs for error_message matching 'stuck in initialization'
+    over the last 24 hours. Requires at least 3 total runs before alerting
+    (avoid false positives on tiny samples).
+    """
+    with _get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE error_message ILIKE %s) AS hangs,
+              COUNT(*) AS total
+            FROM agent_runs
+            WHERE agent_id = 'auto-agent'
+              AND started_at > NOW() - INTERVAL '24 hours'
+            """,
+            ("%stuck in initialization%",),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    hangs, total = row[0] or 0, row[1] or 0
+    if total < 3 or hangs == 0:
+        return None
+    ratio = hangs / total
+    if ratio < 0.30:
+        return None
+    return {"hangs": hangs, "total": total, "ratio": round(ratio, 2)}
 
 
 # ── Cooldown management (memory block) ───────────────────────────────────────
@@ -377,6 +515,31 @@ def main() -> None:
         sm = detect_streak_milestone()
         if sm:
             events.append({"type": "streak_milestone", "data": sm})
+
+    # Self-improvement pipeline health — detect silent breakage
+    if not _is_on_cooldown(state, "nightwatch_silent"):
+        try:
+            nw = detect_nightwatch_silent()
+            if nw:
+                events.append({"type": "nightwatch_silent", "data": nw})
+        except Exception as e:
+            logger.debug("buddy_watch: nightwatch_silent detector failed: %s", e)
+
+    if not _is_on_cooldown(state, "autoresearcher_paused"):
+        try:
+            ap = detect_autoresearcher_paused()
+            if ap:
+                events.append({"type": "autoresearcher_paused", "data": ap})
+        except Exception as e:
+            logger.debug("buddy_watch: autoresearcher_paused detector failed: %s", e)
+
+    if not _is_on_cooldown(state, "autoagent_init_hang"):
+        try:
+            ih = detect_autoagent_init_hang()
+            if ih:
+                events.append({"type": "autoagent_init_hang", "data": ih})
+        except Exception as e:
+            logger.debug("buddy_watch: autoagent_init_hang detector failed: %s", e)
 
     # ── 2. Nothing to say — exit silently ────────────────────────────────────
     if not events:

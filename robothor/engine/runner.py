@@ -283,6 +283,25 @@ class AgentRunner:
             # Degrade gracefully — restrict to own tenant only.
             session.run.accessible_tenant_ids = (resolved_tenant,)
 
+        # Stall watchdog is the primary protection — kills on inactivity, not
+        # elapsed wall-clock time.  Hard timeout only needed as fallback when
+        # the watchdog is explicitly disabled (stall_timeout_seconds: 0).
+        # This lets agents run for hours on complex tasks without being killed.
+        #
+        # Start the watchdog BEFORE warmup/setup so that hangs during init
+        # (entity extraction, journal resume, planner, sandbox startup) are
+        # detected by the stall watchdog rather than sitting invisible until
+        # the 4-hour daemon reaper in daemon.py fires.
+        stall_timeout = getattr(agent_config, "stall_timeout_seconds", 300)
+        hard_timeout = agent_config.timeout_seconds if agent_config.timeout_seconds > 0 else None
+        watchdog = _StallWatchdog(
+            stall_timeout=stall_timeout, hard_timeout=agent_config.timeout_seconds
+        )
+        self._active_watchdog = watchdog
+        _current_task = asyncio.current_task()
+        if _current_task:
+            watchdog.start(_current_task)
+
         # Build system prompt + warmup in parallel where possible.
         # Both involve sync I/O so we run them concurrently in the executor.
         loop = asyncio.get_running_loop()
@@ -357,6 +376,7 @@ class AgentRunner:
 
         if warmup_preamble:
             message = f"{warmup_preamble}\n\n{message}"
+        watchdog.touch()  # warmup + system prompt done
 
         # ── Cross-run journal resume ──────────────────────────────────────────
         # If the agent has resume_on_start=true and a journal_file configured,
@@ -389,6 +409,7 @@ class AgentRunner:
                     _sanitize(agent_id),
                     _sanitize(e),
                 )
+        watchdog.touch()  # journal resume done
 
         t_setup_ms = int((time.monotonic() - t_setup_start) * 1000)
         logger.info(
@@ -417,6 +438,7 @@ class AgentRunner:
                 await self.registry.register_adapter_tools(adapters)
         except Exception as e:
             logger.warning("Adapter loading failed (non-fatal): %s", _sanitize(e))
+        watchdog.touch()  # adapters + MCP done
 
         # Get filtered tools for this agent
         if readonly_mode:
@@ -463,16 +485,7 @@ class AgentRunner:
             else:
                 session.run.token_budget = spawn_context.remaining_token_budget
 
-        # Stall watchdog is the primary protection — kills on inactivity, not
-        # elapsed wall-clock time.  Hard timeout only needed as fallback when
-        # the watchdog is explicitly disabled (stall_timeout_seconds: 0).
-        # This lets agents run for hours on complex tasks without being killed.
-        stall_timeout = getattr(agent_config, "stall_timeout_seconds", 300)
-        hard_timeout = agent_config.timeout_seconds if agent_config.timeout_seconds > 0 else None
-        watchdog = _StallWatchdog(
-            stall_timeout=stall_timeout, hard_timeout=agent_config.timeout_seconds
-        )
-        self._active_watchdog = watchdog  # expose for touch() calls from tool handlers
+        # Watchdog was already created + started before setup (see above).
         trace = None  # initialized inside timeout block, but referenced in except handlers
         try:
             async with asyncio.timeout(hard_timeout):
@@ -503,6 +516,7 @@ class AgentRunner:
                         session.run.task_id = task_id if isinstance(task_id, str) else None
                     except Exception as e:
                         logger.warning("Auto-task creation failed: %s", _sanitize(e))
+                watchdog.touch()  # create_run + auto-task done
 
                 # Build model list for fallback (model_override takes priority)
                 if model_override:
@@ -559,6 +573,7 @@ class AgentRunner:
                             logger.warning(
                                 "Failed to publish planner hook context: %s", _sanitize(e)
                             )
+                watchdog.touch()  # router + planner done
 
                 # ── [TELEMETRY] Create trace context ──
                 trace = self._create_trace(agent_config, session, spawn_context=spawn_context)
@@ -590,11 +605,7 @@ class AgentRunner:
                             "Sandbox start failed for %s: %s", _sanitize(agent_id), _sanitize(e)
                         )
                         sandbox = None
-
-                # Start stall watchdog — monitors current task for inactivity
-                current_task = asyncio.current_task()
-                if current_task:
-                    watchdog.start(current_task)
+                watchdog.touch()  # sandbox + checkpoint resume done — entering main loop
 
                 try:
                     await self._run_loop(
