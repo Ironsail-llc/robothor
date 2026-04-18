@@ -11,6 +11,8 @@ from robothor.engine.thread_pool import (
     PENDING_EXPIRY_SECONDS,
     Thread,
     _thread_pool_context,
+    auto_close_completed_threads,
+    classify_stall,
     format_thread_pool,
     is_pending,
     list_threads,
@@ -397,6 +399,118 @@ class TestListThreadsFiltersPending:
         threads = list_threads(include_pending=True)
         assert len(threads) == 1
         assert threads[0].short_id == "11111111"
+
+
+class TestClassifyStall:
+    def test_fresh_recent_updates(self):
+        t = _make_thread(stale_days=0, escalation_count=0)
+        assert classify_stall(t) == "fresh"
+
+    def test_stall1_at_one_day(self):
+        t = _make_thread(stale_days=1, escalation_count=0)
+        assert classify_stall(t) == "stall1"
+
+    def test_stall2_by_days(self):
+        t = _make_thread(stale_days=2, escalation_count=0)
+        assert classify_stall(t) == "stall2"
+
+    def test_stall2_by_escalation_count(self):
+        t = _make_thread(stale_days=0, escalation_count=1)
+        assert classify_stall(t) == "stall2"
+
+    def test_stall3_requires_review_plus_human_plus_3d(self):
+        t = _make_thread(stale_days=3, status="REVIEW", requires_human=True)
+        assert classify_stall(t) == "stall3"
+
+    def test_stall3_requires_human_field_to_trigger(self):
+        # 3 days stale but no requires_human → stall2, not stall3
+        t = _make_thread(stale_days=3, status="REVIEW", requires_human=False)
+        assert classify_stall(t) == "stall2"
+
+    def test_stall3_requires_review_status(self):
+        # 3 days stale + requires_human but not in REVIEW → stall2
+        t = _make_thread(stale_days=3, status="IN_PROGRESS", requires_human=True)
+        assert classify_stall(t) == "stall2"
+
+
+class TestStallMarkerInFormat:
+    def test_fresh_threads_have_no_stall_marker(self):
+        t = _make_thread(stale_days=0, escalation_count=0)
+        out = format_thread_pool([t])
+        assert "[stall" not in out
+
+    def test_stall1_marker_renders(self):
+        t = _make_thread(stale_days=1)
+        assert "[stall1]" in format_thread_pool([t])
+
+    def test_stall2_marker_renders(self):
+        t = _make_thread(stale_days=2)
+        assert "[stall2]" in format_thread_pool([t])
+
+    def test_stall3_marker_renders(self):
+        t = _make_thread(stale_days=3, status="REVIEW", requires_human=True)
+        assert "[stall3]" in format_thread_pool([t])
+
+
+class TestAutoCloseCompletedThreads:
+    @patch("robothor.db.connection.get_connection")
+    def test_returns_empty_when_no_candidates(self, mock_get_conn):
+        mock_get_conn.return_value = _mock_conn_with_rows([])
+        assert auto_close_completed_threads() == []
+
+    @patch("robothor.db.connection.get_connection")
+    def test_flips_candidate_to_review(self, mock_get_conn):
+        # Mock: one candidate returned by the SELECT, one row updated by the UPDATE.
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("abcd1234-aaaa-bbbb-cafe-000000000000",)]
+        cursor.rowcount = 1
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        mock_get_conn.return_value = conn
+
+        result = auto_close_completed_threads()
+        assert result == ["abcd1234-aaaa-bbbb-cafe-000000000000"]
+        # SELECT + UPDATE + commit
+        assert cursor.execute.call_count == 2
+        assert conn.commit.called
+
+    @patch("robothor.db.connection.get_connection")
+    def test_skips_when_update_finds_no_rows(self, mock_get_conn):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("ghost-id",)]
+        cursor.rowcount = 0  # UPDATE didn't match (race condition)
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        mock_get_conn.return_value = conn
+
+        assert auto_close_completed_threads() == []
+
+
+class TestHookRunsAutoSweep:
+    @patch("robothor.engine.thread_pool.list_threads")
+    @patch("robothor.engine.thread_pool.auto_close_completed_threads")
+    def test_hook_calls_sweep_before_list(self, mock_sweep, mock_list):
+        mock_sweep.return_value = ["abc"]
+        mock_list.return_value = []
+        config = SimpleNamespace(id="main")
+        out = _thread_pool_context(config)
+        assert mock_sweep.called
+        assert "auto-sweep: flipped 1 parent thread" in out
+
+    @patch("robothor.engine.thread_pool.list_threads")
+    @patch("robothor.engine.thread_pool.auto_close_completed_threads")
+    def test_hook_swallows_sweep_errors(self, mock_sweep, mock_list):
+        mock_sweep.side_effect = RuntimeError("db error")
+        mock_list.return_value = []
+        config = SimpleNamespace(id="main")
+        # Sweep failure must not block the pool view.
+        out = _thread_pool_context(config)
+        assert out is not None
+        assert "auto-sweep" not in out
 
 
 class TestPriorityOrdering:

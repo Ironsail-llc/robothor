@@ -36,6 +36,13 @@ MAX_THREADS = 8
 MAX_TITLE_CHARS = 60
 MAX_LINE_CHARS = 140
 
+# Stall classifier thresholds (Stage 3).
+# stall1: log a note but stay silent; stall2: flip to REVIEW + requires_human;
+# stall3: surface to Philip via Phase 3 "Need You" — the collaboration ping.
+STALL1_DAYS = 1
+STALL2_DAYS = 2
+STALL3_DAYS = 3
+
 # Acceptance blocks: fenced ```accept … ``` inside a task body.
 # Each non-blank, non-comment line is an independent shell command run
 # via subprocess. ALL must exit 0 for acceptance to pass.
@@ -183,6 +190,9 @@ def format_thread_pool(threads: list[Thread]) -> str:
             title = title[: MAX_TITLE_CHARS - 1] + "…"
 
         markers: list[str] = []
+        stall = classify_stall(t)
+        if stall != "fresh":
+            markers.append(f"[{stall}]")
         if t.requires_human and t.status == "REVIEW":
             markers.append("🧑PHILIP")
         if t.sla_breached:
@@ -209,15 +219,25 @@ def format_thread_pool(threads: list[Thread]) -> str:
 def _thread_pool_context(config: AgentConfig) -> str | None:
     """Agent context hook — inject thread pool view for main agent heartbeat.
 
-    Returns None for any agent other than main so other agents' warmups aren't
-    cluttered. Swallows all exceptions to match the warmup contract.
+    Runs the auto-sweep (Stage 3) before reading so Main sees any newly
+    completed parent threads in the REVIEW bucket. Returns None for any agent
+    other than main so other agents' warmups aren't cluttered. Swallows all
+    exceptions to match the warmup contract.
     """
     if config.id != "main":
         return None
     try:
         tenant_id = os.environ.get("ROBOTHOR_TENANT_ID", "") or DEFAULT_TENANT
+        try:
+            swept = auto_close_completed_threads(tenant_id=tenant_id)
+        except Exception as exc:
+            logger.debug("Auto-sweep failed: %s", exc)
+            swept = []
         threads = list_threads(tenant_id=tenant_id)
-        return format_thread_pool(threads)
+        formatted = format_thread_pool(threads)
+        if swept:
+            formatted += f"\n(auto-sweep: flipped {len(swept)} parent thread(s) to REVIEW)"
+        return formatted
     except Exception as exc:
         logger.debug("Thread pool hook failed: %s", exc)
         return None
@@ -321,3 +341,75 @@ def pending_marker(run_id: str, ts_iso: str | None = None) -> str:
 
     ts = ts_iso or datetime.now(UTC).isoformat(timespec="seconds")
     return f"<!-- pending: run={run_id} ts={ts} -->"
+
+
+# ─── Stall classifier (Stage 3) ───────────────────────────────────────
+
+
+def classify_stall(thread: Thread) -> str:
+    """Return a stall tier for a thread: fresh | stall1 | stall2 | stall3.
+
+    - ``fresh``: <= STALL1_DAYS days since update
+    - ``stall1``: >= STALL1_DAYS days — log a note, no escalation
+    - ``stall2``: >= STALL2_DAYS or escalation_count >= 1 — flip to REVIEW
+    - ``stall3``: >= STALL3_DAYS in REVIEW+requires_human — ping Philip
+    """
+    if thread.requires_human and thread.status == "REVIEW" and thread.stale_days >= STALL3_DAYS:
+        return "stall3"
+    if thread.stale_days >= STALL2_DAYS or thread.escalation_count >= 1:
+        return "stall2"
+    if thread.stale_days >= STALL1_DAYS:
+        return "stall1"
+    return "fresh"
+
+
+# ─── Auto-sweep (Stage 3) ─────────────────────────────────────────────
+
+
+def auto_close_completed_threads(tenant_id: str = DEFAULT_TENANT) -> list[str]:
+    """Find thread-tagged parent tasks where all children are DONE but the
+    parent isn't, and flip them to REVIEW with a note.
+
+    Main picks them up in its next heartbeat's REVIEW scan and decides to
+    close or re-open. Returns the list of task IDs that were flipped.
+
+    Fast, idempotent, no side effects beyond the status flip.
+    """
+    from robothor.db.connection import get_connection
+
+    sql = """
+    SELECT t.id::text
+    FROM crm_tasks t
+    WHERE t.deleted_at IS NULL
+      AND t.tenant_id = %s
+      AND t.status NOT IN ('DONE', 'REVIEW')
+      AND 'thread' = ANY(t.tags)
+      AND EXISTS (
+        SELECT 1 FROM crm_tasks c
+        WHERE c.parent_task_id = t.id AND c.deleted_at IS NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM crm_tasks c
+        WHERE c.parent_task_id = t.id
+          AND c.deleted_at IS NULL
+          AND c.status != 'DONE'
+      )
+    """
+    flipped: list[str] = []
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, (tenant_id,))
+        candidate_ids = [r[0] for r in cur.fetchall()]
+        for task_id in candidate_ids:
+            cur.execute(
+                """UPDATE crm_tasks
+                   SET status = 'REVIEW',
+                       updated_at = NOW()
+                   WHERE id = %s AND deleted_at IS NULL AND tenant_id = %s
+                """,
+                (task_id, tenant_id),
+            )
+            if cur.rowcount:
+                flipped.append(task_id)
+        conn.commit()
+    return flipped
