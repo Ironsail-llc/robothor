@@ -1,7 +1,7 @@
 id: devops-report-pipeline
 name: Dev Team Operations Report Pipeline
-description: Weekly — collect JIRA/GitHub data deterministically, then analyze and deliver report
-version: "2026-04-09"
+description: Weekly — collect JIRA/GitHub data deterministically, then render + deliver report
+version: "2026-04-18"
 
 triggers:
   - type: cron
@@ -28,20 +28,52 @@ steps:
       timeout: 120
     on_failure: abort
 
-  - id: analyze
+  - id: render
     type: agent
     agent_id: devops-manager
     message: >
-      Weekly report run. Data has been pre-collected for you:
-      - JIRA data: /tmp/devops_jira_data.json
-      - GitHub data: /tmp/devops_github_data.json
+      RENDER PHASE — do steps 1–4 of the devops report pipeline, nothing more.
 
-      Execute the full report pipeline:
-      1. Read both data files with read_file
-      2. Resolve team identities via resolve_identities to cross-reference JIRA assignees with GitHub authors
-      3. Build the report_data structure and call render_devops_report
-      4. Read devops_report_recipients memory block and email the HTML report to EACH stakeholder via gws_gmail_send with content_type html
-      5. Write the full report data to devops_latest_report memory block
-      6. Append a dated summary to devops_report_history memory block
-      7. Your final response is the Telegram summary — keep it concise and actionable
+      Data is pre-collected:
+      - JIRA: /tmp/devops_jira_data.json
+      - GitHub: /tmp/devops_github_data.json
+
+      Do exactly this:
+      1. read_file both JSON files.
+      2. resolve_identities for each JIRA assignee and GitHub author.
+      3. Build the report_data structure per DEVOPS_MANAGER.md.
+      4. Call render_devops_report with the structured data.
+      5. Write the rendered output to /tmp/devops_report_rendered.json as a JSON
+         object with keys: {"html", "subject", "plain_summary", "recipients"}
+         where "recipients" is the list from the devops_report_recipients memory
+         block. Use write_file.
+
+      Do NOT send emails. Do NOT write memory blocks. Do NOT produce a full
+      Telegram report. Your output to Telegram is ONE short line:
+      "✓ devops report rendered — N recipients, K KB html" (substitute real
+      counts). That's it. Converge in ≤15 iterations.
+    on_failure: abort
+
+  - id: deliver
+    type: agent
+    agent_id: devops-manager
+    message: >
+      DELIVER PHASE — do steps 5–7 of the devops report pipeline.
+
+      The render phase wrote /tmp/devops_report_rendered.json. Do exactly this:
+      1. read_file /tmp/devops_report_rendered.json.
+      2. For EACH recipient: get_person(person_id) for their email, then
+         gws_gmail_send with to=email, subject=subject, body=html,
+         content_type="html".
+      3. memory_block_write devops_latest_report with the full rendered JSON
+         (include plain_summary for easy replay).
+      4. append_to_block devops_report_history with one dated line summarizing
+         tickets_resolved, prs_merged, and any critical bottleneck.
+      5. Your final response is the Telegram summary for Philip:
+         - Key numbers (tickets, PRs, review coverage) with week-over-week trend.
+         - Top 3 bottlenecks with recommendations.
+         - Note that the full HTML was emailed to N stakeholders.
+
+      Converge in ≤15 iterations. If any gmail_send fails, keep going — report
+      which recipients got it and which didn't in your summary.
     on_failure: abort
